@@ -236,6 +236,9 @@ export function gateIdentitySessions() {
 
             const sessionCookieName = ctx.context.authCookies.sessionToken.name;
             const cookieHeader = inbound.get("cookie") ?? "";
+            // Email (and any other real) sessions must survive refresh and tab
+            // switches. Only mint a gate user when the browser has no session
+            // cookie at all. Deleting a non-gate session here signed people out.
             if (cookieHeader.includes(`${sessionCookieName}=`)) {
               const existing = await getSessionFromCtx(ctx).catch((err) => {
                 console.error(`${LOG} getSessionFromCtx failed`, err);
@@ -248,33 +251,16 @@ export function gateIdentitySessions() {
                     console.error(`${LOG} findAccounts failed`, err);
                     return null;
                   });
-                if (!accounts) {
-                  console.error(
-                    `${LOG} could not load accounts for existing session user`,
-                    { userId: existing.user.id },
-                  );
-                  return;
-                }
                 if (
-                  sessionBoundToGateIdentity(
-                    accounts,
-                    identity.sub,
-                    GATE_PROVIDER_ID,
-                  )
+                  accounts &&
+                  sessionBoundToGateIdentity(accounts, identity.sub, GATE_PROVIDER_ID)
                 ) {
                   await writeGateMarkerCookie(ctx, false);
                   return;
                 }
-                await ctx.context.internalAdapter
-                  .deleteSession(existing.session.token)
-                  .catch((err) => {
-                    console.error(
-                      `${LOG} deleteSession (stale non-gate session) failed`,
-                      err,
-                    );
-                    return null;
-                  });
               }
+              await clearGateMarkerIfPresent(ctx, inbound);
+              return;
             }
 
             try {

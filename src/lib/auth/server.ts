@@ -40,6 +40,7 @@ import { ensureDbReady, getPglite } from "../db";
 import { emailAndPasswordEnabled } from "./email-password";
 import { hashPassword, verifyPassword } from "./password.server";
 import { GATE_PROVIDER_ID, gateIdentitySessions } from "./gate-session.server";
+import { repairSessionCookie } from "./session-repair.server";
 import { assertInviteAllowsSignup, rememberInviteRedemption } from "./invite.server";
 import { GROK_PROVIDERS } from "./providers";
 import { pgliteDialect } from "./pglite-dialect";
@@ -302,7 +303,15 @@ export const auth = betterAuth({
   // `http://localhost`, so local dev still works.)
   advanced: {
     useSecureCookies: false,
-    defaultCookieAttributes: { secure: true, sameSite: "lax", path: "/" },
+    // SameSite=None + Partitioned so the cookie is actually stored in the
+    // embedded preview iframe (third-party cookie blocking drops Lax cookies).
+    // __Host- still forbids Domain. Top-level neurohh.ru keeps the cookie too.
+    defaultCookieAttributes: {
+      secure: true,
+      sameSite: "none",
+      path: "/",
+      partitioned: true,
+    },
     cookies: {
       session_token: { name: SESSION_TOKEN_COOKIE },
       session_data: { name: "__Host-grok-auth.session_data" },
@@ -324,6 +333,10 @@ export const auth = betterAuth({
     // fires when an Authorization header is present, so the cookie path
     // (deployed apps) is unaffected.
     bearer(),
+
+    // After bearer, so a raw email-login token or a cookie whose signature no
+    // longer verifies is looked up in the database and re-signed.
+    repairSessionCookie(),
 
     // Bridges Better Auth's Set-Cookie into TanStack Start responses. MUST be
     // last so it runs after every other plugin's hooks.

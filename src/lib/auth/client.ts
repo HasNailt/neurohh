@@ -7,12 +7,10 @@ import { GROK_PROVIDERS } from "./providers";
 /**
  * Better Auth client for this React SPA (browser-side).
  *
- * Talks to this app's OWN Better Auth at same-origin `/api/auth/*`. In the live
- * preview the app is an embedded iframe with PARTITIONED cookies, so after a
- * popup sign-in it can't read the session cookie — it authenticates with a
- * bearer token instead (captured from the popup, see `signIn`). The `onRequest`
- * hook attaches that token when present; when deployed (cookie auth) no token
- * is stored, so nothing changes.
+ * Talks to this app's OWN Better Auth at same-origin `/api/auth/*`. Cookies are
+ * the session. Email sign-in also stores the raw session token and sends it as
+ * `Authorization: Bearer` so a reload still works when the cookie is blocked
+ * (embedded preview) or its signature no longer verifies.
  *
  * To sign out call `signOut()` below, NOT `authClient.signOut()`: the raw call
  * leaves the bearer token in place, and `onRequest` keeps re-attaching it, so
@@ -21,8 +19,9 @@ import { GROK_PROVIDERS } from "./providers";
 export const authClient = createAuthClient({
   plugins: [genericOAuthClient()],
   // A focus refetch that gets a null session replaces the in-memory user and
-  // the UI sends the visitor to sign-in. The cookie is the source of truth on
-  // the next real navigation; don't drop it just because the tab changed.
+  // the UI sends the visitor to sign-in. The cookie (and the stored token
+  // below) are the source of truth; don't drop the user just because the tab
+  // changed.
   sessionOptions: {
     refetchOnWindowFocus: false,
   },
@@ -31,6 +30,17 @@ export const authClient = createAuthClient({
       const token = getBearerToken();
       if (token) ctx.headers.set("Authorization", `Bearer ${token}`);
       return ctx;
+    },
+    onSuccess(ctx) {
+      const token = sessionTokenFrom(ctx.data);
+      if (token) {
+        setBearerToken(token);
+        return;
+      }
+      // This request presented a token and the server says there is no session.
+      // A cookie-only miss must not wipe a token another request just stored.
+      const sent = ctx.request.headers.get("authorization");
+      if (sent && isSignedOutPayload(ctx.data)) setBearerToken(null);
     },
   },
 });
@@ -47,18 +57,41 @@ export const authEnabled = import.meta.env.VITE_AUTH_ENABLED !== "false";
 /** The upstream providers to render sign-in buttons for. */
 export { GROK_PROVIDERS };
 
-// ── Live-preview bearer token ────────────────────────────────────────────────
-// The embedded preview iframe has partitioned cookies, so we keep the session's
-// bearer token in sessionStorage and attach it to every Better Auth request (and
-// to server functions, via `@/lib/auth/middleware`). Empty everywhere except the
-// preview after a popup sign-in, so the cookie path is untouched elsewhere.
+// ── Session token copy ────────────────────────────────────────────────────────
+// Cookies are the primary session. Two cases still lose them:
+//   - the embedded preview iframe (third-party cookie blocking)
+//   - a signed cookie the browser stores but the next request cannot verify
+// The raw session token from sign-in is remembered here and sent as
+// `Authorization: Bearer` on later requests, including after a reload or a new
+// tab. Sign-out clears it.
 const BEARER_KEY = "grok-auth.bearer-token";
 
-/** The stored preview bearer token, or null. */
+function sessionTokenFrom(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const bag = data as { token?: unknown; session?: { token?: unknown } | null };
+  const raw =
+    typeof bag.token === "string"
+      ? bag.token
+      : bag.session && typeof bag.session === "object"
+        ? bag.session.token
+        : undefined;
+  if (typeof raw !== "string") return null;
+  const token = raw.trim();
+  if (!token || token.includes(".")) return null;
+  return token;
+}
+
+function isSignedOutPayload(data: unknown): boolean {
+  if (data == null) return true;
+  if (typeof data !== "object" || !("session" in data)) return false;
+  return (data as { session: unknown }).session == null;
+}
+
+/** The stored session token, or null. */
 export function getBearerToken(): string | null {
   if (typeof window === "undefined") return null;
   try {
-    return window.sessionStorage.getItem(BEARER_KEY);
+    return window.localStorage.getItem(BEARER_KEY) || window.sessionStorage.getItem(BEARER_KEY);
   } catch {
     return null;
   }
@@ -67,8 +100,13 @@ export function getBearerToken(): string | null {
 function setBearerToken(token: string | null): void {
   if (typeof window === "undefined") return;
   try {
-    if (token) window.sessionStorage.setItem(BEARER_KEY, token);
-    else window.sessionStorage.removeItem(BEARER_KEY);
+    if (token) {
+      window.localStorage.setItem(BEARER_KEY, token);
+      window.sessionStorage.setItem(BEARER_KEY, token);
+    } else {
+      window.localStorage.removeItem(BEARER_KEY);
+      window.sessionStorage.removeItem(BEARER_KEY);
+    }
   } catch {
     /* storage unavailable — ignore */
   }
