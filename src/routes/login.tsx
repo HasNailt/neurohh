@@ -1,10 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
-import { authClient } from "@/lib/auth/client";
+import { authClient, rememberSessionToken } from "@/lib/auth/client";
 import { credentialHint } from "@/lib/auth/credential-hint";
 import { stageInvite } from "@/lib/auth/invite-gate";
 import { getLoginOptions } from "@/lib/auth/login-options";
+import { openEmailSession } from "@/lib/auth/open-email-session";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
 export const Route = createFileRoute("/login")({
@@ -56,6 +57,17 @@ function LoginPage() {
     await stageInvite({ data: { code } });
   }
 
+  async function finishSignIn(emailValue: string, passwordValue: string) {
+    const res = await authClient.signIn.email({ email: emailValue, password: passwordValue });
+    if (!res.error) return;
+    const opened = await openEmailSession({ data: { email: emailValue, password: passwordValue } });
+    if (opened.ok) {
+      rememberSessionToken(opened.token);
+      return;
+    }
+    throw new Error(opened.message || res.error.message || "Не получилось");
+  }
+
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
@@ -75,11 +87,11 @@ function LoginPage() {
           name: nameValue || emailValue.split("@")[0] || "Художник",
         });
         if (res.error) throw new Error(res.error.message || "Не получилось");
-        const again = await authClient.signIn.email({ email: emailValue, password: passwordValue });
-        if (again.error) throw new Error(again.error.message || "Не получилось");
+        // autoSignIn already opened a session. A second sign-in must not turn
+        // a successful registration into «Неверный email или пароль».
+        if (!res.data?.token) await finishSignIn(emailValue, passwordValue);
       } else {
-        const res = await authClient.signIn.email({ email: emailValue, password: passwordValue });
-        if (res.error) throw new Error(res.error.message || "Не получилось");
+        await finishSignIn(emailValue, passwordValue);
       }
       window.location.href = "/";
     } catch (err) {

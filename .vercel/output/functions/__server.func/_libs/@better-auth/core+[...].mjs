@@ -8333,1246 +8333,631 @@ function formatAction(action) {
 	return `${TTY_COLORS.dim}(${action})${TTY_COLORS.reset}`;
 }
 //#endregion
-//#region node_modules/jose/dist/webapi/lib/buffer_utils.js
-var encoder = new TextEncoder();
-var decoder = new TextDecoder();
-var strictDecoder = new TextDecoder("utf-8", { fatal: true });
-var MAX_INT32 = 2 ** 32;
-function concat(...buffers) {
-	const size = buffers.reduce((acc, { length }) => acc + length, 0);
-	const buf = new Uint8Array(size);
-	let i = 0;
-	for (const buffer of buffers) {
-		buf.set(buffer, i);
-		i += buffer.length;
-	}
-	return buf;
-}
-function writeUInt32BE(buf, value, offset) {
-	if (value < 0 || value >= MAX_INT32) throw new RangeError(`value must be >= 0 and <= ${MAX_INT32 - 1}. Received ${value}`);
-	buf.set([
-		value >>> 24,
-		value >>> 16,
-		value >>> 8,
-		value & 255
-	], offset);
-}
-function uint64be(value) {
-	const high = Math.floor(value / MAX_INT32);
-	const low = value % MAX_INT32;
-	const buf = /* @__PURE__ */ new Uint8Array(8);
-	writeUInt32BE(buf, high, 0);
-	writeUInt32BE(buf, low, 4);
-	return buf;
-}
-function uint32be(value) {
-	const buf = /* @__PURE__ */ new Uint8Array(4);
-	writeUInt32BE(buf, value);
-	return buf;
-}
-function encode$2(string) {
-	const bytes = new Uint8Array(string.length);
-	for (let i = 0; i < string.length; i++) {
-		const code = string.charCodeAt(i);
-		if (code > 127) throw new TypeError("non-ASCII string encountered in encode()");
-		bytes[i] = code;
-	}
-	return bytes;
+//#region node_modules/better-call/node_modules/@better-auth/utils/dist/index.mjs
+function getWebcryptoSubtle() {
+	const cr = typeof globalThis !== "undefined" && globalThis.crypto;
+	if (cr && typeof cr.subtle === "object" && cr.subtle != null) return cr.subtle;
+	throw new Error("crypto.subtle must be defined");
 }
 //#endregion
-//#region node_modules/jose/dist/webapi/lib/crypto_key.js
-var unusable = (name, prop = "algorithm.name") => /* @__PURE__ */ new TypeError(`CryptoKey does not support this operation, its ${prop} must be ${name}`);
-function checkUsage(key, usage) {
-	if (usage && !key.usages.includes(usage)) throw new TypeError(`CryptoKey does not support this operation, its usages must include ${usage}.`);
-}
-function checkModulusLength(alg, key) {
-	const { modulusLength } = key.algorithm;
-	if (typeof modulusLength !== "number" || modulusLength < 2048) throw new TypeError(`${alg} requires key modulusLength to be 2048 bits or larger`);
-}
-function checkCryptoKey(key, expected, usage) {
-	const algorithm = key.algorithm;
-	if (algorithm.name !== expected.name) throw unusable(expected.name);
-	if (expected.hash && algorithm.hash?.name !== expected.hash) throw unusable(expected.hash, "algorithm.hash");
-	if (expected.namedCurve && algorithm.namedCurve !== expected.namedCurve) throw unusable(expected.namedCurve, "algorithm.namedCurve");
-	if (expected.length !== void 0 && algorithm.length !== expected.length) throw unusable(expected.length, "algorithm.length");
-	checkUsage(key, usage);
-}
-//#endregion
-//#region node_modules/jose/dist/webapi/lib/invalid_key_input.js
-function message(msg, actual, ...types) {
-	if (types.length > 2) {
-		const last = types.pop();
-		msg += `one of type ${types.join(", ")}, or ${last}.`;
-	} else if (types.length === 2) msg += `one of type ${types[0]} or ${types[1]}.`;
-	else msg += `of type ${types[0]}.`;
-	if (actual == null) msg += ` Received ${actual}`;
-	else if (typeof actual === "function" && actual.name) msg += ` Received function ${actual.name}`;
-	else if (typeof actual === "object" && actual != null) {
-		if (actual.constructor?.name) msg += ` Received an instance of ${actual.constructor.name}`;
-	}
-	return msg;
-}
-var invalidKeyInput = (actual, ...types) => message("Key must be ", actual, ...types);
-var withAlg = (alg, actual, ...types) => message(`Key for the ${alg} algorithm must be `, actual, ...types);
-//#endregion
-//#region node_modules/jose/dist/webapi/util/errors.js
-var JOSEError = class extends Error {
-	static code = "ERR_JOSE_GENERIC";
-	code = "ERR_JOSE_GENERIC";
-	constructor(message, options) {
-		super(message, options);
-		this.name = this.constructor.name;
-		Error.captureStackTrace?.(this, this.constructor);
-	}
+//#region node_modules/better-call/dist/crypto.mjs
+var algorithm = {
+	name: "HMAC",
+	hash: "SHA-256"
 };
-var JWTClaimValidationFailed = class extends JOSEError {
-	static code = "ERR_JWT_CLAIM_VALIDATION_FAILED";
-	code = "ERR_JWT_CLAIM_VALIDATION_FAILED";
-	claim;
-	reason;
-	payload;
-	constructor(message, payload, claim = "unspecified", reason = "unspecified") {
-		super(message, { cause: {
-			claim,
-			reason,
-			payload
-		} });
-		this.claim = claim;
-		this.reason = reason;
-		this.payload = payload;
-	}
+var getCryptoKey = async (secret) => {
+	const secretBuf = typeof secret === "string" ? new TextEncoder().encode(secret) : secret;
+	return await getWebcryptoSubtle().importKey("raw", secretBuf, algorithm, false, ["sign", "verify"]);
 };
-var JWTExpired = class extends JOSEError {
-	static code = "ERR_JWT_EXPIRED";
-	code = "ERR_JWT_EXPIRED";
-	claim;
-	reason;
-	payload;
-	constructor(message, payload, claim = "unspecified", reason = "unspecified") {
-		super(message, { cause: {
-			claim,
-			reason,
-			payload
-		} });
-		this.claim = claim;
-		this.reason = reason;
-		this.payload = payload;
-	}
-};
-var JOSEAlgNotAllowed = class extends JOSEError {
-	static code = "ERR_JOSE_ALG_NOT_ALLOWED";
-	code = "ERR_JOSE_ALG_NOT_ALLOWED";
-};
-var JOSENotSupported = class extends JOSEError {
-	static code = "ERR_JOSE_NOT_SUPPORTED";
-	code = "ERR_JOSE_NOT_SUPPORTED";
-};
-var JWEDecryptionFailed = class extends JOSEError {
-	static code = "ERR_JWE_DECRYPTION_FAILED";
-	code = "ERR_JWE_DECRYPTION_FAILED";
-	constructor(message = "decryption operation failed", options) {
-		super(message, options);
-	}
-};
-var JWEInvalid = class extends JOSEError {
-	static code = "ERR_JWE_INVALID";
-	code = "ERR_JWE_INVALID";
-};
-var JWSInvalid = class extends JOSEError {
-	static code = "ERR_JWS_INVALID";
-	code = "ERR_JWS_INVALID";
-};
-var JWTInvalid = class extends JOSEError {
-	static code = "ERR_JWT_INVALID";
-	code = "ERR_JWT_INVALID";
-};
-var JWKInvalid = class extends JOSEError {
-	static code = "ERR_JWK_INVALID";
-	code = "ERR_JWK_INVALID";
-};
-var JWKSInvalid = class extends JOSEError {
-	static code = "ERR_JWKS_INVALID";
-	code = "ERR_JWKS_INVALID";
-};
-var JWKSNoMatchingKey = class extends JOSEError {
-	static code = "ERR_JWKS_NO_MATCHING_KEY";
-	code = "ERR_JWKS_NO_MATCHING_KEY";
-	constructor(message = "no applicable key found in the JSON Web Key Set", options) {
-		super(message, options);
-	}
-};
-var JWKSMultipleMatchingKeys = class extends JOSEError {
-	[Symbol.asyncIterator] = async function* () {};
-	static code = "ERR_JWKS_MULTIPLE_MATCHING_KEYS";
-	code = "ERR_JWKS_MULTIPLE_MATCHING_KEYS";
-	constructor(message = "multiple matching keys found in the JSON Web Key Set", options) {
-		super(message, options);
-	}
-};
-var JWKSTimeout = class extends JOSEError {
-	static code = "ERR_JWKS_TIMEOUT";
-	code = "ERR_JWKS_TIMEOUT";
-	constructor(message = "request timed out", options) {
-		super(message, options);
-	}
-};
-var JWSSignatureVerificationFailed = class extends JOSEError {
-	static code = "ERR_JWS_SIGNATURE_VERIFICATION_FAILED";
-	code = "ERR_JWS_SIGNATURE_VERIFICATION_FAILED";
-	constructor(message = "signature verification failed", options) {
-		super(message, options);
-	}
-};
-//#endregion
-//#region node_modules/jose/dist/webapi/lib/is_key_like.js
-function assertCryptoKey(key) {
-	if (!isCryptoKey(key)) throw new Error("CryptoKey instance expected");
-}
-var isCryptoKey = (key) => {
-	if (key?.[Symbol.toStringTag] === "CryptoKey") return true;
+var verifySignature$1 = async (base64Signature, value, secret) => {
 	try {
-		return key instanceof CryptoKey;
+		const signatureBinStr = atob(base64Signature);
+		const signature = new Uint8Array(signatureBinStr.length);
+		for (let i = 0, len = signatureBinStr.length; i < len; i++) signature[i] = signatureBinStr.charCodeAt(i);
+		return await getWebcryptoSubtle().verify(algorithm, secret, signature, new TextEncoder().encode(value));
 	} catch {
 		return false;
 	}
 };
-var isKeyObject = (key) => key?.[Symbol.toStringTag] === "KeyObject";
-var isKeyLike = (key) => isCryptoKey(key) || isKeyObject(key);
-//#endregion
-//#region node_modules/jose/dist/webapi/lib/base64.js
-function encodeBase64(input) {
-	if (Uint8Array.prototype.toBase64) return input.toBase64();
-	const CHUNK_SIZE = 32768;
-	const arr = [];
-	for (let i = 0; i < input.length; i += CHUNK_SIZE) arr.push(String.fromCharCode.apply(null, input.subarray(i, i + CHUNK_SIZE)));
-	return btoa(arr.join(""));
-}
-function decodeBase64(encoded) {
-	if (Uint8Array.fromBase64) return Uint8Array.fromBase64(encoded);
-	const binary = atob(encoded);
-	const bytes = new Uint8Array(binary.length);
-	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-	return bytes;
-}
-//#endregion
-//#region node_modules/jose/dist/webapi/util/base64url.js
-var invalid = "The input to be decoded is not correctly encoded.";
-function decode$1(input) {
-	if (Uint8Array.fromBase64) try {
-		return Uint8Array.fromBase64(typeof input === "string" ? input : decoder.decode(input), { alphabet: "base64url" });
-	} catch (cause) {
-		throw new TypeError(invalid, { cause });
-	}
-	let encoded = input;
-	if (encoded instanceof Uint8Array) encoded = decoder.decode(encoded);
-	if (encoded.includes("+") || encoded.includes("/")) throw new TypeError(invalid);
-	encoded = encoded.replace(/-/g, "+").replace(/_/g, "/");
-	try {
-		return decodeBase64(encoded);
-	} catch {
-		throw new TypeError(invalid);
-	}
-}
-function encode$1(input) {
-	let unencoded = input;
-	if (typeof unencoded === "string") unencoded = encoder.encode(unencoded);
-	if (Uint8Array.prototype.toBase64) return unencoded.toBase64({
-		alphabet: "base64url",
-		omitPadding: true
-	});
-	return encodeBase64(unencoded).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
-}
-//#endregion
-//#region node_modules/jose/dist/webapi/lib/type_checks.js
-function isObject$1(input) {
-	if (typeof input !== "object" || input === null || Object.prototype.toString.call(input) !== "[object Object]") return false;
-	const prototype = Object.getPrototypeOf(input);
-	if (prototype === null) return true;
-	let proto = prototype;
-	while (Object.getPrototypeOf(proto) !== null) proto = Object.getPrototypeOf(proto);
-	return prototype === proto;
-}
-function isDisjoint(...headers) {
-	const parameters = /* @__PURE__ */ new Set();
-	for (const header of headers) {
-		if (!header) continue;
-		for (const parameter of Object.keys(header)) {
-			if (parameters.has(parameter)) return false;
-			parameters.add(parameter);
-		}
-	}
-	return true;
-}
-var isJWK = (key) => isObject$1(key) && typeof key.kty === "string";
-var isPrivateJWK = (key) => key.kty !== "oct" && (key.kty === "AKP" && typeof key.priv === "string" || typeof key.d === "string");
-var isPublicJWK = (key) => key.kty !== "oct" && key.d === void 0 && key.priv === void 0;
-var isSecretJWK = (key) => key.kty === "oct" && typeof key.k === "string";
-//#endregion
-//#region node_modules/jose/dist/webapi/lib/helpers.js
-var unprotected = Symbol();
-function assertNotSet(value, name) {
-	if (value) throw new TypeError(`${name} can only be called once`);
-}
-function decodeBase64url(value, label, ErrorClass) {
-	try {
-		return decode$1(value);
-	} catch {
-		throw new ErrorClass(`Failed to base64url decode the ${label}`);
-	}
-}
-function encodeBase64url(value, label, ErrorClass) {
-	try {
-		return encode$2(value);
-	} catch {
-		throw new ErrorClass(`The ${label} is not a valid base64url string`);
-	}
-}
-async function digest(algorithm, data) {
-	const subtleDigest = `SHA-${algorithm.slice(-3)}`;
-	return new Uint8Array(await crypto.subtle.digest(subtleDigest, data));
-}
-function parseJoseHeader(b64, ErrorClass, message) {
-	let parsed;
-	try {
-		parsed = JSON.parse(strictDecoder.decode(decode$1(b64)));
-	} catch {
-		throw new ErrorClass(message);
-	}
-	if (!isObject$1(parsed)) throw new ErrorClass(message);
-	return parsed;
-}
-//#endregion
-//#region node_modules/jose/dist/webapi/lib/jwk_to_key.js
-async function jwkToKey(entry, jwk) {
-	if (jwk.kty === "RSA" && "oth" in jwk && jwk.oth !== void 0) throw new JOSENotSupported("RSA JWK \"oth\" (Other Primes Info) Parameter value is not supported");
-	if (!entry.kty.includes(jwk.kty)) throw new JOSENotSupported("Invalid or unsupported JWK \"alg\" (Algorithm) Parameter value");
-	const algorithm = entry.resolve?.({
-		kty: jwk.kty,
-		crv: jwk.crv
-	}) ?? entry.subtle;
-	const isPrivate = !!(jwk.d || jwk.priv);
-	const keyData = { ...jwk };
-	if (keyData.kty !== "AKP") delete keyData.alg;
-	delete keyData.use;
-	return crypto.subtle.importKey("jwk", keyData, algorithm, jwk.ext ?? !isPrivate, jwk.key_ops ?? entry.usages[isPrivate ? 1 : 0]);
-}
-//#endregion
-//#region node_modules/jose/dist/webapi/lib/key.js
-var tag = (key) => key[Symbol.toStringTag];
-var jwkMatchesOp = (entry, key, usage) => {
-	const { alg } = entry;
-	if (key.use !== void 0) {
-		const expected = usage === "sign" || usage === "verify" ? "sig" : "enc";
-		if (key.use !== expected) throw new TypeError(`Invalid key for this operation, its "use" must be "${expected}" when present`);
-	}
-	if (key.alg !== void 0 && key.alg !== alg) throw new TypeError(`Invalid key for this operation, its "alg" must be "${alg}" when present`);
-	if (Array.isArray(key.key_ops)) {
-		const expectedKeyOp = usage === "encrypt" || usage === "decrypt" ? entry.ops?.[usage === "encrypt" ? 0 : 1] : usage;
-		if (expectedKeyOp && !key.key_ops.includes(expectedKeyOp)) throw new TypeError(`Invalid key for this operation, its "key_ops" must include "${expectedKeyOp}" when present`);
-	}
+var makeSignature = async (value, secret) => {
+	const key = await getCryptoKey(secret);
+	const signature = await getWebcryptoSubtle().sign(algorithm.name, key, new TextEncoder().encode(value));
+	return btoa(String.fromCharCode(...new Uint8Array(signature)));
 };
-function checkKeyType(entry, key, usage) {
-	const { alg, secret } = entry;
-	const privateKey = usage === "decrypt" || usage === "sign";
-	if (secret && key instanceof Uint8Array) return [BYTES, key];
-	if (isJWK(key)) {
-		if (secret ? !isSecretJWK(key) : !(privateKey ? isPrivateJWK(key) : isPublicJWK(key))) throw new TypeError(secret ? `JSON Web Key for symmetric algorithms must have JWK "kty" (Key Type) equal to "oct" and the JWK "k" (Key Value) present` : `JSON Web Key for this operation must be a ${privateKey ? "private" : "public"} JWK`);
-		jwkMatchesOp(entry, key, usage);
-		return [JWK, key];
-	}
-	if (!isKeyLike(key)) throw new TypeError(secret ? withAlg(alg, key, "CryptoKey", "KeyObject", "JSON Web Key", "Uint8Array") : withAlg(alg, key, "CryptoKey", "KeyObject", "JSON Web Key"));
-	if (secret) {
-		if (key.type !== "secret") throw new TypeError(`${tag(key)} instances for symmetric algorithms must be of type "secret"`);
-	} else {
-		if (key.type === "secret") throw new TypeError(`${tag(key)} instances for asymmetric algorithms must not be of type "secret"`);
-		const expectedType = privateKey ? "private" : "public";
-		if ((key.type === "public" || key.type === "private") && key.type !== expectedType) {
-			const operation = usage === "sign" ? "signing" : usage === "verify" ? "verifying" : `${usage.slice(0, -1)}tion`;
-			throw new TypeError(`${tag(key)} instances for asymmetric algorithm ${operation} must be of type "${expectedType}"`);
-		}
-	}
-	return isCryptoKey(key) ? [CRYPTO, key] : [KEYOBJECT, key];
-}
-var BYTES = 0;
-var CRYPTO = 1;
-var KEYOBJECT = 2;
-var JWK = 3;
-var cache;
-var nist = {
-	__proto__: null,
-	prime256v1: "P-256",
-	secp384r1: "P-384",
-	secp521r1: "P-521"
-};
-function cached$1(key, alg, value) {
-	cache ||= /* @__PURE__ */ new WeakMap();
-	const entry = cache.get(key);
-	if (value) {
-		if (entry) entry[alg] = value;
-		else cache.set(key, {
-			__proto__: null,
-			[alg]: value
-		});
-	}
-	return value ?? entry?.[alg];
-}
-var handleJWK = async (key, jwk, entry) => cached$1(key, entry.alg) ?? cached$1(key, entry.alg, await jwkToKey(entry, {
-	...jwk,
-	alg: entry.alg
-}));
-var handleKeyObject = (keyObject, entry) => {
-	const hit = cached$1(keyObject, entry.alg);
-	if (hit) return hit;
-	const isPublic = keyObject.type === "public";
-	const usages = entry.usages[isPublic ? 0 : 1];
-	const { asymmetricKeyType } = keyObject;
-	const crv = nist[keyObject.asymmetricKeyDetails?.namedCurve];
-	const params = entry.resolve?.({
-		crv,
-		asymmetricKeyType
-	}) ?? entry.subtle;
-	return cached$1(keyObject, entry.alg, keyObject.toCryptoKey(params, isPublic, usages));
-};
-async function prepareKey(entry, key, usage) {
-	const tagged = checkKeyType(entry, key, usage);
-	switch (tagged[0]) {
-		case BYTES:
-		case CRYPTO: return tagged[1];
-		case JWK: {
-			const key = tagged[1];
-			if (key.k) return decode$1(key.k);
-			if (!Object.isFrozen(key)) {
-				const { key_ops } = key;
-				if (Array.isArray(key_ops)) Object.freeze(key_ops);
-				Object.freeze(key);
-			}
-			return handleJWK(key, key, entry);
-		}
-		case KEYOBJECT: {
-			const keyObject = tagged[1];
-			if (keyObject.type === "secret") return keyObject.export();
-			if ("toCryptoKey" in keyObject && typeof keyObject.toCryptoKey === "function") return handleKeyObject(keyObject, entry);
-			return handleJWK(keyObject, keyObject.export({ format: "jwk" }), entry);
-		}
-	}
-}
-//#endregion
-//#region node_modules/jose/dist/webapi/lib/key_descriptor.js
-function table(entries) {
-	const out = { __proto__: null };
-	for (const alg in entries) out[alg] = {
-		...entries[alg],
-		alg
-	};
-	return out;
-}
-//#endregion
-//#region node_modules/jose/dist/webapi/lib/jwe_algorithms.js
-var wrap = [["encrypt", "wrapKey"], ["decrypt", "unwrapKey"]];
-var derive = [[], ["deriveBits"]];
-var none = [[], []];
-function rsaes(bits) {
-	return {
-		kty: ["RSA"],
-		subtle: {
-			name: "RSA-OAEP",
-			hash: `SHA-${bits}`
-		},
-		usages: wrap,
-		ops: ["wrapKey", "unwrapKey"]
-	};
-}
-function ecdh() {
-	return {
-		kty: ["EC", "OKP"],
-		subtle: { name: "ECDH" },
-		resolve: ({ kty, crv, asymmetricKeyType }) => {
-			if (crv === "X25519" || asymmetricKeyType === "x25519") return { name: "X25519" };
-			if (kty === "OKP") throw new JOSENotSupported("Invalid or unsupported JWK \"alg\" (Algorithm) Parameter value");
-			return {
-				name: "ECDH",
-				namedCurve: crv
-			};
-		},
-		usages: derive,
-		ops: [void 0, "deriveBits"]
-	};
-}
-function aeskw(bits, gcm = false) {
-	return {
-		kty: ["oct"],
-		secret: true,
-		subtle: {
-			name: gcm ? "AES-GCM" : "AES-KW",
-			length: bits
-		},
-		usages: none,
-		ops: gcm ? ["encrypt", "decrypt"] : ["wrapKey", "unwrapKey"]
-	};
-}
-function pbes2() {
-	return {
-		kty: ["oct"],
-		secret: true,
-		subtle: { name: "PBKDF2" },
-		usages: none,
-		ops: ["deriveBits", "deriveBits"]
-	};
-}
-var JWE = table({
-	dir: {
-		kty: ["oct"],
-		secret: true,
-		subtle: { name: "AES-GCM" },
-		usages: none,
-		ops: ["encrypt", "decrypt"]
-	},
-	"RSA-OAEP": rsaes(1),
-	"RSA-OAEP-256": rsaes(256),
-	"RSA-OAEP-384": rsaes(384),
-	"RSA-OAEP-512": rsaes(512),
-	"ECDH-ES": ecdh(),
-	"ECDH-ES+A128KW": ecdh(),
-	"ECDH-ES+A192KW": ecdh(),
-	"ECDH-ES+A256KW": ecdh(),
-	A128KW: aeskw(128),
-	A192KW: aeskw(192),
-	A256KW: aeskw(256),
-	A128GCMKW: aeskw(128, true),
-	A192GCMKW: aeskw(192, true),
-	A256GCMKW: aeskw(256, true),
-	"PBES2-HS256+A128KW": pbes2(),
-	"PBES2-HS384+A192KW": pbes2(),
-	"PBES2-HS512+A256KW": pbes2()
-});
-var contentOps = ["encrypt", "decrypt"];
-function contentEncryption(bits, cbc = false) {
-	return {
-		kty: ["oct"],
-		secret: true,
-		subtle: {
-			name: cbc ? "AES-CBC" : "AES-GCM",
-			length: bits
-		},
-		usages: none,
-		ops: contentOps,
-		cekBits: bits,
-		ivBits: cbc ? 128 : 96,
-		cbc
-	};
-}
-var ENC = table({
-	A128GCM: contentEncryption(128),
-	A192GCM: contentEncryption(192),
-	A256GCM: contentEncryption(256),
-	"A128CBC-HS256": contentEncryption(256, true),
-	"A192CBC-HS384": contentEncryption(384, true),
-	"A256CBC-HS512": contentEncryption(512, true)
-});
-function unsupported(parameter, name) {
-	throw new JOSENotSupported(`Invalid or unsupported "${parameter}" (JWE ${name}) header value`);
-}
-function jweAlgorithm(alg) {
-	return (typeof alg === "string" ? JWE[alg] : void 0) ?? unsupported("alg", "Algorithm");
-}
-function jweEncryption(enc) {
-	return (typeof enc === "string" ? ENC[enc] : void 0) ?? unsupported("enc", "Encryption Algorithm");
-}
-//#endregion
-//#region node_modules/jose/dist/webapi/lib/options.js
-var JWS_RECOGNIZED = {
-	__proto__: null,
-	b64: true
-};
-var JWE_RECOGNIZED = { __proto__: null };
-function validateAlgorithms(option, algorithms) {
-	if (algorithms !== void 0 && (!Array.isArray(algorithms) || algorithms.some((s) => typeof s !== "string"))) throw new TypeError(`"${option}" option must be an array of strings`);
-	if (!algorithms) return;
-	return new Set(algorithms);
-}
-function validateCritDuplicates(Err, protectedHeader) {
-	const { crit } = protectedHeader ?? {};
-	if (Array.isArray(crit) && new Set(crit).size !== crit.length) throw new Err("\"crit\" (Critical) Header Parameter MUST NOT contain duplicate values");
-}
-function validateCrit(Err, recognizedDefault, recognizedOption, protectedHeader, joseHeader) {
-	if (joseHeader.crit !== void 0 && protectedHeader?.crit === void 0) throw new Err("\"crit\" (Critical) Header Parameter MUST be integrity protected");
-	if (!protectedHeader || protectedHeader.crit === void 0) return [];
-	if (!Array.isArray(protectedHeader.crit) || protectedHeader.crit.length === 0 || protectedHeader.crit.some((input) => typeof input !== "string" || input.length === 0)) throw new Err("\"crit\" (Critical) Header Parameter MUST be an array of non-empty strings when present");
-	const recognized = recognizedOption === void 0 ? recognizedDefault : {
-		__proto__: null,
-		...recognizedOption,
-		...recognizedDefault
-	};
-	for (const parameter of protectedHeader.crit) {
-		if (!(parameter in recognized)) throw new JOSENotSupported(`Extension Header Parameter "${parameter}" is not recognized`);
-		if (!Object.hasOwn(joseHeader, parameter) || joseHeader[parameter] === void 0) throw new Err(`Extension Header Parameter "${parameter}" is missing`);
-		if (recognized[parameter] && (!Object.hasOwn(protectedHeader, parameter) || protectedHeader[parameter] === void 0)) throw new Err(`Extension Header Parameter "${parameter}" MUST be integrity protected`);
-	}
-	return protectedHeader.crit;
-}
-//#endregion
-//#region node_modules/jose/dist/webapi/lib/signing.js
-async function getSigKey(entry, key, usage) {
-	if (key instanceof Uint8Array) return crypto.subtle.importKey("raw", key, entry.subtle, false, [usage]);
-	checkCryptoKey(key, entry.subtle, usage);
-	if (entry.minRsaBits) checkModulusLength(entry.alg, key);
-	return key;
-}
-async function sign(entry, key, data) {
-	const cryptoKey = await getSigKey(entry, key, "sign");
-	const signature = await crypto.subtle.sign(entry.signing, cryptoKey, data);
-	return new Uint8Array(signature);
-}
-async function verify(entry, key, signature, data) {
-	const cryptoKey = await getSigKey(entry, key, "verify");
-	try {
-		return await crypto.subtle.verify(entry.signing, cryptoKey, signature, data);
-	} catch {
-		return false;
-	}
-}
-//#endregion
-//#region node_modules/jose/dist/webapi/lib/jws_algorithms.js
-var sig = [["verify"], ["sign"]];
-function hmac(bits) {
-	const subtle = {
-		name: "HMAC",
-		hash: `SHA-${bits}`
-	};
-	return {
-		kty: ["oct"],
-		secret: true,
-		subtle,
-		signing: subtle,
-		usages: sig
-	};
-}
-function rsa(bits, saltLength) {
-	const subtle = {
-		name: saltLength ? "RSA-PSS" : "RSASSA-PKCS1-v1_5",
-		hash: `SHA-${bits}`
-	};
-	return {
-		kty: ["RSA"],
-		subtle,
-		signing: saltLength ? {
-			...subtle,
-			saltLength
-		} : subtle,
-		usages: sig,
-		minRsaBits: 2048
-	};
-}
-function ecdsa(crv, bits) {
-	return {
-		kty: ["EC"],
-		crv,
-		subtle: {
-			name: "ECDSA",
-			namedCurve: crv
-		},
-		signing: {
-			name: "ECDSA",
-			hash: `SHA-${bits}`
-		},
-		usages: sig
-	};
-}
-function eddsa() {
-	const subtle = { name: "Ed25519" };
-	return {
-		kty: ["OKP"],
-		crv: "Ed25519",
-		subtle,
-		signing: subtle,
-		usages: sig
-	};
-}
-function mldsa(bits) {
-	const subtle = { name: `ML-DSA-${bits}` };
-	return {
-		kty: ["AKP"],
-		subtle,
-		signing: subtle,
-		usages: sig
-	};
-}
-var JWS = table({
-	HS256: hmac(256),
-	HS384: hmac(384),
-	HS512: hmac(512),
-	RS256: rsa(256),
-	RS384: rsa(384),
-	RS512: rsa(512),
-	PS256: rsa(256, 32),
-	PS384: rsa(384, 48),
-	PS512: rsa(512, 64),
-	ES256: ecdsa("P-256", 256),
-	ES384: ecdsa("P-384", 384),
-	ES512: ecdsa("P-521", 512),
-	EdDSA: eddsa(),
-	Ed25519: eddsa(),
-	"ML-DSA-44": mldsa(44),
-	"ML-DSA-65": mldsa(65),
-	"ML-DSA-87": mldsa(87)
-});
-function jwsAlgorithm(alg) {
-	const entry = typeof alg === "string" ? JWS[alg] : void 0;
-	if (!entry) throw new JOSENotSupported(`alg ${alg} is not supported either by JOSE or your javascript runtime`);
-	return entry;
-}
-//#endregion
-//#region node_modules/jose/dist/webapi/lib/jws_verify.js
-function prepareVerify(options) {
-	return [options && validateAlgorithms("algorithms", options.algorithms), options?.crit];
-}
-async function verifySignature$1(jws, shared, key) {
-	const { protected: encodedProtected, header, payload: inputPayload } = jws;
-	let parsedProt = {};
-	if (encodedProtected) parsedProt = parseJoseHeader(encodedProtected, JWSInvalid, "JWS Protected Header is invalid");
-	let joseHeader;
-	if (header !== void 0) {
-		if (!isDisjoint(parsedProt, header)) throw new JWSInvalid("JWS Protected and JWS Unprotected Header Parameter names must be disjoint");
-		joseHeader = {
-			...parsedProt,
-			...header
-		};
-	} else joseHeader = parsedProt;
-	const extensions = validateCrit(JWSInvalid, JWS_RECOGNIZED, shared[1], parsedProt, joseHeader);
-	let b64 = true;
-	if (extensions.includes("b64")) {
-		b64 = parsedProt.b64;
-		if (typeof b64 !== "boolean") throw new JWSInvalid("The \"b64\" (base64url-encode payload) Header Parameter must be a boolean");
-	}
-	const { alg } = joseHeader;
-	if (typeof alg !== "string" || !alg) throw new JWSInvalid("JWS \"alg\" (Algorithm) Header Parameter missing or invalid");
-	if (shared[0] && !shared[0].has(alg)) throw new JOSEAlgNotAllowed("\"alg\" (Algorithm) Header Parameter value not allowed");
-	if (b64) {
-		if (typeof inputPayload !== "string") throw new JWSInvalid("JWS Payload must be a string");
-	} else if (typeof inputPayload !== "string" && !(inputPayload instanceof Uint8Array)) throw new JWSInvalid("JWS Payload must be a string or an Uint8Array instance");
-	let resolvedKey = false;
-	if (typeof key === "function") {
-		key = await key(parsedProt, jws);
-		resolvedKey = true;
-	}
-	const entry = jwsAlgorithm(alg);
-	const data = concat(encodedProtected !== void 0 ? encode$2(encodedProtected) : /* @__PURE__ */ new Uint8Array(), encode$2("."), typeof inputPayload === "string" ? b64 ? shared[2] ??= encodeBase64url(inputPayload, "payload", JWSInvalid) : encoder.encode(inputPayload) : inputPayload);
-	const signature = decodeBase64url(jws.signature, "signature", JWSInvalid);
-	const k = await prepareKey(entry, key, "verify");
-	if (!await verify(entry, k, signature, data)) throw new JWSSignatureVerificationFailed();
-	let payload;
-	if (b64) payload = decodeBase64url(inputPayload, "payload", JWSInvalid);
-	else if (typeof inputPayload === "string") payload = encoder.encode(inputPayload);
-	else payload = inputPayload;
-	return [
-		payload,
-		parsedProt,
-		b64,
-		k,
-		resolvedKey
-	];
-}
-async function verifyCompact(jws, shared, key) {
-	if (jws instanceof Uint8Array) jws = decoder.decode(jws);
-	if (typeof jws !== "string") throw new JWSInvalid("Compact JWS must be a string or Uint8Array");
-	const { 0: protectedHeader, 1: payload, 2: signature, length } = jws.split(".");
-	if (length !== 3) throw new JWSInvalid("Invalid Compact JWS");
-	return verifySignature$1({
-		payload,
-		protected: protectedHeader,
-		signature
-	}, shared, key);
-}
-//#endregion
-//#region node_modules/jose/dist/webapi/lib/jwt_claims_set.js
-var epoch = (date) => Math.floor(date.getTime() / 1e3);
-var multipliers = {
-	s: 1,
-	m: 60,
-	h: 3600,
-	d: 86400,
-	w: 604800,
-	y: 31557600
-};
-var REGEX = /^(\+|\-)? ?(\d+|\d+\.\d+) ?(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w|years?|yrs?|y)(?: (ago|from now))?$/i;
-var checkFailed = "check_failed";
-function secs(str) {
-	const matched = REGEX.exec(str);
-	if (!matched || matched[4] && matched[1]) throw new TypeError("Invalid time period format");
-	const value = parseFloat(matched[2]);
-	const numericDate = Math.round(value * multipliers[matched[3][0].toLowerCase()]);
-	if (matched[1] === "-" || matched[4] === "ago") return -numericDate;
-	return numericDate;
-}
-function validateInput(label, input) {
-	if (!Number.isFinite(input)) throw new TypeError(`Invalid ${label} input`);
-	return input;
-}
-function numericDate(value, label) {
-	if (typeof value === "number") return validateInput(label, value);
-	if (value instanceof Date) return validateInput(label, epoch(value));
-	return epoch(/* @__PURE__ */ new Date()) + secs(value);
-}
-var normalizeTyp = (value) => {
-	if (value.includes("/")) return value.toLowerCase();
-	return `application/${value.toLowerCase()}`;
-};
-var checkAudiencePresence = (audPayload, audOption) => {
-	if (typeof audPayload === "string") return audOption.includes(audPayload);
-	if (Array.isArray(audPayload)) return audOption.some((aud) => audPayload.includes(aud));
-	return false;
-};
-function validateNumericDate(payload, claim, required = false) {
-	const value = payload[claim];
-	if (value === void 0 && !required) return void 0;
-	if (typeof value !== "number") throw new JWTClaimValidationFailed(`"${claim}" claim must be a number`, payload, claim, "invalid");
+var signCookieValue = async (value, secret) => {
+	const signature = await makeSignature(value, secret);
+	value = `${value}.${signature}`;
+	value = encodeURIComponent(value);
 	return value;
-}
-function unexpectedClaim(payload, claim) {
-	throw new JWTClaimValidationFailed(`unexpected "${claim}" claim value`, payload, claim, checkFailed);
-}
-function validateClaimsSet(protectedHeader, encodedPayload, options = {}) {
-	let payload;
-	try {
-		payload = JSON.parse(strictDecoder.decode(encodedPayload));
-	} catch {}
-	if (!isObject$1(payload)) throw new JWTInvalid("JWT Claims Set must be a top-level JSON object");
-	const { typ } = options;
-	if (typ && (typeof protectedHeader.typ !== "string" || normalizeTyp(protectedHeader.typ) !== normalizeTyp(typ))) throw new JWTClaimValidationFailed("unexpected \"typ\" JWT header value", payload, "typ", checkFailed);
-	const { requiredClaims = [], issuer, subject, audience, maxTokenAge } = options;
-	const presenceCheck = [...requiredClaims];
-	if (maxTokenAge !== void 0) presenceCheck.push("iat");
-	if (audience !== void 0) presenceCheck.push("aud");
-	if (subject !== void 0) presenceCheck.push("sub");
-	if (issuer !== void 0) presenceCheck.push("iss");
-	for (const claim of new Set(presenceCheck.reverse())) if (!Object.hasOwn(payload, claim)) throw new JWTClaimValidationFailed(`missing required "${claim}" claim`, payload, claim, "missing");
-	if (issuer !== void 0 && !(Array.isArray(issuer) ? issuer : [issuer]).includes(payload.iss)) unexpectedClaim(payload, "iss");
-	if (subject !== void 0 && payload.sub !== subject) unexpectedClaim(payload, "sub");
-	if (audience !== void 0 && !checkAudiencePresence(payload.aud, typeof audience === "string" ? [audience] : audience)) unexpectedClaim(payload, "aud");
-	const { clockTolerance } = options;
-	let tolerance = 0;
-	if (typeof clockTolerance === "string") tolerance = secs(clockTolerance);
-	else if (clockTolerance !== void 0) {
-		if (typeof clockTolerance !== "number") throw new TypeError("Invalid clockTolerance option type");
-		tolerance = clockTolerance;
-	}
-	validateInput("clockTolerance option", tolerance);
-	const { currentDate } = options;
-	const now = validateInput("currentDate option", epoch(currentDate || /* @__PURE__ */ new Date()));
-	const iat = validateNumericDate(payload, "iat", maxTokenAge !== void 0);
-	const nbf = validateNumericDate(payload, "nbf");
-	if (nbf !== void 0) {
-		if (nbf > now + tolerance) throw new JWTClaimValidationFailed("\"nbf\" claim timestamp check failed", payload, "nbf", checkFailed);
-	}
-	const exp = validateNumericDate(payload, "exp");
-	if (exp !== void 0) {
-		if (exp <= now - tolerance) throw new JWTExpired("\"exp\" claim timestamp check failed", payload, "exp", checkFailed);
-	}
-	if (maxTokenAge !== void 0) {
-		const age = now - iat;
-		const max = typeof maxTokenAge === "number" ? maxTokenAge : secs(maxTokenAge);
-		if (age - tolerance > max) throw new JWTExpired("\"iat\" claim timestamp check failed (too far in the past)", payload, "iat", checkFailed);
-		if (age < 0 - tolerance) throw new JWTClaimValidationFailed("\"iat\" claim timestamp check failed (it should be in the past)", payload, "iat", checkFailed);
-	}
-	return payload;
-}
-var JWTClaimsBuilder = class {
-	#payload;
-	constructor(payload) {
-		if (!isObject$1(payload)) throw new TypeError("JWT Claims Set MUST be an object");
-		this.#payload = structuredClone(payload);
-	}
-	data() {
-		return encoder.encode(JSON.stringify(this.#payload));
-	}
-	get iss() {
-		return this.#payload.iss;
-	}
-	set iss(value) {
-		this.#payload.iss = value;
-	}
-	get sub() {
-		return this.#payload.sub;
-	}
-	set sub(value) {
-		this.#payload.sub = value;
-	}
-	get aud() {
-		return this.#payload.aud;
-	}
-	set aud(value) {
-		this.#payload.aud = value;
-	}
-	set jti(value) {
-		this.#payload.jti = value;
-	}
-	set nbf(value) {
-		this.#payload.nbf = numericDate(value, "setNotBefore");
-	}
-	set exp(value) {
-		this.#payload.exp = numericDate(value, "setExpirationTime");
-	}
-	set iat(value) {
-		if (value === void 0) this.#payload.iat = epoch(/* @__PURE__ */ new Date());
-		else if (typeof value === "string") this.#payload.iat = validateInput("setIssuedAt", epoch(/* @__PURE__ */ new Date()) + secs(value));
-		else this.#payload.iat = numericDate(value, "setIssuedAt");
-	}
 };
 //#endregion
-//#region node_modules/jose/dist/webapi/jwt/verify.js
-async function jwtVerify(jwt, key, options) {
-	const verified = await verifyCompact(jwt, prepareVerify(options), key);
-	if (!verified[2]) throw new JWTInvalid("JWTs MUST NOT use unencoded payload");
-	const result = {
-		payload: validateClaimsSet(verified[1], verified[0], options),
-		protectedHeader: verified[1]
-	};
-	if (typeof key === "function") return {
-		...result,
-		key: verified[3]
-	};
-	return result;
-}
-//#endregion
-//#region node_modules/jose/dist/webapi/lib/key_algorithm.js
-function unsupportedAlg(source = "JWK \"alg\" (Algorithm) Parameter") {
-	throw new JOSENotSupported(`Invalid or unsupported ${source} value`);
-}
-function keyAlgorithm(alg, source) {
-	return (typeof alg === "string" ? JWS[alg] ?? JWE[alg] : void 0) ?? unsupportedAlg(source);
-}
-//#endregion
-//#region node_modules/jose/dist/webapi/jwks/local.js
-function signatureAlgorithm(alg) {
-	const entry = typeof alg === "string" ? JWS[alg] : void 0;
-	if (!entry || entry.secret) throw new JOSENotSupported("Unsupported \"alg\" value for a JSON Web Key Set");
-	return entry;
-}
-function isJWKSLike(jwks) {
-	if (!jwks || typeof jwks !== "object") return false;
-	const { keys } = jwks;
-	return Array.isArray(keys) && keys.every(isObject$1);
-}
-var LocalJWKSetImpl = class {
-	#jwks;
-	#cached = /* @__PURE__ */ new WeakMap();
-	constructor(jwks) {
-		if (!isJWKSLike(jwks)) throw new JWKSInvalid("JSON Web Key Set malformed");
-		this.#jwks = structuredClone(jwks);
-	}
-	jwks() {
-		return this.#jwks;
-	}
-	async getKey(protectedHeader, token) {
-		const { alg, kid } = {
-			...protectedHeader,
-			...token?.header
-		};
-		const entry = signatureAlgorithm(alg);
-		const candidates = this.#jwks.keys.filter((jwk) => entry.kty.includes(jwk.kty) && (typeof kid !== "string" || kid === jwk.kid) && (!(typeof jwk.alg === "string" || jwk.kty === "AKP") || alg === jwk.alg) && (typeof jwk.use !== "string" || jwk.use === "sig") && (!Array.isArray(jwk.key_ops) || jwk.key_ops.includes("verify")) && (!entry.crv || jwk.crv === entry.crv));
-		const { 0: jwk, length } = candidates;
-		if (length === 0) throw new JWKSNoMatchingKey();
-		if (length !== 1) {
-			const error = new JWKSMultipleMatchingKeys();
-			const _cached = this.#cached;
-			error[Symbol.asyncIterator] = async function* () {
-				for (const jwk of candidates) try {
-					yield await importWithAlgCache(_cached, jwk, entry);
-				} catch {}
-			};
-			throw error;
-		}
-		return importWithAlgCache(this.#cached, jwk, entry);
-	}
-};
-async function importWithAlgCache(cache, jwk, entry) {
-	const cached = cache.get(jwk) || cache.set(jwk, { __proto__: null }).get(jwk);
-	if (cached[entry.alg] === void 0) {
-		const key = await jwkToKey(entry, {
-			...jwk,
-			alg: entry.alg,
-			ext: true
-		});
-		if (key.type !== "public") throw new JWKSInvalid("JSON Web Key Set members must be public keys");
-		cached[entry.alg] = key;
-	}
-	return cached[entry.alg];
-}
-function createLocalJWKSet(jwks) {
-	const set = new LocalJWKSetImpl(jwks);
-	const localJWKSet = async (protectedHeader, token) => set.getKey(protectedHeader, token);
-	Object.defineProperty(localJWKSet, "jwks", { value: () => structuredClone(set.jwks()) });
-	return localJWKSet;
-}
-//#endregion
-//#region node_modules/jose/dist/webapi/jwks/remote.js
-function isCloudflareWorkers() {
-	return typeof WebSocketPair !== "undefined" || typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers" || typeof EdgeRuntime !== "undefined" && EdgeRuntime === "vercel";
-}
-var USER_AGENT;
-if (typeof navigator === "undefined" || !navigator.userAgent?.startsWith?.("Mozilla/5.0 ")) USER_AGENT = `jose/v6.2.9`;
-var customFetch = Symbol();
-async function fetchJwks(url, headers, signal, fetchImpl = fetch) {
-	const response = await fetchImpl(url, {
-		method: "GET",
-		signal,
-		redirect: "manual",
-		headers
-	}).catch((err) => {
-		if (err.name === "TimeoutError") throw new JWKSTimeout();
-		throw err;
-	});
-	if (response.status !== 200) throw new JOSEError("Expected 200 OK from the JSON Web Key Set HTTP response");
-	try {
-		return await response.json();
-	} catch {
-		throw new JOSEError("Failed to parse the JSON Web Key Set HTTP response as JSON");
-	}
-}
-var jwksCache = Symbol();
-function isFreshJwksCache(input, cacheMaxAge) {
-	if (typeof input !== "object" || input === null) return false;
-	if (!("uat" in input) || typeof input.uat !== "number" || Date.now() - input.uat >= cacheMaxAge) return false;
-	if (!("jwks" in input) || !isObject$1(input.jwks) || !Array.isArray(input.jwks.keys) || !Array.prototype.every.call(input.jwks.keys, isObject$1)) return false;
-	return true;
-}
-var RemoteJWKSetImpl = class {
-	#url;
-	#timeoutDuration;
-	#cooldownDuration;
-	#cacheMaxAge;
-	#jwksTimestamp;
-	#pendingFetch;
-	#headers;
-	#customFetch;
-	#local;
-	#cache;
-	constructor(url, options) {
-		if (!(url instanceof URL)) throw new TypeError("url must be an instance of URL");
-		this.#url = new URL(url.href);
-		const opts = options ?? {};
-		this.#timeoutDuration = typeof opts.timeoutDuration === "number" ? opts.timeoutDuration : 5e3;
-		this.#cooldownDuration = typeof opts.cooldownDuration === "number" ? opts.cooldownDuration : 3e4;
-		this.#cacheMaxAge = typeof opts.cacheMaxAge === "number" ? opts.cacheMaxAge : 6e5;
-		this.#headers = new Headers(opts.headers);
-		if (USER_AGENT && !this.#headers.has("User-Agent")) this.#headers.set("User-Agent", USER_AGENT);
-		if (!this.#headers.has("accept")) {
-			this.#headers.set("accept", "application/json");
-			this.#headers.append("accept", "application/jwk-set+json");
-		}
-		this.#customFetch = opts[customFetch];
-		const cache = opts[jwksCache];
-		if (cache !== void 0) {
-			this.#cache = cache;
-			if (isFreshJwksCache(cache, this.#cacheMaxAge)) {
-				this.#jwksTimestamp = this.#cache.uat;
-				this.#local = createLocalJWKSet(this.#cache.jwks);
-			}
-		}
-	}
-	pendingFetch() {
-		return !!this.#pendingFetch;
-	}
-	#validFor(duration) {
-		return typeof this.#jwksTimestamp === "number" && Date.now() < this.#jwksTimestamp + duration;
-	}
-	coolingDown() {
-		return this.#validFor(this.#cooldownDuration);
-	}
-	fresh() {
-		return this.#validFor(this.#cacheMaxAge);
-	}
-	jwks() {
-		return this.#local?.jwks();
-	}
-	async getKey(protectedHeader, token) {
-		if (!this.#local || !this.fresh()) await this.reload();
-		try {
-			return await this.#local(protectedHeader, token);
-		} catch (err) {
-			if (err instanceof JWKSNoMatchingKey) {
-				if (this.coolingDown() === false) {
-					await this.reload();
-					return this.#local(protectedHeader, token);
-				}
-			}
-			throw err;
-		}
-	}
-	async reload() {
-		if (this.#pendingFetch && isCloudflareWorkers()) this.#pendingFetch = void 0;
-		this.#pendingFetch ||= fetchJwks(this.#url.href, this.#headers, AbortSignal.timeout(this.#timeoutDuration), this.#customFetch).then((json) => {
-			this.#local = createLocalJWKSet(json);
-			if (this.#cache) {
-				this.#cache.uat = Date.now();
-				this.#cache.jwks = json;
-			}
-			this.#jwksTimestamp = Date.now();
-		}).finally(() => {
-			this.#pendingFetch = void 0;
-		});
-		await this.#pendingFetch;
-	}
-};
-function createRemoteJWKSet(url, options) {
-	const set = new RemoteJWKSetImpl(url, options);
-	const remoteJWKSet = async (protectedHeader, token) => set.getKey(protectedHeader, token);
-	Object.defineProperties(remoteJWKSet, {
-		coolingDown: {
-			get: () => set.coolingDown(),
-			enumerable: true
-		},
-		fresh: {
-			get: () => set.fresh(),
-			enumerable: true
-		},
-		reload: {
-			value: () => set.reload(),
-			enumerable: true
-		},
-		reloading: {
-			get: () => set.pendingFetch(),
-			enumerable: true
-		},
-		jwks: {
-			value: () => set.jwks(),
-			enumerable: true
-		}
-	});
-	return remoteJWKSet;
-}
-//#endregion
-//#region node_modules/jose/dist/webapi/key/import.js
-async function importJWK(jwk, alg, options) {
-	if (!isObject$1(jwk)) throw new TypeError("JWK must be an object");
-	alg ??= jwk.alg;
-	const ext = options?.extractable ?? jwk.ext;
-	if (jwk.kty !== "oct" && !alg) throw new TypeError("\"alg\" argument is required when \"jwk.alg\" is not present");
-	switch (jwk.kty) {
-		case "oct":
-			if (typeof jwk.k !== "string" || !jwk.k) throw new TypeError("missing \"k\" (Key Value) Parameter value");
-			return decode$1(jwk.k);
-		case "RSA": return jwkToKey(keyAlgorithm(alg), {
-			...jwk,
-			alg,
-			ext
-		});
-		case "AKP":
-			if (typeof jwk.alg !== "string" || !jwk.alg) throw new TypeError("missing \"alg\" (Algorithm) Parameter value");
-			if (alg !== void 0 && alg !== jwk.alg) throw new TypeError("JWK alg and alg option value mismatch");
-			return jwkToKey(keyAlgorithm(jwk.alg), {
-				...jwk,
-				ext
+//#region node_modules/better-call/dist/utils.mjs
+var jsonContentTypeRegex = /^application\/([a-z0-9.+-]*\+)?json/i;
+async function getBody(request, allowedMediaTypes) {
+	const contentType = request.headers.get("content-type") || "";
+	const normalizedContentType = contentType.toLowerCase();
+	if (!request.body) return;
+	if (allowedMediaTypes && allowedMediaTypes.length > 0) {
+		if (!allowedMediaTypes.some((allowed) => {
+			const normalizedContentTypeBase = normalizedContentType.split(";")[0].trim();
+			const normalizedAllowed = allowed.toLowerCase().trim();
+			return normalizedContentTypeBase === normalizedAllowed || normalizedContentTypeBase.includes(normalizedAllowed);
+		})) {
+			if (!normalizedContentType) throw new APIError$1(415, {
+				message: `Content-Type is required. Allowed types: ${allowedMediaTypes.join(", ")}`,
+				code: "UNSUPPORTED_MEDIA_TYPE"
 			});
-		case "EC":
-		case "OKP": return jwkToKey(keyAlgorithm(alg), {
-			...jwk,
-			alg,
-			ext
+			throw new APIError$1(415, {
+				message: `Content-Type "${contentType}" is not allowed. Allowed types: ${allowedMediaTypes.join(", ")}`,
+				code: "UNSUPPORTED_MEDIA_TYPE"
+			});
+		}
+	}
+	if (jsonContentTypeRegex.test(normalizedContentType)) try {
+		return await request.json();
+	} catch (e) {
+		if (e instanceof SyntaxError) throw new APIError$1(400, {
+			message: "Invalid JSON in request body",
+			code: "BAD_REQUEST"
 		});
-		default: throw new JOSENotSupported("Unsupported \"kty\" (Key Type) Parameter value");
+		throw e;
 	}
-}
-//#endregion
-//#region node_modules/jose/dist/webapi/util/decode_protected_header.js
-function decodeProtectedHeader(token) {
-	let protectedB64u;
-	if (typeof token === "string") {
-		const parts = token.split(".");
-		if (parts.length === 3 || parts.length === 5) [protectedB64u] = parts;
-	} else if (typeof token === "object" && token) {
-		if ("protected" in token) protectedB64u = token.protected;
-		else throw new TypeError("Token does not contain a Protected Header");
+	if (normalizedContentType.includes("application/x-www-form-urlencoded")) {
+		const formData = await request.formData();
+		const result = {};
+		formData.forEach((value, key) => {
+			result[key] = value.toString();
+		});
+		return result;
 	}
-	const invalid = "Invalid Token or Protected Header formatting";
-	if (typeof protectedB64u !== "string" || !protectedB64u) throw new TypeError(invalid);
-	return parseJoseHeader(protectedB64u, TypeError, invalid);
+	if (normalizedContentType.includes("multipart/form-data")) {
+		const formData = await request.formData();
+		const result = {};
+		formData.forEach((value, key) => {
+			result[key] = value;
+		});
+		return result;
+	}
+	if (normalizedContentType.includes("text/plain")) return await request.text();
+	if (normalizedContentType.includes("application/octet-stream")) return await request.arrayBuffer();
+	if (normalizedContentType.includes("application/pdf") || normalizedContentType.includes("image/") || normalizedContentType.includes("video/")) return await request.blob();
+	if (normalizedContentType.includes("application/stream") || request.body instanceof ReadableStream) return request.body;
+	return await request.text();
 }
-//#endregion
-//#region node_modules/jose/dist/webapi/util/decode_jwt.js
-function decodeJwt(jwt) {
-	if (typeof jwt !== "string") throw new JWTInvalid("JWTs must use Compact JWS serialization, JWT must be a string");
-	const { 1: payload, length } = jwt.split(".");
-	if (length === 5) throw new JWTInvalid("Only JWTs using Compact JWS serialization can be decoded");
-	if (length !== 3) throw new JWTInvalid("Invalid JWT");
-	if (!payload) throw new JWTInvalid("JWTs must contain a payload");
-	let decoded;
+function isAPIError$1(error) {
+	return error instanceof APIError$1 || error?.name === "APIError";
+}
+function tryDecode(str) {
 	try {
-		decoded = decode$1(payload);
+		return str.includes("%") ? decodeURIComponent(str) : str;
 	} catch {
-		throw new JWTInvalid("Failed to base64url decode the payload");
+		return str;
 	}
-	let result;
+}
+async function tryCatch(promise) {
 	try {
-		result = JSON.parse(strictDecoder.decode(decoded));
-	} catch {
-		throw new JWTInvalid("Failed to parse the decoded payload as JSON");
+		return {
+			data: await promise,
+			error: null
+		};
+	} catch (error) {
+		return {
+			data: null,
+			error
+		};
 	}
-	if (!isObject$1(result)) throw new JWTInvalid("Invalid JWT Claims Set");
-	return result;
+}
+/**
+* Check if an object is a `Request`
+* - `instanceof`: works for native Request instances
+* - `toString`: handles where instanceof check fails but the object is still a valid Request
+*/
+function isRequest(obj) {
+	return obj instanceof Request || Object.prototype.toString.call(obj) === "[object Request]";
 }
 //#endregion
-//#region node_modules/@better-auth/utils/dist/base64.mjs
-function getAlphabet(urlSafe) {
-	return urlSafe ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" : "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-}
-function base64Encode(data, alphabet, padding) {
-	let result = "";
-	let buffer = 0;
-	let shift = 0;
-	for (const byte of data) {
-		buffer = buffer << 8 | byte;
-		shift += 8;
-		while (shift >= 6) {
-			shift -= 6;
-			result += alphabet[buffer >> shift & 63];
-		}
-	}
-	if (shift > 0) result += alphabet[buffer << 6 - shift & 63];
-	if (padding) {
-		const padCount = (4 - result.length % 4) % 4;
-		result += "=".repeat(padCount);
-	}
-	return result;
-}
-function base64Decode(data, alphabet) {
-	const decodeMap = /* @__PURE__ */ new Map();
-	for (let i = 0; i < alphabet.length; i++) decodeMap.set(alphabet[i], i);
-	const result = [];
-	let buffer = 0;
-	let bitsCollected = 0;
-	for (const char of data) {
-		if (char === "=") break;
-		const value = decodeMap.get(char);
-		if (value === void 0) throw new Error(`Invalid Base64 character: ${char}`);
-		buffer = buffer << 6 | value;
-		bitsCollected += 6;
-		if (bitsCollected >= 8) {
-			bitsCollected -= 8;
-			result.push(buffer >> bitsCollected & 255);
-		}
-	}
-	return Uint8Array.from(result);
-}
-var base64$1 = {
-	encode(data, options = {}) {
-		const alphabet = getAlphabet(false);
-		return base64Encode(typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(data), alphabet, options.padding ?? true);
-	},
-	decode(data) {
-		if (typeof data !== "string") data = new TextDecoder().decode(data);
-		const alphabet = getAlphabet(data.includes("-") || data.includes("_"));
-		return base64Decode(data, alphabet);
-	}
+//#region node_modules/better-call/dist/cookies.mjs
+var getCookieKey = (key, prefix) => {
+	let finalKey = key;
+	if (prefix) if (prefix === "secure") finalKey = "__Secure-" + key;
+	else if (prefix === "host") finalKey = "__Host-" + key;
+	else return;
+	return finalKey;
 };
-var base64Url = {
-	encode(data, options = {}) {
-		const alphabet = getAlphabet(true);
-		return base64Encode(typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(data), alphabet, options.padding ?? true);
-	},
-	decode(data) {
-		return base64Decode(data, getAlphabet(data.includes("-") || data.includes("_")));
+/**
+* Parse an HTTP Cookie header string and returning an object of all cookie
+* name-value pairs.
+*
+* Inspired by https://github.com/unjs/cookie-es/blob/main/src/cookie/parse.ts
+*
+* @param str the string representing a `Cookie` header value
+*/
+function parseCookies(str) {
+	if (typeof str !== "string") throw new TypeError("argument str must be a string");
+	const cookies = /* @__PURE__ */ new Map();
+	let index = 0;
+	while (index < str.length) {
+		const eqIdx = str.indexOf("=", index);
+		if (eqIdx === -1) break;
+		let endIdx = str.indexOf(";", index);
+		if (endIdx === -1) endIdx = str.length;
+		else if (endIdx < eqIdx) {
+			index = str.lastIndexOf(";", eqIdx - 1) + 1;
+			continue;
+		}
+		const key = str.slice(index, eqIdx).trim();
+		if (!cookies.has(key)) {
+			let val = str.slice(eqIdx + 1, endIdx).trim();
+			if (val.codePointAt(0) === 34) val = val.slice(1, -1);
+			cookies.set(key, tryDecode(val));
+		}
+		index = endIdx + 1;
 	}
+	return cookies;
+}
+var _serialize = (key, value, opt = {}) => {
+	let cookie;
+	if (opt?.prefix === "secure") cookie = `${`__Secure-${key}`}=${value}`;
+	else if (opt?.prefix === "host") cookie = `${`__Host-${key}`}=${value}`;
+	else cookie = `${key}=${value}`;
+	if (key.startsWith("__Secure-") && !opt.secure) opt.secure = true;
+	if (key.startsWith("__Host-")) {
+		if (!opt.secure) opt.secure = true;
+		if (opt.path !== "/") opt.path = "/";
+		if (opt.domain) opt.domain = void 0;
+	}
+	if (opt && typeof opt.maxAge === "number" && opt.maxAge >= 0) {
+		if (opt.maxAge > 3456e4) throw new Error("Cookies Max-Age SHOULD NOT be greater than 400 days (34560000 seconds) in duration.");
+		cookie += `; Max-Age=${Math.floor(opt.maxAge)}`;
+	}
+	if (opt.domain && opt.prefix !== "host") cookie += `; Domain=${opt.domain}`;
+	if (opt.path) cookie += `; Path=${opt.path}`;
+	if (opt.expires) {
+		if (opt.expires.getTime() - Date.now() > 3456e7) throw new Error("Cookies Expires SHOULD NOT be greater than 400 days (34560000 seconds) in the future.");
+		cookie += `; Expires=${opt.expires.toUTCString()}`;
+	}
+	if (opt.httpOnly) cookie += "; HttpOnly";
+	if (opt.secure) cookie += "; Secure";
+	if (opt.sameSite) cookie += `; SameSite=${opt.sameSite.charAt(0).toUpperCase() + opt.sameSite.slice(1)}`;
+	if (opt.partitioned) {
+		if (!opt.secure) opt.secure = true;
+		cookie += "; Partitioned";
+	}
+	return cookie;
+};
+var serializeCookie = (key, value, opt) => {
+	value = encodeURIComponent(value);
+	return _serialize(key, value, opt);
+};
+var serializeSignedCookie = async (key, value, secret, opt) => {
+	value = await signCookieValue(value, secret);
+	return _serialize(key, value, opt);
+};
+//#endregion
+//#region node_modules/better-call/dist/validator.mjs
+/**
+* Runs validation on body and query
+* @returns error and data object
+*/
+async function runValidation(options, context = {}) {
+	const request = {
+		body: context.body,
+		query: context.query
+	};
+	if (options.body) {
+		const result = await options.body["~standard"].validate(context.body);
+		if (result.issues) return {
+			data: null,
+			error: fromError(result.issues, "body")
+		};
+		request.body = result.value;
+	}
+	if (options.query) {
+		const result = await options.query["~standard"].validate(context.query);
+		if (result.issues) return {
+			data: null,
+			error: fromError(result.issues, "query")
+		};
+		request.query = result.value;
+	}
+	if (options.requireHeaders && !context.headers) return {
+		data: null,
+		error: {
+			message: "Headers is required",
+			issues: []
+		}
+	};
+	if (options.requireRequest && !context.request) return {
+		data: null,
+		error: {
+			message: "Request is required",
+			issues: []
+		}
+	};
+	return {
+		data: request,
+		error: null
+	};
+}
+function fromError(error, validating) {
+	return {
+		message: error.map((e) => {
+			return `[${e.path?.length ? `${validating}.` + e.path.map((x) => typeof x === "object" ? x.key : x).join(".") : validating}] ${e.message}`;
+		}).join("; "),
+		issues: error
+	};
+}
+//#endregion
+//#region node_modules/better-call/dist/context.mjs
+var createInternalContext = async (context, { options, path }) => {
+	const headers = new Headers();
+	let responseStatus = void 0;
+	const { data, error } = await runValidation(options, context);
+	if (error) throw new ValidationError$1(error.message, error.issues);
+	const requestHeaders = "headers" in context ? context.headers instanceof Headers ? context.headers : new Headers(context.headers) : "request" in context && isRequest(context.request) ? context.request.headers : null;
+	const requestCookies = requestHeaders?.get("cookie");
+	const parsedCookies = requestCookies ? parseCookies(requestCookies) : void 0;
+	const internalContext = {
+		...context,
+		body: data.body,
+		query: data.query,
+		path: context.path || path || "virtual:",
+		context: "context" in context && context.context ? context.context : {},
+		returned: void 0,
+		headers: context?.headers,
+		request: context?.request,
+		params: "params" in context ? context.params : void 0,
+		method: context.method ?? (Array.isArray(options.method) ? options.method[0] : options.method === "*" ? "GET" : options.method),
+		setHeader: (key, value) => {
+			headers.set(key, value);
+		},
+		getHeader: (key) => {
+			if (!requestHeaders) return null;
+			return requestHeaders.get(key);
+		},
+		getCookie: (key, prefix) => {
+			const finalKey = getCookieKey(key, prefix);
+			if (!finalKey) return null;
+			return parsedCookies?.get(finalKey) || null;
+		},
+		getSignedCookie: async (key, secret, prefix) => {
+			const finalKey = getCookieKey(key, prefix);
+			if (!finalKey) return null;
+			const value = parsedCookies?.get(finalKey);
+			if (!value) return null;
+			const signatureStartPos = value.lastIndexOf(".");
+			if (signatureStartPos < 1) return null;
+			const signedValue = value.substring(0, signatureStartPos);
+			const signature = value.substring(signatureStartPos + 1);
+			if (signature.length !== 44 || !signature.endsWith("=")) return null;
+			return await verifySignature$1(signature, signedValue, await getCryptoKey(secret)) ? signedValue : false;
+		},
+		setCookie: (key, value, options) => {
+			const cookie = serializeCookie(key, value, options);
+			headers.append("set-cookie", cookie);
+			return cookie;
+		},
+		setSignedCookie: async (key, value, secret, options) => {
+			const cookie = await serializeSignedCookie(key, value, secret, options);
+			headers.append("set-cookie", cookie);
+			return cookie;
+		},
+		redirect: (url) => {
+			headers.set("location", url);
+			return new APIError$1("FOUND", void 0, headers);
+		},
+		error: (status, body, headers) => {
+			return new APIError$1(status, body, headers);
+		},
+		setStatus: (status) => {
+			responseStatus = status;
+		},
+		json: (json, routerResponse) => {
+			if (!context.asResponse) return json;
+			return {
+				body: routerResponse?.body || json,
+				routerResponse,
+				_flag: "json"
+			};
+		},
+		responseHeaders: headers,
+		get responseStatus() {
+			return responseStatus;
+		}
+	};
+	for (const middleware of options.use || []) {
+		const response = await middleware({
+			...internalContext,
+			returnHeaders: true,
+			asResponse: false
+		});
+		if (response.response) Object.assign(internalContext.context, response.response);
+		/**
+		* Apply headers from the middleware to the endpoint headers
+		*/
+		if (response.headers) response.headers.forEach((value, key) => {
+			internalContext.responseHeaders.set(key, value);
+		});
+	}
+	return internalContext;
+};
+//#endregion
+//#region node_modules/better-call/dist/to-response.mjs
+function isJSONSerializable(value) {
+	if (value === void 0) return false;
+	const t = typeof value;
+	if (t === "string" || t === "number" || t === "boolean" || t === null) return true;
+	if (t !== "object") return false;
+	if (Array.isArray(value)) return true;
+	if (value.buffer) return false;
+	return value.constructor && value.constructor.name === "Object" || typeof value.toJSON === "function";
+}
+function safeStringify(obj) {
+	const parents = /* @__PURE__ */ new WeakMap();
+	const ids = /* @__PURE__ */ new WeakMap();
+	let id = 0;
+	const isAncestor = (value, holder) => {
+		let curr = holder;
+		while (curr) {
+			if (curr === value) return true;
+			curr = parents.get(curr);
+		}
+		return false;
+	};
+	return JSON.stringify(obj, function(_key, value) {
+		if (typeof value === "bigint") return value.toString();
+		if (typeof value === "object" && value !== null) {
+			if (isAncestor(value, this)) return `[Circular ref-${ids.get(value)}]`;
+			parents.set(value, this);
+			if (!ids.has(value)) ids.set(value, id++);
+		}
+		return value;
+	});
+}
+function isJSONResponse(value) {
+	if (!value || typeof value !== "object") return false;
+	return "_flag" in value && value._flag === "json";
+}
+/**
+* Headers that MUST be stripped when building an HTTP response from
+* arbitrary header input. These are request-only, hop-by-hop, or
+* transport-managed headers that cause protocol violations when present
+* on responses (e.g. Content-Length mismatch → net::ERR_CONTENT_LENGTH_MISMATCH).
+*
+* Sources:
+*   - RFC 9110 §10.1   (Request Context Fields)
+*   - RFC 9110 §7.6.1  (Connection / hop-by-hop)
+*   - RFC 9110 §11.6-7 (Authentication credentials)
+*   - RFC 9110 §12.5   (Content negotiation)
+*   - RFC 9110 §13.1   (Conditional request headers)
+*   - RFC 9110 §14.2   (Range requests)
+*   - RFC 6265 §5.4    (Cookie)
+*   - RFC 6454         (Origin)
+*/
+var REQUEST_ONLY_HEADERS = /* @__PURE__ */ new Set([
+	"host",
+	"user-agent",
+	"referer",
+	"from",
+	"expect",
+	"authorization",
+	"proxy-authorization",
+	"cookie",
+	"origin",
+	"accept-charset",
+	"accept-encoding",
+	"accept-language",
+	"if-match",
+	"if-none-match",
+	"if-modified-since",
+	"if-unmodified-since",
+	"if-range",
+	"range",
+	"max-forwards",
+	"connection",
+	"keep-alive",
+	"transfer-encoding",
+	"te",
+	"upgrade",
+	"trailer",
+	"proxy-connection",
+	"content-length"
+]);
+function stripRequestOnlyHeaders(headers) {
+	for (const name of REQUEST_ONLY_HEADERS) headers.delete(name);
+}
+/**
+* Copy headers from `source` into `target`. `Set-Cookie` is appended (one
+* header per cookie) because RFC 9110 §5.3 notes it cannot be combined
+* into a single comma-separated value; other headers are set (replace).
+*/
+function copyHeaders(target, source) {
+	if (!source) return;
+	for (const [key, value] of new Headers(source).entries()) if (key.toLowerCase() === "set-cookie") target.append(key, value);
+	else target.set(key, value);
+}
+function toResponse(data, init) {
+	if (data instanceof Response) {
+		if (init?.headers) {
+			const safeHeaders = new Headers(init.headers);
+			stripRequestOnlyHeaders(safeHeaders);
+			copyHeaders(data.headers, safeHeaders);
+		}
+		return data;
+	}
+	if (isJSONResponse(data)) {
+		const body = data.body;
+		const routerResponse = data.routerResponse;
+		if (routerResponse instanceof Response) return routerResponse;
+		const headers = new Headers();
+		copyHeaders(headers, routerResponse?.headers);
+		copyHeaders(headers, data.headers);
+		if (init?.headers) {
+			const safeHeaders = new Headers(init.headers);
+			stripRequestOnlyHeaders(safeHeaders);
+			copyHeaders(headers, safeHeaders);
+		}
+		headers.set("Content-Type", "application/json");
+		return new Response(JSON.stringify(body), {
+			...routerResponse,
+			headers,
+			status: data.status ?? init?.status ?? routerResponse?.status,
+			statusText: init?.statusText ?? routerResponse?.statusText
+		});
+	}
+	if (isAPIError$1(data)) return toResponse(data.body, {
+		status: init?.status ?? data.statusCode,
+		statusText: data.status.toString(),
+		headers: init?.headers || data.headers
+	});
+	let body = data;
+	const headers = new Headers(init?.headers);
+	stripRequestOnlyHeaders(headers);
+	if (!data) {
+		if (data === null) body = JSON.stringify(null);
+		headers.set("content-type", "application/json");
+	} else if (typeof data === "string") {
+		body = data;
+		headers.set("Content-Type", "text/plain");
+	} else if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+		body = data;
+		headers.set("Content-Type", "application/octet-stream");
+	} else if (data instanceof Blob) {
+		body = data;
+		headers.set("Content-Type", data.type || "application/octet-stream");
+	} else if (data instanceof FormData) body = data;
+	else if (data instanceof URLSearchParams) {
+		body = data;
+		headers.set("Content-Type", "application/x-www-form-urlencoded");
+	} else if (data instanceof ReadableStream) {
+		body = data;
+		headers.set("Content-Type", "application/octet-stream");
+	} else if (isJSONSerializable(data)) {
+		body = safeStringify(data);
+		headers.set("Content-Type", "application/json");
+	}
+	return new Response(body, {
+		...init,
+		headers
+	});
+}
+//#endregion
+//#region node_modules/better-call/dist/endpoint.mjs
+function createEndpoint(pathOrOptions, handlerOrOptions, handlerOrNever) {
+	const path = typeof pathOrOptions === "string" ? pathOrOptions : void 0;
+	const options = typeof handlerOrOptions === "object" ? handlerOrOptions : pathOrOptions;
+	const handler = typeof handlerOrOptions === "function" ? handlerOrOptions : handlerOrNever;
+	if ((options.method === "GET" || options.method === "HEAD") && options.body) throw new BetterCallError("Body is not allowed with GET or HEAD methods");
+	if (path && /\/{2,}/.test(path)) throw new BetterCallError("Path cannot contain consecutive slashes");
+	const internalHandler = async (...inputCtx) => {
+		const context = inputCtx[0] || {};
+		const { data: internalContext, error: validationError } = await tryCatch(createInternalContext(context, {
+			options,
+			path
+		}));
+		if (validationError) {
+			if (!(validationError instanceof ValidationError$1)) throw validationError;
+			if (options.onValidationError) await options.onValidationError({
+				message: validationError.message,
+				issues: validationError.issues
+			});
+			throw new APIError$1(400, {
+				message: validationError.message,
+				code: "VALIDATION_ERROR"
+			});
+		}
+		const response = await handler(internalContext).catch(async (e) => {
+			if (isAPIError$1(e)) {
+				const onAPIError = options.onAPIError;
+				if (onAPIError) await onAPIError(e);
+				if (context.asResponse) return e;
+			}
+			throw e;
+		});
+		const headers = internalContext.responseHeaders;
+		const status = internalContext.responseStatus;
+		return context.asResponse ? toResponse(response, {
+			headers,
+			status
+		}) : context.returnHeaders ? context.returnStatus ? {
+			headers,
+			response,
+			status
+		} : {
+			headers,
+			response
+		} : context.returnStatus ? {
+			response,
+			status
+		} : response;
+	};
+	internalHandler.options = options;
+	internalHandler.path = path;
+	return internalHandler;
+}
+function combineMiddleware(local, configured) {
+	return [...local ?? [], ...configured ?? []];
+}
+createEndpoint.create = (opts) => {
+	function createConfiguredEndpoint(...args) {
+		if (args.length === 3) {
+			const [path, options, handler] = args;
+			return createEndpoint(path, {
+				...options,
+				use: combineMiddleware(options.use, opts?.use)
+			}, handler);
+		}
+		const [options, handler] = args;
+		return createEndpoint({
+			...options,
+			use: combineMiddleware(options.use, opts?.use)
+		}, handler);
+	}
+	return createConfiguredEndpoint;
+};
+//#endregion
+//#region node_modules/better-call/dist/middleware.mjs
+function createMiddleware(optionsOrHandler, handler) {
+	const internalHandler = async (inputCtx) => {
+		const context = inputCtx;
+		const _handler = typeof optionsOrHandler === "function" ? optionsOrHandler : handler;
+		const internalContext = await createInternalContext(context, {
+			options: typeof optionsOrHandler === "function" ? {} : optionsOrHandler,
+			path: "/"
+		});
+		if (!_handler) throw new Error("handler must be defined");
+		try {
+			const response = await _handler(internalContext);
+			const headers = internalContext.responseHeaders;
+			return context.returnHeaders ? {
+				headers,
+				response
+			} : response;
+		} catch (e) {
+			if (isAPIError$1(e)) Object.defineProperty(e, kAPIErrorHeaderSymbol, {
+				enumerable: false,
+				configurable: true,
+				get() {
+					return internalContext.responseHeaders;
+				}
+			});
+			throw e;
+		}
+	};
+	internalHandler.options = typeof optionsOrHandler === "function" ? {} : optionsOrHandler;
+	return internalHandler;
+}
+createMiddleware.create = (opts) => {
+	function fn(optionsOrHandler, handler) {
+		if (typeof optionsOrHandler === "function") return createMiddleware({ use: opts?.use }, optionsOrHandler);
+		if (!handler) throw new Error("Middleware handler is required");
+		return createMiddleware({
+			...optionsOrHandler,
+			method: "*",
+			use: [...opts?.use || [], ...optionsOrHandler.use || []]
+		}, handler);
+	}
+	return fn;
 };
 //#endregion
 //#region node_modules/zod/v4/core/util.js
@@ -9601,7 +8986,7 @@ var Cached = class {
 		return this._value;
 	}
 };
-function cached(getter) {
+function cached$1(getter) {
 	return new Cached(getter);
 }
 function nullish(input) {
@@ -9694,10 +9079,10 @@ function slugify(input) {
 	return input.toLowerCase().trim().replace(/[^\w\s-]/g, "").replace(/[\s_-]+/g, "-").replace(/^-+|-+$/g, "");
 }
 var captureStackTrace = "captureStackTrace" in Error ? Error.captureStackTrace : (..._args) => {};
-function isObject(data) {
+function isObject$1(data) {
 	return typeof data === "object" && data !== null && !Array.isArray(data);
 }
-var allowsEval = /* @__PURE__*/ cached(() => {
+var allowsEval = /* @__PURE__*/ cached$1(() => {
 	if (globalConfig.jitless) return false;
 	if (typeof navigator !== "undefined" && navigator?.userAgent?.includes("Cloudflare")) return false;
 	try {
@@ -9708,12 +9093,12 @@ var allowsEval = /* @__PURE__*/ cached(() => {
 	}
 });
 function isPlainObject(o) {
-	if (isObject(o) === false) return false;
+	if (isObject$1(o) === false) return false;
 	const ctor = o.constructor;
 	if (ctor === void 0) return true;
 	if (typeof ctor !== "function") return true;
 	const prot = ctor.prototype;
-	if (isObject(prot) === false) return false;
+	if (isObject$1(prot) === false) return false;
 	if (Object.prototype.hasOwnProperty.call(prot, "isPrototypeOf") === false) return false;
 	return true;
 }
@@ -10559,7 +9944,7 @@ var ipv4$1 = /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:2
 var ipv6$1 = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:))$/;
 var cidrv4 = /^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\/([0-9]|[1-2][0-9]|3[0-2])$/;
 var cidrv6 = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:))\/(12[0-8]|1[01][0-9]|[1-9]?[0-9])$/;
-var base64 = /^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$/;
+var base64$1 = /^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$/;
 var base64url = /^(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2,3})?$/;
 var httpProtocol = /^https?$/;
 var e164 = /^\+[1-9]\d{6,14}$/;
@@ -11564,7 +10949,7 @@ var $ZodObject = /*@__PURE__*/ $constructor("$ZodObject", (inst, def) => {
 		get.raw = sh;
 		Object.defineProperty(def, "shape", { get });
 	}
-	const _normalized = cached(() => normalizeDef(def));
+	const _normalized = cached$1(() => normalizeDef(def));
 	defineLazyInternal(inst, "propValues", (zod) => {
 		const shape = zod.def.shape;
 		const propValues = {};
@@ -11578,7 +10963,7 @@ var $ZodObject = /*@__PURE__*/ $constructor("$ZodObject", (inst, def) => {
 		}
 		return propValues;
 	});
-	const isObject$3 = isObject;
+	const isObject = isObject$1;
 	const catchall = def.catchall;
 	let value;
 	const memo = globalConfig.memoizer;
@@ -11586,7 +10971,7 @@ var $ZodObject = /*@__PURE__*/ $constructor("$ZodObject", (inst, def) => {
 	inst._zod.parse = (payload, ctx) => {
 		value ?? (value = _normalized.value);
 		const input = payload.value;
-		if (!isObject$3(input)) {
+		if (!isObject(input)) {
 			payload.issues.push({
 				expected: "object",
 				code: "invalid_type",
@@ -11623,7 +11008,7 @@ var $ZodObject = /*@__PURE__*/ $constructor("$ZodObject", (inst, def) => {
 var $ZodObjectJIT = /*@__PURE__*/ $constructor("$ZodObjectJIT", (inst, def) => {
 	$ZodObject.init(inst, def);
 	const superParse = inst._zod.parse;
-	const _normalized = cached(() => normalizeDef(def));
+	const _normalized = cached$1(() => normalizeDef(def));
 	const memo = globalConfig.memoizer;
 	const generateFastpass = (shape) => {
 		const normalized = _normalized.value;
@@ -11716,7 +11101,7 @@ var $ZodObjectJIT = /*@__PURE__*/ $constructor("$ZodObjectJIT", (inst, def) => {
 		return doc.compile();
 	};
 	let fastpass;
-	const isObject$2 = isObject;
+	const isObject = isObject$1;
 	const jit = !globalConfig.jitless;
 	const fastEnabled = jit && allowsEval.value;
 	const catchall = def.catchall;
@@ -11724,7 +11109,7 @@ var $ZodObjectJIT = /*@__PURE__*/ $constructor("$ZodObjectJIT", (inst, def) => {
 	inst._zod.parse = (payload, ctx) => {
 		value ?? (value = _normalized.value);
 		const input = payload.value;
-		if (!isObject$2(input)) {
+		if (!isObject(input)) {
 			payload.issues.push({
 				expected: "object",
 				code: "invalid_type",
@@ -13767,7 +13152,7 @@ var formatMap = {
 	json_string: "json-string",
 	regex: ""
 };
-var exactPatterns = /* @__PURE__ */ new Map([[base64Charset, base64], [base64urlCharset, base64url]]);
+var exactPatterns = /* @__PURE__ */ new Map([[base64Charset, base64$1], [base64urlCharset, base64url]]);
 var exactPattern = (p) => exactPatterns.get(p) ?? p;
 var stringProcessor = (schema, ctx, _json, _params) => {
 	const json = _json;
@@ -14190,8 +13575,8 @@ var parse = /* @__PURE__ */ _parse(ZodRealError);
 var parseAsync = /* @__PURE__ */ _parseAsync(ZodRealError);
 var safeParse = /* @__PURE__ */ _safeParse(ZodRealError);
 var safeParseAsync = /* @__PURE__ */ _safeParseAsync(ZodRealError);
-var encode = /* @__PURE__ */ _encode(ZodRealError);
-var decode = /* @__PURE__ */ _decode(ZodRealError);
+var encode$2 = /* @__PURE__ */ _encode(ZodRealError);
+var decode$1 = /* @__PURE__ */ _decode(ZodRealError);
 var encodeAsync = /* @__PURE__ */ _encodeAsync(ZodRealError);
 var decodeAsync = /* @__PURE__ */ _decodeAsync(ZodRealError);
 var safeEncode = /* @__PURE__ */ _safeEncode(ZodRealError);
@@ -14342,10 +13727,10 @@ var ZodType = /*@__PURE__*/ $constructor("ZodType", (inst, def) => {
 		return validateAsync$1(this, data, params);
 	},
 	encode: function _encode(data, params) {
-		return encode(this, data, params, { callee: _encode });
+		return encode$2(this, data, params, { callee: _encode });
 	},
 	decode: function _decode(data, params) {
-		return decode(this, data, params, { callee: _decode });
+		return decode$1(this, data, params, { callee: _decode });
 	},
 	encodeAsync: async function _encodeAsync(data, params) {
 		return await encodeAsync(this, data, params, { callee: _encodeAsync });
@@ -15092,647 +14477,6 @@ function superRefine(fn, params) {
 	return /* @__PURE__ */ _superRefine(fn, params);
 }
 //#endregion
-//#region node_modules/@better-auth/core/dist/utils/db.mjs
-/**
-* Filters output data by removing fields with the `returned: false` attribute.
-* This ensures sensitive fields are not exposed in API responses.
-*/
-function filterOutputFields(data, additionalFields) {
-	if (!data || !additionalFields) return data;
-	const returnFiltered = Object.entries(additionalFields).filter(([, { returned }]) => returned === false).map(([key]) => key);
-	return Object.entries(structuredClone(data)).filter(([key]) => !returnFiltered.includes(key)).reduce((acc, [key, value]) => ({
-		...acc,
-		[key]: value
-	}), {});
-}
-//#endregion
-//#region node_modules/better-call/node_modules/@better-auth/utils/dist/index.mjs
-function getWebcryptoSubtle() {
-	const cr = typeof globalThis !== "undefined" && globalThis.crypto;
-	if (cr && typeof cr.subtle === "object" && cr.subtle != null) return cr.subtle;
-	throw new Error("crypto.subtle must be defined");
-}
-//#endregion
-//#region node_modules/better-call/dist/crypto.mjs
-var algorithm = {
-	name: "HMAC",
-	hash: "SHA-256"
-};
-var getCryptoKey = async (secret) => {
-	const secretBuf = typeof secret === "string" ? new TextEncoder().encode(secret) : secret;
-	return await getWebcryptoSubtle().importKey("raw", secretBuf, algorithm, false, ["sign", "verify"]);
-};
-var verifySignature = async (base64Signature, value, secret) => {
-	try {
-		const signatureBinStr = atob(base64Signature);
-		const signature = new Uint8Array(signatureBinStr.length);
-		for (let i = 0, len = signatureBinStr.length; i < len; i++) signature[i] = signatureBinStr.charCodeAt(i);
-		return await getWebcryptoSubtle().verify(algorithm, secret, signature, new TextEncoder().encode(value));
-	} catch {
-		return false;
-	}
-};
-var makeSignature = async (value, secret) => {
-	const key = await getCryptoKey(secret);
-	const signature = await getWebcryptoSubtle().sign(algorithm.name, key, new TextEncoder().encode(value));
-	return btoa(String.fromCharCode(...new Uint8Array(signature)));
-};
-var signCookieValue = async (value, secret) => {
-	const signature = await makeSignature(value, secret);
-	value = `${value}.${signature}`;
-	value = encodeURIComponent(value);
-	return value;
-};
-//#endregion
-//#region node_modules/better-call/dist/utils.mjs
-var jsonContentTypeRegex = /^application\/([a-z0-9.+-]*\+)?json/i;
-async function getBody(request, allowedMediaTypes) {
-	const contentType = request.headers.get("content-type") || "";
-	const normalizedContentType = contentType.toLowerCase();
-	if (!request.body) return;
-	if (allowedMediaTypes && allowedMediaTypes.length > 0) {
-		if (!allowedMediaTypes.some((allowed) => {
-			const normalizedContentTypeBase = normalizedContentType.split(";")[0].trim();
-			const normalizedAllowed = allowed.toLowerCase().trim();
-			return normalizedContentTypeBase === normalizedAllowed || normalizedContentTypeBase.includes(normalizedAllowed);
-		})) {
-			if (!normalizedContentType) throw new APIError$1(415, {
-				message: `Content-Type is required. Allowed types: ${allowedMediaTypes.join(", ")}`,
-				code: "UNSUPPORTED_MEDIA_TYPE"
-			});
-			throw new APIError$1(415, {
-				message: `Content-Type "${contentType}" is not allowed. Allowed types: ${allowedMediaTypes.join(", ")}`,
-				code: "UNSUPPORTED_MEDIA_TYPE"
-			});
-		}
-	}
-	if (jsonContentTypeRegex.test(normalizedContentType)) try {
-		return await request.json();
-	} catch (e) {
-		if (e instanceof SyntaxError) throw new APIError$1(400, {
-			message: "Invalid JSON in request body",
-			code: "BAD_REQUEST"
-		});
-		throw e;
-	}
-	if (normalizedContentType.includes("application/x-www-form-urlencoded")) {
-		const formData = await request.formData();
-		const result = {};
-		formData.forEach((value, key) => {
-			result[key] = value.toString();
-		});
-		return result;
-	}
-	if (normalizedContentType.includes("multipart/form-data")) {
-		const formData = await request.formData();
-		const result = {};
-		formData.forEach((value, key) => {
-			result[key] = value;
-		});
-		return result;
-	}
-	if (normalizedContentType.includes("text/plain")) return await request.text();
-	if (normalizedContentType.includes("application/octet-stream")) return await request.arrayBuffer();
-	if (normalizedContentType.includes("application/pdf") || normalizedContentType.includes("image/") || normalizedContentType.includes("video/")) return await request.blob();
-	if (normalizedContentType.includes("application/stream") || request.body instanceof ReadableStream) return request.body;
-	return await request.text();
-}
-function isAPIError$1(error) {
-	return error instanceof APIError$1 || error?.name === "APIError";
-}
-function tryDecode(str) {
-	try {
-		return str.includes("%") ? decodeURIComponent(str) : str;
-	} catch {
-		return str;
-	}
-}
-async function tryCatch(promise) {
-	try {
-		return {
-			data: await promise,
-			error: null
-		};
-	} catch (error) {
-		return {
-			data: null,
-			error
-		};
-	}
-}
-/**
-* Check if an object is a `Request`
-* - `instanceof`: works for native Request instances
-* - `toString`: handles where instanceof check fails but the object is still a valid Request
-*/
-function isRequest(obj) {
-	return obj instanceof Request || Object.prototype.toString.call(obj) === "[object Request]";
-}
-//#endregion
-//#region node_modules/better-call/dist/cookies.mjs
-var getCookieKey = (key, prefix) => {
-	let finalKey = key;
-	if (prefix) if (prefix === "secure") finalKey = "__Secure-" + key;
-	else if (prefix === "host") finalKey = "__Host-" + key;
-	else return;
-	return finalKey;
-};
-/**
-* Parse an HTTP Cookie header string and returning an object of all cookie
-* name-value pairs.
-*
-* Inspired by https://github.com/unjs/cookie-es/blob/main/src/cookie/parse.ts
-*
-* @param str the string representing a `Cookie` header value
-*/
-function parseCookies(str) {
-	if (typeof str !== "string") throw new TypeError("argument str must be a string");
-	const cookies = /* @__PURE__ */ new Map();
-	let index = 0;
-	while (index < str.length) {
-		const eqIdx = str.indexOf("=", index);
-		if (eqIdx === -1) break;
-		let endIdx = str.indexOf(";", index);
-		if (endIdx === -1) endIdx = str.length;
-		else if (endIdx < eqIdx) {
-			index = str.lastIndexOf(";", eqIdx - 1) + 1;
-			continue;
-		}
-		const key = str.slice(index, eqIdx).trim();
-		if (!cookies.has(key)) {
-			let val = str.slice(eqIdx + 1, endIdx).trim();
-			if (val.codePointAt(0) === 34) val = val.slice(1, -1);
-			cookies.set(key, tryDecode(val));
-		}
-		index = endIdx + 1;
-	}
-	return cookies;
-}
-var _serialize = (key, value, opt = {}) => {
-	let cookie;
-	if (opt?.prefix === "secure") cookie = `${`__Secure-${key}`}=${value}`;
-	else if (opt?.prefix === "host") cookie = `${`__Host-${key}`}=${value}`;
-	else cookie = `${key}=${value}`;
-	if (key.startsWith("__Secure-") && !opt.secure) opt.secure = true;
-	if (key.startsWith("__Host-")) {
-		if (!opt.secure) opt.secure = true;
-		if (opt.path !== "/") opt.path = "/";
-		if (opt.domain) opt.domain = void 0;
-	}
-	if (opt && typeof opt.maxAge === "number" && opt.maxAge >= 0) {
-		if (opt.maxAge > 3456e4) throw new Error("Cookies Max-Age SHOULD NOT be greater than 400 days (34560000 seconds) in duration.");
-		cookie += `; Max-Age=${Math.floor(opt.maxAge)}`;
-	}
-	if (opt.domain && opt.prefix !== "host") cookie += `; Domain=${opt.domain}`;
-	if (opt.path) cookie += `; Path=${opt.path}`;
-	if (opt.expires) {
-		if (opt.expires.getTime() - Date.now() > 3456e7) throw new Error("Cookies Expires SHOULD NOT be greater than 400 days (34560000 seconds) in the future.");
-		cookie += `; Expires=${opt.expires.toUTCString()}`;
-	}
-	if (opt.httpOnly) cookie += "; HttpOnly";
-	if (opt.secure) cookie += "; Secure";
-	if (opt.sameSite) cookie += `; SameSite=${opt.sameSite.charAt(0).toUpperCase() + opt.sameSite.slice(1)}`;
-	if (opt.partitioned) {
-		if (!opt.secure) opt.secure = true;
-		cookie += "; Partitioned";
-	}
-	return cookie;
-};
-var serializeCookie = (key, value, opt) => {
-	value = encodeURIComponent(value);
-	return _serialize(key, value, opt);
-};
-var serializeSignedCookie = async (key, value, secret, opt) => {
-	value = await signCookieValue(value, secret);
-	return _serialize(key, value, opt);
-};
-//#endregion
-//#region node_modules/better-call/dist/validator.mjs
-/**
-* Runs validation on body and query
-* @returns error and data object
-*/
-async function runValidation(options, context = {}) {
-	const request = {
-		body: context.body,
-		query: context.query
-	};
-	if (options.body) {
-		const result = await options.body["~standard"].validate(context.body);
-		if (result.issues) return {
-			data: null,
-			error: fromError(result.issues, "body")
-		};
-		request.body = result.value;
-	}
-	if (options.query) {
-		const result = await options.query["~standard"].validate(context.query);
-		if (result.issues) return {
-			data: null,
-			error: fromError(result.issues, "query")
-		};
-		request.query = result.value;
-	}
-	if (options.requireHeaders && !context.headers) return {
-		data: null,
-		error: {
-			message: "Headers is required",
-			issues: []
-		}
-	};
-	if (options.requireRequest && !context.request) return {
-		data: null,
-		error: {
-			message: "Request is required",
-			issues: []
-		}
-	};
-	return {
-		data: request,
-		error: null
-	};
-}
-function fromError(error, validating) {
-	return {
-		message: error.map((e) => {
-			return `[${e.path?.length ? `${validating}.` + e.path.map((x) => typeof x === "object" ? x.key : x).join(".") : validating}] ${e.message}`;
-		}).join("; "),
-		issues: error
-	};
-}
-//#endregion
-//#region node_modules/better-call/dist/context.mjs
-var createInternalContext = async (context, { options, path }) => {
-	const headers = new Headers();
-	let responseStatus = void 0;
-	const { data, error } = await runValidation(options, context);
-	if (error) throw new ValidationError$1(error.message, error.issues);
-	const requestHeaders = "headers" in context ? context.headers instanceof Headers ? context.headers : new Headers(context.headers) : "request" in context && isRequest(context.request) ? context.request.headers : null;
-	const requestCookies = requestHeaders?.get("cookie");
-	const parsedCookies = requestCookies ? parseCookies(requestCookies) : void 0;
-	const internalContext = {
-		...context,
-		body: data.body,
-		query: data.query,
-		path: context.path || path || "virtual:",
-		context: "context" in context && context.context ? context.context : {},
-		returned: void 0,
-		headers: context?.headers,
-		request: context?.request,
-		params: "params" in context ? context.params : void 0,
-		method: context.method ?? (Array.isArray(options.method) ? options.method[0] : options.method === "*" ? "GET" : options.method),
-		setHeader: (key, value) => {
-			headers.set(key, value);
-		},
-		getHeader: (key) => {
-			if (!requestHeaders) return null;
-			return requestHeaders.get(key);
-		},
-		getCookie: (key, prefix) => {
-			const finalKey = getCookieKey(key, prefix);
-			if (!finalKey) return null;
-			return parsedCookies?.get(finalKey) || null;
-		},
-		getSignedCookie: async (key, secret, prefix) => {
-			const finalKey = getCookieKey(key, prefix);
-			if (!finalKey) return null;
-			const value = parsedCookies?.get(finalKey);
-			if (!value) return null;
-			const signatureStartPos = value.lastIndexOf(".");
-			if (signatureStartPos < 1) return null;
-			const signedValue = value.substring(0, signatureStartPos);
-			const signature = value.substring(signatureStartPos + 1);
-			if (signature.length !== 44 || !signature.endsWith("=")) return null;
-			return await verifySignature(signature, signedValue, await getCryptoKey(secret)) ? signedValue : false;
-		},
-		setCookie: (key, value, options) => {
-			const cookie = serializeCookie(key, value, options);
-			headers.append("set-cookie", cookie);
-			return cookie;
-		},
-		setSignedCookie: async (key, value, secret, options) => {
-			const cookie = await serializeSignedCookie(key, value, secret, options);
-			headers.append("set-cookie", cookie);
-			return cookie;
-		},
-		redirect: (url) => {
-			headers.set("location", url);
-			return new APIError$1("FOUND", void 0, headers);
-		},
-		error: (status, body, headers) => {
-			return new APIError$1(status, body, headers);
-		},
-		setStatus: (status) => {
-			responseStatus = status;
-		},
-		json: (json, routerResponse) => {
-			if (!context.asResponse) return json;
-			return {
-				body: routerResponse?.body || json,
-				routerResponse,
-				_flag: "json"
-			};
-		},
-		responseHeaders: headers,
-		get responseStatus() {
-			return responseStatus;
-		}
-	};
-	for (const middleware of options.use || []) {
-		const response = await middleware({
-			...internalContext,
-			returnHeaders: true,
-			asResponse: false
-		});
-		if (response.response) Object.assign(internalContext.context, response.response);
-		/**
-		* Apply headers from the middleware to the endpoint headers
-		*/
-		if (response.headers) response.headers.forEach((value, key) => {
-			internalContext.responseHeaders.set(key, value);
-		});
-	}
-	return internalContext;
-};
-//#endregion
-//#region node_modules/better-call/dist/to-response.mjs
-function isJSONSerializable(value) {
-	if (value === void 0) return false;
-	const t = typeof value;
-	if (t === "string" || t === "number" || t === "boolean" || t === null) return true;
-	if (t !== "object") return false;
-	if (Array.isArray(value)) return true;
-	if (value.buffer) return false;
-	return value.constructor && value.constructor.name === "Object" || typeof value.toJSON === "function";
-}
-function safeStringify(obj) {
-	const parents = /* @__PURE__ */ new WeakMap();
-	const ids = /* @__PURE__ */ new WeakMap();
-	let id = 0;
-	const isAncestor = (value, holder) => {
-		let curr = holder;
-		while (curr) {
-			if (curr === value) return true;
-			curr = parents.get(curr);
-		}
-		return false;
-	};
-	return JSON.stringify(obj, function(_key, value) {
-		if (typeof value === "bigint") return value.toString();
-		if (typeof value === "object" && value !== null) {
-			if (isAncestor(value, this)) return `[Circular ref-${ids.get(value)}]`;
-			parents.set(value, this);
-			if (!ids.has(value)) ids.set(value, id++);
-		}
-		return value;
-	});
-}
-function isJSONResponse(value) {
-	if (!value || typeof value !== "object") return false;
-	return "_flag" in value && value._flag === "json";
-}
-/**
-* Headers that MUST be stripped when building an HTTP response from
-* arbitrary header input. These are request-only, hop-by-hop, or
-* transport-managed headers that cause protocol violations when present
-* on responses (e.g. Content-Length mismatch → net::ERR_CONTENT_LENGTH_MISMATCH).
-*
-* Sources:
-*   - RFC 9110 §10.1   (Request Context Fields)
-*   - RFC 9110 §7.6.1  (Connection / hop-by-hop)
-*   - RFC 9110 §11.6-7 (Authentication credentials)
-*   - RFC 9110 §12.5   (Content negotiation)
-*   - RFC 9110 §13.1   (Conditional request headers)
-*   - RFC 9110 §14.2   (Range requests)
-*   - RFC 6265 §5.4    (Cookie)
-*   - RFC 6454         (Origin)
-*/
-var REQUEST_ONLY_HEADERS = /* @__PURE__ */ new Set([
-	"host",
-	"user-agent",
-	"referer",
-	"from",
-	"expect",
-	"authorization",
-	"proxy-authorization",
-	"cookie",
-	"origin",
-	"accept-charset",
-	"accept-encoding",
-	"accept-language",
-	"if-match",
-	"if-none-match",
-	"if-modified-since",
-	"if-unmodified-since",
-	"if-range",
-	"range",
-	"max-forwards",
-	"connection",
-	"keep-alive",
-	"transfer-encoding",
-	"te",
-	"upgrade",
-	"trailer",
-	"proxy-connection",
-	"content-length"
-]);
-function stripRequestOnlyHeaders(headers) {
-	for (const name of REQUEST_ONLY_HEADERS) headers.delete(name);
-}
-/**
-* Copy headers from `source` into `target`. `Set-Cookie` is appended (one
-* header per cookie) because RFC 9110 §5.3 notes it cannot be combined
-* into a single comma-separated value; other headers are set (replace).
-*/
-function copyHeaders(target, source) {
-	if (!source) return;
-	for (const [key, value] of new Headers(source).entries()) if (key.toLowerCase() === "set-cookie") target.append(key, value);
-	else target.set(key, value);
-}
-function toResponse(data, init) {
-	if (data instanceof Response) {
-		if (init?.headers) {
-			const safeHeaders = new Headers(init.headers);
-			stripRequestOnlyHeaders(safeHeaders);
-			copyHeaders(data.headers, safeHeaders);
-		}
-		return data;
-	}
-	if (isJSONResponse(data)) {
-		const body = data.body;
-		const routerResponse = data.routerResponse;
-		if (routerResponse instanceof Response) return routerResponse;
-		const headers = new Headers();
-		copyHeaders(headers, routerResponse?.headers);
-		copyHeaders(headers, data.headers);
-		if (init?.headers) {
-			const safeHeaders = new Headers(init.headers);
-			stripRequestOnlyHeaders(safeHeaders);
-			copyHeaders(headers, safeHeaders);
-		}
-		headers.set("Content-Type", "application/json");
-		return new Response(JSON.stringify(body), {
-			...routerResponse,
-			headers,
-			status: data.status ?? init?.status ?? routerResponse?.status,
-			statusText: init?.statusText ?? routerResponse?.statusText
-		});
-	}
-	if (isAPIError$1(data)) return toResponse(data.body, {
-		status: init?.status ?? data.statusCode,
-		statusText: data.status.toString(),
-		headers: init?.headers || data.headers
-	});
-	let body = data;
-	const headers = new Headers(init?.headers);
-	stripRequestOnlyHeaders(headers);
-	if (!data) {
-		if (data === null) body = JSON.stringify(null);
-		headers.set("content-type", "application/json");
-	} else if (typeof data === "string") {
-		body = data;
-		headers.set("Content-Type", "text/plain");
-	} else if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
-		body = data;
-		headers.set("Content-Type", "application/octet-stream");
-	} else if (data instanceof Blob) {
-		body = data;
-		headers.set("Content-Type", data.type || "application/octet-stream");
-	} else if (data instanceof FormData) body = data;
-	else if (data instanceof URLSearchParams) {
-		body = data;
-		headers.set("Content-Type", "application/x-www-form-urlencoded");
-	} else if (data instanceof ReadableStream) {
-		body = data;
-		headers.set("Content-Type", "application/octet-stream");
-	} else if (isJSONSerializable(data)) {
-		body = safeStringify(data);
-		headers.set("Content-Type", "application/json");
-	}
-	return new Response(body, {
-		...init,
-		headers
-	});
-}
-//#endregion
-//#region node_modules/better-call/dist/endpoint.mjs
-function createEndpoint(pathOrOptions, handlerOrOptions, handlerOrNever) {
-	const path = typeof pathOrOptions === "string" ? pathOrOptions : void 0;
-	const options = typeof handlerOrOptions === "object" ? handlerOrOptions : pathOrOptions;
-	const handler = typeof handlerOrOptions === "function" ? handlerOrOptions : handlerOrNever;
-	if ((options.method === "GET" || options.method === "HEAD") && options.body) throw new BetterCallError("Body is not allowed with GET or HEAD methods");
-	if (path && /\/{2,}/.test(path)) throw new BetterCallError("Path cannot contain consecutive slashes");
-	const internalHandler = async (...inputCtx) => {
-		const context = inputCtx[0] || {};
-		const { data: internalContext, error: validationError } = await tryCatch(createInternalContext(context, {
-			options,
-			path
-		}));
-		if (validationError) {
-			if (!(validationError instanceof ValidationError$1)) throw validationError;
-			if (options.onValidationError) await options.onValidationError({
-				message: validationError.message,
-				issues: validationError.issues
-			});
-			throw new APIError$1(400, {
-				message: validationError.message,
-				code: "VALIDATION_ERROR"
-			});
-		}
-		const response = await handler(internalContext).catch(async (e) => {
-			if (isAPIError$1(e)) {
-				const onAPIError = options.onAPIError;
-				if (onAPIError) await onAPIError(e);
-				if (context.asResponse) return e;
-			}
-			throw e;
-		});
-		const headers = internalContext.responseHeaders;
-		const status = internalContext.responseStatus;
-		return context.asResponse ? toResponse(response, {
-			headers,
-			status
-		}) : context.returnHeaders ? context.returnStatus ? {
-			headers,
-			response,
-			status
-		} : {
-			headers,
-			response
-		} : context.returnStatus ? {
-			response,
-			status
-		} : response;
-	};
-	internalHandler.options = options;
-	internalHandler.path = path;
-	return internalHandler;
-}
-function combineMiddleware(local, configured) {
-	return [...local ?? [], ...configured ?? []];
-}
-createEndpoint.create = (opts) => {
-	function createConfiguredEndpoint(...args) {
-		if (args.length === 3) {
-			const [path, options, handler] = args;
-			return createEndpoint(path, {
-				...options,
-				use: combineMiddleware(options.use, opts?.use)
-			}, handler);
-		}
-		const [options, handler] = args;
-		return createEndpoint({
-			...options,
-			use: combineMiddleware(options.use, opts?.use)
-		}, handler);
-	}
-	return createConfiguredEndpoint;
-};
-//#endregion
-//#region node_modules/better-call/dist/middleware.mjs
-function createMiddleware(optionsOrHandler, handler) {
-	const internalHandler = async (inputCtx) => {
-		const context = inputCtx;
-		const _handler = typeof optionsOrHandler === "function" ? optionsOrHandler : handler;
-		const internalContext = await createInternalContext(context, {
-			options: typeof optionsOrHandler === "function" ? {} : optionsOrHandler,
-			path: "/"
-		});
-		if (!_handler) throw new Error("handler must be defined");
-		try {
-			const response = await _handler(internalContext);
-			const headers = internalContext.responseHeaders;
-			return context.returnHeaders ? {
-				headers,
-				response
-			} : response;
-		} catch (e) {
-			if (isAPIError$1(e)) Object.defineProperty(e, kAPIErrorHeaderSymbol, {
-				enumerable: false,
-				configurable: true,
-				get() {
-					return internalContext.responseHeaders;
-				}
-			});
-			throw e;
-		}
-	};
-	internalHandler.options = typeof optionsOrHandler === "function" ? {} : optionsOrHandler;
-	return internalHandler;
-}
-createMiddleware.create = (opts) => {
-	function fn(optionsOrHandler, handler) {
-		if (typeof optionsOrHandler === "function") return createMiddleware({ use: opts?.use }, optionsOrHandler);
-		if (!handler) throw new Error("Middleware handler is required");
-		return createMiddleware({
-			...optionsOrHandler,
-			method: "*",
-			use: [...opts?.use || [], ...optionsOrHandler.use || []]
-		}, handler);
-	}
-	return fn;
-};
-//#endregion
 //#region node_modules/better-call/dist/openapi.mjs
 var paths = {};
 function getTypeFromZodType(zodType) {
@@ -16436,6 +15180,1262 @@ var createRouter$1 = (endpoints, config) => {
 		endpoints
 	};
 };
+//#endregion
+//#region node_modules/jose/dist/webapi/lib/buffer_utils.js
+var encoder = new TextEncoder();
+var decoder = new TextDecoder();
+var strictDecoder = new TextDecoder("utf-8", { fatal: true });
+var MAX_INT32 = 2 ** 32;
+function concat(...buffers) {
+	const size = buffers.reduce((acc, { length }) => acc + length, 0);
+	const buf = new Uint8Array(size);
+	let i = 0;
+	for (const buffer of buffers) {
+		buf.set(buffer, i);
+		i += buffer.length;
+	}
+	return buf;
+}
+function writeUInt32BE(buf, value, offset) {
+	if (value < 0 || value >= MAX_INT32) throw new RangeError(`value must be >= 0 and <= ${MAX_INT32 - 1}. Received ${value}`);
+	buf.set([
+		value >>> 24,
+		value >>> 16,
+		value >>> 8,
+		value & 255
+	], offset);
+}
+function uint64be(value) {
+	const high = Math.floor(value / MAX_INT32);
+	const low = value % MAX_INT32;
+	const buf = /* @__PURE__ */ new Uint8Array(8);
+	writeUInt32BE(buf, high, 0);
+	writeUInt32BE(buf, low, 4);
+	return buf;
+}
+function uint32be(value) {
+	const buf = /* @__PURE__ */ new Uint8Array(4);
+	writeUInt32BE(buf, value);
+	return buf;
+}
+function encode$1(string) {
+	const bytes = new Uint8Array(string.length);
+	for (let i = 0; i < string.length; i++) {
+		const code = string.charCodeAt(i);
+		if (code > 127) throw new TypeError("non-ASCII string encountered in encode()");
+		bytes[i] = code;
+	}
+	return bytes;
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/lib/crypto_key.js
+var unusable = (name, prop = "algorithm.name") => /* @__PURE__ */ new TypeError(`CryptoKey does not support this operation, its ${prop} must be ${name}`);
+function checkUsage(key, usage) {
+	if (usage && !key.usages.includes(usage)) throw new TypeError(`CryptoKey does not support this operation, its usages must include ${usage}.`);
+}
+function checkModulusLength(alg, key) {
+	const { modulusLength } = key.algorithm;
+	if (typeof modulusLength !== "number" || modulusLength < 2048) throw new TypeError(`${alg} requires key modulusLength to be 2048 bits or larger`);
+}
+function checkCryptoKey(key, expected, usage) {
+	const algorithm = key.algorithm;
+	if (algorithm.name !== expected.name) throw unusable(expected.name);
+	if (expected.hash && algorithm.hash?.name !== expected.hash) throw unusable(expected.hash, "algorithm.hash");
+	if (expected.namedCurve && algorithm.namedCurve !== expected.namedCurve) throw unusable(expected.namedCurve, "algorithm.namedCurve");
+	if (expected.length !== void 0 && algorithm.length !== expected.length) throw unusable(expected.length, "algorithm.length");
+	checkUsage(key, usage);
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/lib/invalid_key_input.js
+function message(msg, actual, ...types) {
+	if (types.length > 2) {
+		const last = types.pop();
+		msg += `one of type ${types.join(", ")}, or ${last}.`;
+	} else if (types.length === 2) msg += `one of type ${types[0]} or ${types[1]}.`;
+	else msg += `of type ${types[0]}.`;
+	if (actual == null) msg += ` Received ${actual}`;
+	else if (typeof actual === "function" && actual.name) msg += ` Received function ${actual.name}`;
+	else if (typeof actual === "object" && actual != null) {
+		if (actual.constructor?.name) msg += ` Received an instance of ${actual.constructor.name}`;
+	}
+	return msg;
+}
+var invalidKeyInput = (actual, ...types) => message("Key must be ", actual, ...types);
+var withAlg = (alg, actual, ...types) => message(`Key for the ${alg} algorithm must be `, actual, ...types);
+//#endregion
+//#region node_modules/jose/dist/webapi/util/errors.js
+var JOSEError = class extends Error {
+	static code = "ERR_JOSE_GENERIC";
+	code = "ERR_JOSE_GENERIC";
+	constructor(message, options) {
+		super(message, options);
+		this.name = this.constructor.name;
+		Error.captureStackTrace?.(this, this.constructor);
+	}
+};
+var JWTClaimValidationFailed = class extends JOSEError {
+	static code = "ERR_JWT_CLAIM_VALIDATION_FAILED";
+	code = "ERR_JWT_CLAIM_VALIDATION_FAILED";
+	claim;
+	reason;
+	payload;
+	constructor(message, payload, claim = "unspecified", reason = "unspecified") {
+		super(message, { cause: {
+			claim,
+			reason,
+			payload
+		} });
+		this.claim = claim;
+		this.reason = reason;
+		this.payload = payload;
+	}
+};
+var JWTExpired = class extends JOSEError {
+	static code = "ERR_JWT_EXPIRED";
+	code = "ERR_JWT_EXPIRED";
+	claim;
+	reason;
+	payload;
+	constructor(message, payload, claim = "unspecified", reason = "unspecified") {
+		super(message, { cause: {
+			claim,
+			reason,
+			payload
+		} });
+		this.claim = claim;
+		this.reason = reason;
+		this.payload = payload;
+	}
+};
+var JOSEAlgNotAllowed = class extends JOSEError {
+	static code = "ERR_JOSE_ALG_NOT_ALLOWED";
+	code = "ERR_JOSE_ALG_NOT_ALLOWED";
+};
+var JOSENotSupported = class extends JOSEError {
+	static code = "ERR_JOSE_NOT_SUPPORTED";
+	code = "ERR_JOSE_NOT_SUPPORTED";
+};
+var JWEDecryptionFailed = class extends JOSEError {
+	static code = "ERR_JWE_DECRYPTION_FAILED";
+	code = "ERR_JWE_DECRYPTION_FAILED";
+	constructor(message = "decryption operation failed", options) {
+		super(message, options);
+	}
+};
+var JWEInvalid = class extends JOSEError {
+	static code = "ERR_JWE_INVALID";
+	code = "ERR_JWE_INVALID";
+};
+var JWSInvalid = class extends JOSEError {
+	static code = "ERR_JWS_INVALID";
+	code = "ERR_JWS_INVALID";
+};
+var JWTInvalid = class extends JOSEError {
+	static code = "ERR_JWT_INVALID";
+	code = "ERR_JWT_INVALID";
+};
+var JWKInvalid = class extends JOSEError {
+	static code = "ERR_JWK_INVALID";
+	code = "ERR_JWK_INVALID";
+};
+var JWKSInvalid = class extends JOSEError {
+	static code = "ERR_JWKS_INVALID";
+	code = "ERR_JWKS_INVALID";
+};
+var JWKSNoMatchingKey = class extends JOSEError {
+	static code = "ERR_JWKS_NO_MATCHING_KEY";
+	code = "ERR_JWKS_NO_MATCHING_KEY";
+	constructor(message = "no applicable key found in the JSON Web Key Set", options) {
+		super(message, options);
+	}
+};
+var JWKSMultipleMatchingKeys = class extends JOSEError {
+	[Symbol.asyncIterator] = async function* () {};
+	static code = "ERR_JWKS_MULTIPLE_MATCHING_KEYS";
+	code = "ERR_JWKS_MULTIPLE_MATCHING_KEYS";
+	constructor(message = "multiple matching keys found in the JSON Web Key Set", options) {
+		super(message, options);
+	}
+};
+var JWKSTimeout = class extends JOSEError {
+	static code = "ERR_JWKS_TIMEOUT";
+	code = "ERR_JWKS_TIMEOUT";
+	constructor(message = "request timed out", options) {
+		super(message, options);
+	}
+};
+var JWSSignatureVerificationFailed = class extends JOSEError {
+	static code = "ERR_JWS_SIGNATURE_VERIFICATION_FAILED";
+	code = "ERR_JWS_SIGNATURE_VERIFICATION_FAILED";
+	constructor(message = "signature verification failed", options) {
+		super(message, options);
+	}
+};
+//#endregion
+//#region node_modules/jose/dist/webapi/lib/is_key_like.js
+function assertCryptoKey(key) {
+	if (!isCryptoKey(key)) throw new Error("CryptoKey instance expected");
+}
+var isCryptoKey = (key) => {
+	if (key?.[Symbol.toStringTag] === "CryptoKey") return true;
+	try {
+		return key instanceof CryptoKey;
+	} catch {
+		return false;
+	}
+};
+var isKeyObject = (key) => key?.[Symbol.toStringTag] === "KeyObject";
+var isKeyLike = (key) => isCryptoKey(key) || isKeyObject(key);
+//#endregion
+//#region node_modules/jose/dist/webapi/lib/base64.js
+function encodeBase64(input) {
+	if (Uint8Array.prototype.toBase64) return input.toBase64();
+	const CHUNK_SIZE = 32768;
+	const arr = [];
+	for (let i = 0; i < input.length; i += CHUNK_SIZE) arr.push(String.fromCharCode.apply(null, input.subarray(i, i + CHUNK_SIZE)));
+	return btoa(arr.join(""));
+}
+function decodeBase64(encoded) {
+	if (Uint8Array.fromBase64) return Uint8Array.fromBase64(encoded);
+	const binary = atob(encoded);
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+	return bytes;
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/util/base64url.js
+var invalid = "The input to be decoded is not correctly encoded.";
+function decode(input) {
+	if (Uint8Array.fromBase64) try {
+		return Uint8Array.fromBase64(typeof input === "string" ? input : decoder.decode(input), { alphabet: "base64url" });
+	} catch (cause) {
+		throw new TypeError(invalid, { cause });
+	}
+	let encoded = input;
+	if (encoded instanceof Uint8Array) encoded = decoder.decode(encoded);
+	if (encoded.includes("+") || encoded.includes("/")) throw new TypeError(invalid);
+	encoded = encoded.replace(/-/g, "+").replace(/_/g, "/");
+	try {
+		return decodeBase64(encoded);
+	} catch {
+		throw new TypeError(invalid);
+	}
+}
+function encode(input) {
+	let unencoded = input;
+	if (typeof unencoded === "string") unencoded = encoder.encode(unencoded);
+	if (Uint8Array.prototype.toBase64) return unencoded.toBase64({
+		alphabet: "base64url",
+		omitPadding: true
+	});
+	return encodeBase64(unencoded).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/lib/type_checks.js
+function isObject(input) {
+	if (typeof input !== "object" || input === null || Object.prototype.toString.call(input) !== "[object Object]") return false;
+	const prototype = Object.getPrototypeOf(input);
+	if (prototype === null) return true;
+	let proto = prototype;
+	while (Object.getPrototypeOf(proto) !== null) proto = Object.getPrototypeOf(proto);
+	return prototype === proto;
+}
+function isDisjoint(...headers) {
+	const parameters = /* @__PURE__ */ new Set();
+	for (const header of headers) {
+		if (!header) continue;
+		for (const parameter of Object.keys(header)) {
+			if (parameters.has(parameter)) return false;
+			parameters.add(parameter);
+		}
+	}
+	return true;
+}
+var isJWK = (key) => isObject(key) && typeof key.kty === "string";
+var isPrivateJWK = (key) => key.kty !== "oct" && (key.kty === "AKP" && typeof key.priv === "string" || typeof key.d === "string");
+var isPublicJWK = (key) => key.kty !== "oct" && key.d === void 0 && key.priv === void 0;
+var isSecretJWK = (key) => key.kty === "oct" && typeof key.k === "string";
+//#endregion
+//#region node_modules/jose/dist/webapi/lib/helpers.js
+var unprotected = Symbol();
+function assertNotSet(value, name) {
+	if (value) throw new TypeError(`${name} can only be called once`);
+}
+function decodeBase64url(value, label, ErrorClass) {
+	try {
+		return decode(value);
+	} catch {
+		throw new ErrorClass(`Failed to base64url decode the ${label}`);
+	}
+}
+function encodeBase64url(value, label, ErrorClass) {
+	try {
+		return encode$1(value);
+	} catch {
+		throw new ErrorClass(`The ${label} is not a valid base64url string`);
+	}
+}
+async function digest(algorithm, data) {
+	const subtleDigest = `SHA-${algorithm.slice(-3)}`;
+	return new Uint8Array(await crypto.subtle.digest(subtleDigest, data));
+}
+function parseJoseHeader(b64, ErrorClass, message) {
+	let parsed;
+	try {
+		parsed = JSON.parse(strictDecoder.decode(decode(b64)));
+	} catch {
+		throw new ErrorClass(message);
+	}
+	if (!isObject(parsed)) throw new ErrorClass(message);
+	return parsed;
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/lib/jwk_to_key.js
+async function jwkToKey(entry, jwk) {
+	if (jwk.kty === "RSA" && "oth" in jwk && jwk.oth !== void 0) throw new JOSENotSupported("RSA JWK \"oth\" (Other Primes Info) Parameter value is not supported");
+	if (!entry.kty.includes(jwk.kty)) throw new JOSENotSupported("Invalid or unsupported JWK \"alg\" (Algorithm) Parameter value");
+	const algorithm = entry.resolve?.({
+		kty: jwk.kty,
+		crv: jwk.crv
+	}) ?? entry.subtle;
+	const isPrivate = !!(jwk.d || jwk.priv);
+	const keyData = { ...jwk };
+	if (keyData.kty !== "AKP") delete keyData.alg;
+	delete keyData.use;
+	return crypto.subtle.importKey("jwk", keyData, algorithm, jwk.ext ?? !isPrivate, jwk.key_ops ?? entry.usages[isPrivate ? 1 : 0]);
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/lib/key.js
+var tag = (key) => key[Symbol.toStringTag];
+var jwkMatchesOp = (entry, key, usage) => {
+	const { alg } = entry;
+	if (key.use !== void 0) {
+		const expected = usage === "sign" || usage === "verify" ? "sig" : "enc";
+		if (key.use !== expected) throw new TypeError(`Invalid key for this operation, its "use" must be "${expected}" when present`);
+	}
+	if (key.alg !== void 0 && key.alg !== alg) throw new TypeError(`Invalid key for this operation, its "alg" must be "${alg}" when present`);
+	if (Array.isArray(key.key_ops)) {
+		const expectedKeyOp = usage === "encrypt" || usage === "decrypt" ? entry.ops?.[usage === "encrypt" ? 0 : 1] : usage;
+		if (expectedKeyOp && !key.key_ops.includes(expectedKeyOp)) throw new TypeError(`Invalid key for this operation, its "key_ops" must include "${expectedKeyOp}" when present`);
+	}
+};
+function checkKeyType(entry, key, usage) {
+	const { alg, secret } = entry;
+	const privateKey = usage === "decrypt" || usage === "sign";
+	if (secret && key instanceof Uint8Array) return [BYTES, key];
+	if (isJWK(key)) {
+		if (secret ? !isSecretJWK(key) : !(privateKey ? isPrivateJWK(key) : isPublicJWK(key))) throw new TypeError(secret ? `JSON Web Key for symmetric algorithms must have JWK "kty" (Key Type) equal to "oct" and the JWK "k" (Key Value) present` : `JSON Web Key for this operation must be a ${privateKey ? "private" : "public"} JWK`);
+		jwkMatchesOp(entry, key, usage);
+		return [JWK, key];
+	}
+	if (!isKeyLike(key)) throw new TypeError(secret ? withAlg(alg, key, "CryptoKey", "KeyObject", "JSON Web Key", "Uint8Array") : withAlg(alg, key, "CryptoKey", "KeyObject", "JSON Web Key"));
+	if (secret) {
+		if (key.type !== "secret") throw new TypeError(`${tag(key)} instances for symmetric algorithms must be of type "secret"`);
+	} else {
+		if (key.type === "secret") throw new TypeError(`${tag(key)} instances for asymmetric algorithms must not be of type "secret"`);
+		const expectedType = privateKey ? "private" : "public";
+		if ((key.type === "public" || key.type === "private") && key.type !== expectedType) {
+			const operation = usage === "sign" ? "signing" : usage === "verify" ? "verifying" : `${usage.slice(0, -1)}tion`;
+			throw new TypeError(`${tag(key)} instances for asymmetric algorithm ${operation} must be of type "${expectedType}"`);
+		}
+	}
+	return isCryptoKey(key) ? [CRYPTO, key] : [KEYOBJECT, key];
+}
+var BYTES = 0;
+var CRYPTO = 1;
+var KEYOBJECT = 2;
+var JWK = 3;
+var cache;
+var nist = {
+	__proto__: null,
+	prime256v1: "P-256",
+	secp384r1: "P-384",
+	secp521r1: "P-521"
+};
+function cached(key, alg, value) {
+	cache ||= /* @__PURE__ */ new WeakMap();
+	const entry = cache.get(key);
+	if (value) {
+		if (entry) entry[alg] = value;
+		else cache.set(key, {
+			__proto__: null,
+			[alg]: value
+		});
+	}
+	return value ?? entry?.[alg];
+}
+var handleJWK = async (key, jwk, entry) => cached(key, entry.alg) ?? cached(key, entry.alg, await jwkToKey(entry, {
+	...jwk,
+	alg: entry.alg
+}));
+var handleKeyObject = (keyObject, entry) => {
+	const hit = cached(keyObject, entry.alg);
+	if (hit) return hit;
+	const isPublic = keyObject.type === "public";
+	const usages = entry.usages[isPublic ? 0 : 1];
+	const { asymmetricKeyType } = keyObject;
+	const crv = nist[keyObject.asymmetricKeyDetails?.namedCurve];
+	const params = entry.resolve?.({
+		crv,
+		asymmetricKeyType
+	}) ?? entry.subtle;
+	return cached(keyObject, entry.alg, keyObject.toCryptoKey(params, isPublic, usages));
+};
+async function prepareKey(entry, key, usage) {
+	const tagged = checkKeyType(entry, key, usage);
+	switch (tagged[0]) {
+		case BYTES:
+		case CRYPTO: return tagged[1];
+		case JWK: {
+			const key = tagged[1];
+			if (key.k) return decode(key.k);
+			if (!Object.isFrozen(key)) {
+				const { key_ops } = key;
+				if (Array.isArray(key_ops)) Object.freeze(key_ops);
+				Object.freeze(key);
+			}
+			return handleJWK(key, key, entry);
+		}
+		case KEYOBJECT: {
+			const keyObject = tagged[1];
+			if (keyObject.type === "secret") return keyObject.export();
+			if ("toCryptoKey" in keyObject && typeof keyObject.toCryptoKey === "function") return handleKeyObject(keyObject, entry);
+			return handleJWK(keyObject, keyObject.export({ format: "jwk" }), entry);
+		}
+	}
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/lib/key_descriptor.js
+function table(entries) {
+	const out = { __proto__: null };
+	for (const alg in entries) out[alg] = {
+		...entries[alg],
+		alg
+	};
+	return out;
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/lib/jwe_algorithms.js
+var wrap = [["encrypt", "wrapKey"], ["decrypt", "unwrapKey"]];
+var derive = [[], ["deriveBits"]];
+var none = [[], []];
+function rsaes(bits) {
+	return {
+		kty: ["RSA"],
+		subtle: {
+			name: "RSA-OAEP",
+			hash: `SHA-${bits}`
+		},
+		usages: wrap,
+		ops: ["wrapKey", "unwrapKey"]
+	};
+}
+function ecdh() {
+	return {
+		kty: ["EC", "OKP"],
+		subtle: { name: "ECDH" },
+		resolve: ({ kty, crv, asymmetricKeyType }) => {
+			if (crv === "X25519" || asymmetricKeyType === "x25519") return { name: "X25519" };
+			if (kty === "OKP") throw new JOSENotSupported("Invalid or unsupported JWK \"alg\" (Algorithm) Parameter value");
+			return {
+				name: "ECDH",
+				namedCurve: crv
+			};
+		},
+		usages: derive,
+		ops: [void 0, "deriveBits"]
+	};
+}
+function aeskw(bits, gcm = false) {
+	return {
+		kty: ["oct"],
+		secret: true,
+		subtle: {
+			name: gcm ? "AES-GCM" : "AES-KW",
+			length: bits
+		},
+		usages: none,
+		ops: gcm ? ["encrypt", "decrypt"] : ["wrapKey", "unwrapKey"]
+	};
+}
+function pbes2() {
+	return {
+		kty: ["oct"],
+		secret: true,
+		subtle: { name: "PBKDF2" },
+		usages: none,
+		ops: ["deriveBits", "deriveBits"]
+	};
+}
+var JWE = table({
+	dir: {
+		kty: ["oct"],
+		secret: true,
+		subtle: { name: "AES-GCM" },
+		usages: none,
+		ops: ["encrypt", "decrypt"]
+	},
+	"RSA-OAEP": rsaes(1),
+	"RSA-OAEP-256": rsaes(256),
+	"RSA-OAEP-384": rsaes(384),
+	"RSA-OAEP-512": rsaes(512),
+	"ECDH-ES": ecdh(),
+	"ECDH-ES+A128KW": ecdh(),
+	"ECDH-ES+A192KW": ecdh(),
+	"ECDH-ES+A256KW": ecdh(),
+	A128KW: aeskw(128),
+	A192KW: aeskw(192),
+	A256KW: aeskw(256),
+	A128GCMKW: aeskw(128, true),
+	A192GCMKW: aeskw(192, true),
+	A256GCMKW: aeskw(256, true),
+	"PBES2-HS256+A128KW": pbes2(),
+	"PBES2-HS384+A192KW": pbes2(),
+	"PBES2-HS512+A256KW": pbes2()
+});
+var contentOps = ["encrypt", "decrypt"];
+function contentEncryption(bits, cbc = false) {
+	return {
+		kty: ["oct"],
+		secret: true,
+		subtle: {
+			name: cbc ? "AES-CBC" : "AES-GCM",
+			length: bits
+		},
+		usages: none,
+		ops: contentOps,
+		cekBits: bits,
+		ivBits: cbc ? 128 : 96,
+		cbc
+	};
+}
+var ENC = table({
+	A128GCM: contentEncryption(128),
+	A192GCM: contentEncryption(192),
+	A256GCM: contentEncryption(256),
+	"A128CBC-HS256": contentEncryption(256, true),
+	"A192CBC-HS384": contentEncryption(384, true),
+	"A256CBC-HS512": contentEncryption(512, true)
+});
+function unsupported(parameter, name) {
+	throw new JOSENotSupported(`Invalid or unsupported "${parameter}" (JWE ${name}) header value`);
+}
+function jweAlgorithm(alg) {
+	return (typeof alg === "string" ? JWE[alg] : void 0) ?? unsupported("alg", "Algorithm");
+}
+function jweEncryption(enc) {
+	return (typeof enc === "string" ? ENC[enc] : void 0) ?? unsupported("enc", "Encryption Algorithm");
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/lib/options.js
+var JWS_RECOGNIZED = {
+	__proto__: null,
+	b64: true
+};
+var JWE_RECOGNIZED = { __proto__: null };
+function validateAlgorithms(option, algorithms) {
+	if (algorithms !== void 0 && (!Array.isArray(algorithms) || algorithms.some((s) => typeof s !== "string"))) throw new TypeError(`"${option}" option must be an array of strings`);
+	if (!algorithms) return;
+	return new Set(algorithms);
+}
+function validateCritDuplicates(Err, protectedHeader) {
+	const { crit } = protectedHeader ?? {};
+	if (Array.isArray(crit) && new Set(crit).size !== crit.length) throw new Err("\"crit\" (Critical) Header Parameter MUST NOT contain duplicate values");
+}
+function validateCrit(Err, recognizedDefault, recognizedOption, protectedHeader, joseHeader) {
+	if (joseHeader.crit !== void 0 && protectedHeader?.crit === void 0) throw new Err("\"crit\" (Critical) Header Parameter MUST be integrity protected");
+	if (!protectedHeader || protectedHeader.crit === void 0) return [];
+	if (!Array.isArray(protectedHeader.crit) || protectedHeader.crit.length === 0 || protectedHeader.crit.some((input) => typeof input !== "string" || input.length === 0)) throw new Err("\"crit\" (Critical) Header Parameter MUST be an array of non-empty strings when present");
+	const recognized = recognizedOption === void 0 ? recognizedDefault : {
+		__proto__: null,
+		...recognizedOption,
+		...recognizedDefault
+	};
+	for (const parameter of protectedHeader.crit) {
+		if (!(parameter in recognized)) throw new JOSENotSupported(`Extension Header Parameter "${parameter}" is not recognized`);
+		if (!Object.hasOwn(joseHeader, parameter) || joseHeader[parameter] === void 0) throw new Err(`Extension Header Parameter "${parameter}" is missing`);
+		if (recognized[parameter] && (!Object.hasOwn(protectedHeader, parameter) || protectedHeader[parameter] === void 0)) throw new Err(`Extension Header Parameter "${parameter}" MUST be integrity protected`);
+	}
+	return protectedHeader.crit;
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/lib/signing.js
+async function getSigKey(entry, key, usage) {
+	if (key instanceof Uint8Array) return crypto.subtle.importKey("raw", key, entry.subtle, false, [usage]);
+	checkCryptoKey(key, entry.subtle, usage);
+	if (entry.minRsaBits) checkModulusLength(entry.alg, key);
+	return key;
+}
+async function sign(entry, key, data) {
+	const cryptoKey = await getSigKey(entry, key, "sign");
+	const signature = await crypto.subtle.sign(entry.signing, cryptoKey, data);
+	return new Uint8Array(signature);
+}
+async function verify(entry, key, signature, data) {
+	const cryptoKey = await getSigKey(entry, key, "verify");
+	try {
+		return await crypto.subtle.verify(entry.signing, cryptoKey, signature, data);
+	} catch {
+		return false;
+	}
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/lib/jws_algorithms.js
+var sig = [["verify"], ["sign"]];
+function hmac(bits) {
+	const subtle = {
+		name: "HMAC",
+		hash: `SHA-${bits}`
+	};
+	return {
+		kty: ["oct"],
+		secret: true,
+		subtle,
+		signing: subtle,
+		usages: sig
+	};
+}
+function rsa(bits, saltLength) {
+	const subtle = {
+		name: saltLength ? "RSA-PSS" : "RSASSA-PKCS1-v1_5",
+		hash: `SHA-${bits}`
+	};
+	return {
+		kty: ["RSA"],
+		subtle,
+		signing: saltLength ? {
+			...subtle,
+			saltLength
+		} : subtle,
+		usages: sig,
+		minRsaBits: 2048
+	};
+}
+function ecdsa(crv, bits) {
+	return {
+		kty: ["EC"],
+		crv,
+		subtle: {
+			name: "ECDSA",
+			namedCurve: crv
+		},
+		signing: {
+			name: "ECDSA",
+			hash: `SHA-${bits}`
+		},
+		usages: sig
+	};
+}
+function eddsa() {
+	const subtle = { name: "Ed25519" };
+	return {
+		kty: ["OKP"],
+		crv: "Ed25519",
+		subtle,
+		signing: subtle,
+		usages: sig
+	};
+}
+function mldsa(bits) {
+	const subtle = { name: `ML-DSA-${bits}` };
+	return {
+		kty: ["AKP"],
+		subtle,
+		signing: subtle,
+		usages: sig
+	};
+}
+var JWS = table({
+	HS256: hmac(256),
+	HS384: hmac(384),
+	HS512: hmac(512),
+	RS256: rsa(256),
+	RS384: rsa(384),
+	RS512: rsa(512),
+	PS256: rsa(256, 32),
+	PS384: rsa(384, 48),
+	PS512: rsa(512, 64),
+	ES256: ecdsa("P-256", 256),
+	ES384: ecdsa("P-384", 384),
+	ES512: ecdsa("P-521", 512),
+	EdDSA: eddsa(),
+	Ed25519: eddsa(),
+	"ML-DSA-44": mldsa(44),
+	"ML-DSA-65": mldsa(65),
+	"ML-DSA-87": mldsa(87)
+});
+function jwsAlgorithm(alg) {
+	const entry = typeof alg === "string" ? JWS[alg] : void 0;
+	if (!entry) throw new JOSENotSupported(`alg ${alg} is not supported either by JOSE or your javascript runtime`);
+	return entry;
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/lib/jws_verify.js
+function prepareVerify(options) {
+	return [options && validateAlgorithms("algorithms", options.algorithms), options?.crit];
+}
+async function verifySignature(jws, shared, key) {
+	const { protected: encodedProtected, header, payload: inputPayload } = jws;
+	let parsedProt = {};
+	if (encodedProtected) parsedProt = parseJoseHeader(encodedProtected, JWSInvalid, "JWS Protected Header is invalid");
+	let joseHeader;
+	if (header !== void 0) {
+		if (!isDisjoint(parsedProt, header)) throw new JWSInvalid("JWS Protected and JWS Unprotected Header Parameter names must be disjoint");
+		joseHeader = {
+			...parsedProt,
+			...header
+		};
+	} else joseHeader = parsedProt;
+	const extensions = validateCrit(JWSInvalid, JWS_RECOGNIZED, shared[1], parsedProt, joseHeader);
+	let b64 = true;
+	if (extensions.includes("b64")) {
+		b64 = parsedProt.b64;
+		if (typeof b64 !== "boolean") throw new JWSInvalid("The \"b64\" (base64url-encode payload) Header Parameter must be a boolean");
+	}
+	const { alg } = joseHeader;
+	if (typeof alg !== "string" || !alg) throw new JWSInvalid("JWS \"alg\" (Algorithm) Header Parameter missing or invalid");
+	if (shared[0] && !shared[0].has(alg)) throw new JOSEAlgNotAllowed("\"alg\" (Algorithm) Header Parameter value not allowed");
+	if (b64) {
+		if (typeof inputPayload !== "string") throw new JWSInvalid("JWS Payload must be a string");
+	} else if (typeof inputPayload !== "string" && !(inputPayload instanceof Uint8Array)) throw new JWSInvalid("JWS Payload must be a string or an Uint8Array instance");
+	let resolvedKey = false;
+	if (typeof key === "function") {
+		key = await key(parsedProt, jws);
+		resolvedKey = true;
+	}
+	const entry = jwsAlgorithm(alg);
+	const data = concat(encodedProtected !== void 0 ? encode$1(encodedProtected) : /* @__PURE__ */ new Uint8Array(), encode$1("."), typeof inputPayload === "string" ? b64 ? shared[2] ??= encodeBase64url(inputPayload, "payload", JWSInvalid) : encoder.encode(inputPayload) : inputPayload);
+	const signature = decodeBase64url(jws.signature, "signature", JWSInvalid);
+	const k = await prepareKey(entry, key, "verify");
+	if (!await verify(entry, k, signature, data)) throw new JWSSignatureVerificationFailed();
+	let payload;
+	if (b64) payload = decodeBase64url(inputPayload, "payload", JWSInvalid);
+	else if (typeof inputPayload === "string") payload = encoder.encode(inputPayload);
+	else payload = inputPayload;
+	return [
+		payload,
+		parsedProt,
+		b64,
+		k,
+		resolvedKey
+	];
+}
+async function verifyCompact(jws, shared, key) {
+	if (jws instanceof Uint8Array) jws = decoder.decode(jws);
+	if (typeof jws !== "string") throw new JWSInvalid("Compact JWS must be a string or Uint8Array");
+	const { 0: protectedHeader, 1: payload, 2: signature, length } = jws.split(".");
+	if (length !== 3) throw new JWSInvalid("Invalid Compact JWS");
+	return verifySignature({
+		payload,
+		protected: protectedHeader,
+		signature
+	}, shared, key);
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/lib/jwt_claims_set.js
+var epoch = (date) => Math.floor(date.getTime() / 1e3);
+var multipliers = {
+	s: 1,
+	m: 60,
+	h: 3600,
+	d: 86400,
+	w: 604800,
+	y: 31557600
+};
+var REGEX = /^(\+|\-)? ?(\d+|\d+\.\d+) ?(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w|years?|yrs?|y)(?: (ago|from now))?$/i;
+var checkFailed = "check_failed";
+function secs(str) {
+	const matched = REGEX.exec(str);
+	if (!matched || matched[4] && matched[1]) throw new TypeError("Invalid time period format");
+	const value = parseFloat(matched[2]);
+	const numericDate = Math.round(value * multipliers[matched[3][0].toLowerCase()]);
+	if (matched[1] === "-" || matched[4] === "ago") return -numericDate;
+	return numericDate;
+}
+function validateInput(label, input) {
+	if (!Number.isFinite(input)) throw new TypeError(`Invalid ${label} input`);
+	return input;
+}
+function numericDate(value, label) {
+	if (typeof value === "number") return validateInput(label, value);
+	if (value instanceof Date) return validateInput(label, epoch(value));
+	return epoch(/* @__PURE__ */ new Date()) + secs(value);
+}
+var normalizeTyp = (value) => {
+	if (value.includes("/")) return value.toLowerCase();
+	return `application/${value.toLowerCase()}`;
+};
+var checkAudiencePresence = (audPayload, audOption) => {
+	if (typeof audPayload === "string") return audOption.includes(audPayload);
+	if (Array.isArray(audPayload)) return audOption.some((aud) => audPayload.includes(aud));
+	return false;
+};
+function validateNumericDate(payload, claim, required = false) {
+	const value = payload[claim];
+	if (value === void 0 && !required) return void 0;
+	if (typeof value !== "number") throw new JWTClaimValidationFailed(`"${claim}" claim must be a number`, payload, claim, "invalid");
+	return value;
+}
+function unexpectedClaim(payload, claim) {
+	throw new JWTClaimValidationFailed(`unexpected "${claim}" claim value`, payload, claim, checkFailed);
+}
+function validateClaimsSet(protectedHeader, encodedPayload, options = {}) {
+	let payload;
+	try {
+		payload = JSON.parse(strictDecoder.decode(encodedPayload));
+	} catch {}
+	if (!isObject(payload)) throw new JWTInvalid("JWT Claims Set must be a top-level JSON object");
+	const { typ } = options;
+	if (typ && (typeof protectedHeader.typ !== "string" || normalizeTyp(protectedHeader.typ) !== normalizeTyp(typ))) throw new JWTClaimValidationFailed("unexpected \"typ\" JWT header value", payload, "typ", checkFailed);
+	const { requiredClaims = [], issuer, subject, audience, maxTokenAge } = options;
+	const presenceCheck = [...requiredClaims];
+	if (maxTokenAge !== void 0) presenceCheck.push("iat");
+	if (audience !== void 0) presenceCheck.push("aud");
+	if (subject !== void 0) presenceCheck.push("sub");
+	if (issuer !== void 0) presenceCheck.push("iss");
+	for (const claim of new Set(presenceCheck.reverse())) if (!Object.hasOwn(payload, claim)) throw new JWTClaimValidationFailed(`missing required "${claim}" claim`, payload, claim, "missing");
+	if (issuer !== void 0 && !(Array.isArray(issuer) ? issuer : [issuer]).includes(payload.iss)) unexpectedClaim(payload, "iss");
+	if (subject !== void 0 && payload.sub !== subject) unexpectedClaim(payload, "sub");
+	if (audience !== void 0 && !checkAudiencePresence(payload.aud, typeof audience === "string" ? [audience] : audience)) unexpectedClaim(payload, "aud");
+	const { clockTolerance } = options;
+	let tolerance = 0;
+	if (typeof clockTolerance === "string") tolerance = secs(clockTolerance);
+	else if (clockTolerance !== void 0) {
+		if (typeof clockTolerance !== "number") throw new TypeError("Invalid clockTolerance option type");
+		tolerance = clockTolerance;
+	}
+	validateInput("clockTolerance option", tolerance);
+	const { currentDate } = options;
+	const now = validateInput("currentDate option", epoch(currentDate || /* @__PURE__ */ new Date()));
+	const iat = validateNumericDate(payload, "iat", maxTokenAge !== void 0);
+	const nbf = validateNumericDate(payload, "nbf");
+	if (nbf !== void 0) {
+		if (nbf > now + tolerance) throw new JWTClaimValidationFailed("\"nbf\" claim timestamp check failed", payload, "nbf", checkFailed);
+	}
+	const exp = validateNumericDate(payload, "exp");
+	if (exp !== void 0) {
+		if (exp <= now - tolerance) throw new JWTExpired("\"exp\" claim timestamp check failed", payload, "exp", checkFailed);
+	}
+	if (maxTokenAge !== void 0) {
+		const age = now - iat;
+		const max = typeof maxTokenAge === "number" ? maxTokenAge : secs(maxTokenAge);
+		if (age - tolerance > max) throw new JWTExpired("\"iat\" claim timestamp check failed (too far in the past)", payload, "iat", checkFailed);
+		if (age < 0 - tolerance) throw new JWTClaimValidationFailed("\"iat\" claim timestamp check failed (it should be in the past)", payload, "iat", checkFailed);
+	}
+	return payload;
+}
+var JWTClaimsBuilder = class {
+	#payload;
+	constructor(payload) {
+		if (!isObject(payload)) throw new TypeError("JWT Claims Set MUST be an object");
+		this.#payload = structuredClone(payload);
+	}
+	data() {
+		return encoder.encode(JSON.stringify(this.#payload));
+	}
+	get iss() {
+		return this.#payload.iss;
+	}
+	set iss(value) {
+		this.#payload.iss = value;
+	}
+	get sub() {
+		return this.#payload.sub;
+	}
+	set sub(value) {
+		this.#payload.sub = value;
+	}
+	get aud() {
+		return this.#payload.aud;
+	}
+	set aud(value) {
+		this.#payload.aud = value;
+	}
+	set jti(value) {
+		this.#payload.jti = value;
+	}
+	set nbf(value) {
+		this.#payload.nbf = numericDate(value, "setNotBefore");
+	}
+	set exp(value) {
+		this.#payload.exp = numericDate(value, "setExpirationTime");
+	}
+	set iat(value) {
+		if (value === void 0) this.#payload.iat = epoch(/* @__PURE__ */ new Date());
+		else if (typeof value === "string") this.#payload.iat = validateInput("setIssuedAt", epoch(/* @__PURE__ */ new Date()) + secs(value));
+		else this.#payload.iat = numericDate(value, "setIssuedAt");
+	}
+};
+//#endregion
+//#region node_modules/jose/dist/webapi/jwt/verify.js
+async function jwtVerify(jwt, key, options) {
+	const verified = await verifyCompact(jwt, prepareVerify(options), key);
+	if (!verified[2]) throw new JWTInvalid("JWTs MUST NOT use unencoded payload");
+	const result = {
+		payload: validateClaimsSet(verified[1], verified[0], options),
+		protectedHeader: verified[1]
+	};
+	if (typeof key === "function") return {
+		...result,
+		key: verified[3]
+	};
+	return result;
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/lib/key_algorithm.js
+function unsupportedAlg(source = "JWK \"alg\" (Algorithm) Parameter") {
+	throw new JOSENotSupported(`Invalid or unsupported ${source} value`);
+}
+function keyAlgorithm(alg, source) {
+	return (typeof alg === "string" ? JWS[alg] ?? JWE[alg] : void 0) ?? unsupportedAlg(source);
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/jwks/local.js
+function signatureAlgorithm(alg) {
+	const entry = typeof alg === "string" ? JWS[alg] : void 0;
+	if (!entry || entry.secret) throw new JOSENotSupported("Unsupported \"alg\" value for a JSON Web Key Set");
+	return entry;
+}
+function isJWKSLike(jwks) {
+	if (!jwks || typeof jwks !== "object") return false;
+	const { keys } = jwks;
+	return Array.isArray(keys) && keys.every(isObject);
+}
+var LocalJWKSetImpl = class {
+	#jwks;
+	#cached = /* @__PURE__ */ new WeakMap();
+	constructor(jwks) {
+		if (!isJWKSLike(jwks)) throw new JWKSInvalid("JSON Web Key Set malformed");
+		this.#jwks = structuredClone(jwks);
+	}
+	jwks() {
+		return this.#jwks;
+	}
+	async getKey(protectedHeader, token) {
+		const { alg, kid } = {
+			...protectedHeader,
+			...token?.header
+		};
+		const entry = signatureAlgorithm(alg);
+		const candidates = this.#jwks.keys.filter((jwk) => entry.kty.includes(jwk.kty) && (typeof kid !== "string" || kid === jwk.kid) && (!(typeof jwk.alg === "string" || jwk.kty === "AKP") || alg === jwk.alg) && (typeof jwk.use !== "string" || jwk.use === "sig") && (!Array.isArray(jwk.key_ops) || jwk.key_ops.includes("verify")) && (!entry.crv || jwk.crv === entry.crv));
+		const { 0: jwk, length } = candidates;
+		if (length === 0) throw new JWKSNoMatchingKey();
+		if (length !== 1) {
+			const error = new JWKSMultipleMatchingKeys();
+			const _cached = this.#cached;
+			error[Symbol.asyncIterator] = async function* () {
+				for (const jwk of candidates) try {
+					yield await importWithAlgCache(_cached, jwk, entry);
+				} catch {}
+			};
+			throw error;
+		}
+		return importWithAlgCache(this.#cached, jwk, entry);
+	}
+};
+async function importWithAlgCache(cache, jwk, entry) {
+	const cached = cache.get(jwk) || cache.set(jwk, { __proto__: null }).get(jwk);
+	if (cached[entry.alg] === void 0) {
+		const key = await jwkToKey(entry, {
+			...jwk,
+			alg: entry.alg,
+			ext: true
+		});
+		if (key.type !== "public") throw new JWKSInvalid("JSON Web Key Set members must be public keys");
+		cached[entry.alg] = key;
+	}
+	return cached[entry.alg];
+}
+function createLocalJWKSet(jwks) {
+	const set = new LocalJWKSetImpl(jwks);
+	const localJWKSet = async (protectedHeader, token) => set.getKey(protectedHeader, token);
+	Object.defineProperty(localJWKSet, "jwks", { value: () => structuredClone(set.jwks()) });
+	return localJWKSet;
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/jwks/remote.js
+function isCloudflareWorkers() {
+	return typeof WebSocketPair !== "undefined" || typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers" || typeof EdgeRuntime !== "undefined" && EdgeRuntime === "vercel";
+}
+var USER_AGENT;
+if (typeof navigator === "undefined" || !navigator.userAgent?.startsWith?.("Mozilla/5.0 ")) USER_AGENT = `jose/v6.2.9`;
+var customFetch = Symbol();
+async function fetchJwks(url, headers, signal, fetchImpl = fetch) {
+	const response = await fetchImpl(url, {
+		method: "GET",
+		signal,
+		redirect: "manual",
+		headers
+	}).catch((err) => {
+		if (err.name === "TimeoutError") throw new JWKSTimeout();
+		throw err;
+	});
+	if (response.status !== 200) throw new JOSEError("Expected 200 OK from the JSON Web Key Set HTTP response");
+	try {
+		return await response.json();
+	} catch {
+		throw new JOSEError("Failed to parse the JSON Web Key Set HTTP response as JSON");
+	}
+}
+var jwksCache = Symbol();
+function isFreshJwksCache(input, cacheMaxAge) {
+	if (typeof input !== "object" || input === null) return false;
+	if (!("uat" in input) || typeof input.uat !== "number" || Date.now() - input.uat >= cacheMaxAge) return false;
+	if (!("jwks" in input) || !isObject(input.jwks) || !Array.isArray(input.jwks.keys) || !Array.prototype.every.call(input.jwks.keys, isObject)) return false;
+	return true;
+}
+var RemoteJWKSetImpl = class {
+	#url;
+	#timeoutDuration;
+	#cooldownDuration;
+	#cacheMaxAge;
+	#jwksTimestamp;
+	#pendingFetch;
+	#headers;
+	#customFetch;
+	#local;
+	#cache;
+	constructor(url, options) {
+		if (!(url instanceof URL)) throw new TypeError("url must be an instance of URL");
+		this.#url = new URL(url.href);
+		const opts = options ?? {};
+		this.#timeoutDuration = typeof opts.timeoutDuration === "number" ? opts.timeoutDuration : 5e3;
+		this.#cooldownDuration = typeof opts.cooldownDuration === "number" ? opts.cooldownDuration : 3e4;
+		this.#cacheMaxAge = typeof opts.cacheMaxAge === "number" ? opts.cacheMaxAge : 6e5;
+		this.#headers = new Headers(opts.headers);
+		if (USER_AGENT && !this.#headers.has("User-Agent")) this.#headers.set("User-Agent", USER_AGENT);
+		if (!this.#headers.has("accept")) {
+			this.#headers.set("accept", "application/json");
+			this.#headers.append("accept", "application/jwk-set+json");
+		}
+		this.#customFetch = opts[customFetch];
+		const cache = opts[jwksCache];
+		if (cache !== void 0) {
+			this.#cache = cache;
+			if (isFreshJwksCache(cache, this.#cacheMaxAge)) {
+				this.#jwksTimestamp = this.#cache.uat;
+				this.#local = createLocalJWKSet(this.#cache.jwks);
+			}
+		}
+	}
+	pendingFetch() {
+		return !!this.#pendingFetch;
+	}
+	#validFor(duration) {
+		return typeof this.#jwksTimestamp === "number" && Date.now() < this.#jwksTimestamp + duration;
+	}
+	coolingDown() {
+		return this.#validFor(this.#cooldownDuration);
+	}
+	fresh() {
+		return this.#validFor(this.#cacheMaxAge);
+	}
+	jwks() {
+		return this.#local?.jwks();
+	}
+	async getKey(protectedHeader, token) {
+		if (!this.#local || !this.fresh()) await this.reload();
+		try {
+			return await this.#local(protectedHeader, token);
+		} catch (err) {
+			if (err instanceof JWKSNoMatchingKey) {
+				if (this.coolingDown() === false) {
+					await this.reload();
+					return this.#local(protectedHeader, token);
+				}
+			}
+			throw err;
+		}
+	}
+	async reload() {
+		if (this.#pendingFetch && isCloudflareWorkers()) this.#pendingFetch = void 0;
+		this.#pendingFetch ||= fetchJwks(this.#url.href, this.#headers, AbortSignal.timeout(this.#timeoutDuration), this.#customFetch).then((json) => {
+			this.#local = createLocalJWKSet(json);
+			if (this.#cache) {
+				this.#cache.uat = Date.now();
+				this.#cache.jwks = json;
+			}
+			this.#jwksTimestamp = Date.now();
+		}).finally(() => {
+			this.#pendingFetch = void 0;
+		});
+		await this.#pendingFetch;
+	}
+};
+function createRemoteJWKSet(url, options) {
+	const set = new RemoteJWKSetImpl(url, options);
+	const remoteJWKSet = async (protectedHeader, token) => set.getKey(protectedHeader, token);
+	Object.defineProperties(remoteJWKSet, {
+		coolingDown: {
+			get: () => set.coolingDown(),
+			enumerable: true
+		},
+		fresh: {
+			get: () => set.fresh(),
+			enumerable: true
+		},
+		reload: {
+			value: () => set.reload(),
+			enumerable: true
+		},
+		reloading: {
+			get: () => set.pendingFetch(),
+			enumerable: true
+		},
+		jwks: {
+			value: () => set.jwks(),
+			enumerable: true
+		}
+	});
+	return remoteJWKSet;
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/key/import.js
+async function importJWK(jwk, alg, options) {
+	if (!isObject(jwk)) throw new TypeError("JWK must be an object");
+	alg ??= jwk.alg;
+	const ext = options?.extractable ?? jwk.ext;
+	if (jwk.kty !== "oct" && !alg) throw new TypeError("\"alg\" argument is required when \"jwk.alg\" is not present");
+	switch (jwk.kty) {
+		case "oct":
+			if (typeof jwk.k !== "string" || !jwk.k) throw new TypeError("missing \"k\" (Key Value) Parameter value");
+			return decode(jwk.k);
+		case "RSA": return jwkToKey(keyAlgorithm(alg), {
+			...jwk,
+			alg,
+			ext
+		});
+		case "AKP":
+			if (typeof jwk.alg !== "string" || !jwk.alg) throw new TypeError("missing \"alg\" (Algorithm) Parameter value");
+			if (alg !== void 0 && alg !== jwk.alg) throw new TypeError("JWK alg and alg option value mismatch");
+			return jwkToKey(keyAlgorithm(jwk.alg), {
+				...jwk,
+				ext
+			});
+		case "EC":
+		case "OKP": return jwkToKey(keyAlgorithm(alg), {
+			...jwk,
+			alg,
+			ext
+		});
+		default: throw new JOSENotSupported("Unsupported \"kty\" (Key Type) Parameter value");
+	}
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/util/decode_protected_header.js
+function decodeProtectedHeader(token) {
+	let protectedB64u;
+	if (typeof token === "string") {
+		const parts = token.split(".");
+		if (parts.length === 3 || parts.length === 5) [protectedB64u] = parts;
+	} else if (typeof token === "object" && token) {
+		if ("protected" in token) protectedB64u = token.protected;
+		else throw new TypeError("Token does not contain a Protected Header");
+	}
+	const invalid = "Invalid Token or Protected Header formatting";
+	if (typeof protectedB64u !== "string" || !protectedB64u) throw new TypeError(invalid);
+	return parseJoseHeader(protectedB64u, TypeError, invalid);
+}
+//#endregion
+//#region node_modules/jose/dist/webapi/util/decode_jwt.js
+function decodeJwt(jwt) {
+	if (typeof jwt !== "string") throw new JWTInvalid("JWTs must use Compact JWS serialization, JWT must be a string");
+	const { 1: payload, length } = jwt.split(".");
+	if (length === 5) throw new JWTInvalid("Only JWTs using Compact JWS serialization can be decoded");
+	if (length !== 3) throw new JWTInvalid("Invalid JWT");
+	if (!payload) throw new JWTInvalid("JWTs must contain a payload");
+	let decoded;
+	try {
+		decoded = decode(payload);
+	} catch {
+		throw new JWTInvalid("Failed to base64url decode the payload");
+	}
+	let result;
+	try {
+		result = JSON.parse(strictDecoder.decode(decoded));
+	} catch {
+		throw new JWTInvalid("Failed to parse the decoded payload as JSON");
+	}
+	if (!isObject(result)) throw new JWTInvalid("Invalid JWT Claims Set");
+	return result;
+}
+//#endregion
+//#region node_modules/@better-auth/utils/dist/base64.mjs
+function getAlphabet(urlSafe) {
+	return urlSafe ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" : "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+}
+function base64Encode(data, alphabet, padding) {
+	let result = "";
+	let buffer = 0;
+	let shift = 0;
+	for (const byte of data) {
+		buffer = buffer << 8 | byte;
+		shift += 8;
+		while (shift >= 6) {
+			shift -= 6;
+			result += alphabet[buffer >> shift & 63];
+		}
+	}
+	if (shift > 0) result += alphabet[buffer << 6 - shift & 63];
+	if (padding) {
+		const padCount = (4 - result.length % 4) % 4;
+		result += "=".repeat(padCount);
+	}
+	return result;
+}
+function base64Decode(data, alphabet) {
+	const decodeMap = /* @__PURE__ */ new Map();
+	for (let i = 0; i < alphabet.length; i++) decodeMap.set(alphabet[i], i);
+	const result = [];
+	let buffer = 0;
+	let bitsCollected = 0;
+	for (const char of data) {
+		if (char === "=") break;
+		const value = decodeMap.get(char);
+		if (value === void 0) throw new Error(`Invalid Base64 character: ${char}`);
+		buffer = buffer << 6 | value;
+		bitsCollected += 6;
+		if (bitsCollected >= 8) {
+			bitsCollected -= 8;
+			result.push(buffer >> bitsCollected & 255);
+		}
+	}
+	return Uint8Array.from(result);
+}
+var base64 = {
+	encode(data, options = {}) {
+		const alphabet = getAlphabet(false);
+		return base64Encode(typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(data), alphabet, options.padding ?? true);
+	},
+	decode(data) {
+		if (typeof data !== "string") data = new TextDecoder().decode(data);
+		const alphabet = getAlphabet(data.includes("-") || data.includes("_"));
+		return base64Decode(data, alphabet);
+	}
+};
+var base64Url = {
+	encode(data, options = {}) {
+		const alphabet = getAlphabet(true);
+		return base64Encode(typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(data), alphabet, options.padding ?? true);
+	},
+	decode(data) {
+		return base64Decode(data, getAlphabet(data.includes("-") || data.includes("_")));
+	}
+};
+//#endregion
+//#region node_modules/@better-auth/core/dist/utils/db.mjs
+/**
+* Filters output data by removing fields with the `returned: false` attribute.
+* This ensures sensitive fields are not exposed in API responses.
+*/
+function filterOutputFields(data, additionalFields) {
+	if (!data || !additionalFields) return data;
+	const returnFiltered = Object.entries(additionalFields).filter(([, { returned }]) => returned === false).map(([key]) => key);
+	return Object.entries(structuredClone(data)).filter(([key]) => !returnFiltered.includes(key)).reduce((acc, [key, value]) => ({
+		...acc,
+		[key]: value
+	}), {});
+}
 //#endregion
 //#region node_modules/@better-auth/core/dist/context/endpoint-context.mjs
 var ensureAsyncStorage$1 = async () => {
@@ -17206,8 +17206,8 @@ function createRefreshAccessTokenRequest({ refreshToken, options, authentication
 	body.set("refresh_token", refreshToken);
 	if (authentication === "basic") {
 		const primaryClientId = Array.isArray(options.clientId) ? options.clientId[0] : options.clientId;
-		if (primaryClientId) headers["authorization"] = "Basic " + base64$1.encode(`${primaryClientId}:${options.clientSecret ?? ""}`);
-		else headers["authorization"] = "Basic " + base64$1.encode(`:${options.clientSecret ?? ""}`);
+		if (primaryClientId) headers["authorization"] = "Basic " + base64.encode(`${primaryClientId}:${options.clientSecret ?? ""}`);
+		else headers["authorization"] = "Basic " + base64.encode(`:${options.clientSecret ?? ""}`);
 	} else {
 		const primaryClientId = Array.isArray(options.clientId) ? options.clientId[0] : options.clientId;
 		body.set("client_id", primaryClientId);
@@ -17281,7 +17281,7 @@ function createAuthorizationCodeRequest({ code, codeVerifier, redirectURI, optio
 	else for (const _resource of resource) body.append("resource", _resource);
 	if (authentication === "basic") {
 		const primaryClientId = Array.isArray(options.clientId) ? options.clientId[0] : options.clientId;
-		requestHeaders["authorization"] = `Basic ${base64$1.encode(`${primaryClientId}:${options.clientSecret ?? ""}`)}`;
+		requestHeaders["authorization"] = `Basic ${base64.encode(`${primaryClientId}:${options.clientSecret ?? ""}`)}`;
 	} else {
 		const primaryClientId = Array.isArray(options.clientId) ? options.clientId[0] : options.clientId;
 		body.set("client_id", primaryClientId);
@@ -18825,7 +18825,7 @@ var microsoft = (options) => {
 					if (options.disableProfilePhoto || !context.response.ok) return;
 					try {
 						const pictureBuffer = await context.response.clone().arrayBuffer();
-						user.picture = `data:image/jpeg;base64, ${base64$1.encode(pictureBuffer)}`;
+						user.picture = `data:image/jpeg;base64, ${base64.encode(pictureBuffer)}`;
 					} catch (e) {
 						logger.error(e && typeof e === "object" && "name" in e ? e.name : "", e);
 					}
@@ -19120,7 +19120,7 @@ var paypal = (options) => {
 			/**
 			* PayPal requires Basic Auth for token exchange
 			**/
-			const credentials = base64$1.encode(`${options.clientId}:${options.clientSecret}`);
+			const credentials = base64.encode(`${options.clientId}:${options.clientSecret}`);
 			try {
 				const response = await betterFetch(tokenEndpoint, {
 					method: "POST",
@@ -19150,7 +19150,7 @@ var paypal = (options) => {
 			}
 		},
 		refreshAccessToken: options.refreshAccessToken ? options.refreshAccessToken : async (refreshToken) => {
-			const credentials = base64$1.encode(`${options.clientId}:${options.clientSecret}`);
+			const credentials = base64.encode(`${options.clientId}:${options.clientSecret}`);
 			try {
 				const response = await betterFetch(tokenEndpoint, {
 					method: "POST",
@@ -19423,7 +19423,7 @@ var reddit = (options) => {
 					"content-type": "application/x-www-form-urlencoded",
 					accept: "text/plain",
 					"user-agent": "better-auth",
-					Authorization: `Basic ${base64$1.encode(`${options.clientId}:${options.clientSecret}`)}`
+					Authorization: `Basic ${base64.encode(`${options.clientId}:${options.clientSecret}`)}`
 				},
 				body: body.toString()
 			});
@@ -20242,4 +20242,4 @@ var socialProviders = {
 };
 var SocialProviderListEnum = _enum(Object.keys(socialProviders)).or(string());
 //#endregion
-export { prepareKey as $, createFetch as $t, object as A, encode$2 as At, importJWK as B, getAuthTables as Bt, any as C, JWTInvalid as Ct, literal as D, checkUsage as Dt, email as E, checkModulusLength as Et, _coercedBoolean as F, ATTR_CONTEXT as Ft, sign as G, getBetterAuthVersion as Gt, JWTClaimsBuilder as H, queueAfterTransactionHook as Ht, _coercedString as I, ATTR_HOOK_TYPE as It, validateAlgorithms as J, generateId as Jt, JWE_RECOGNIZED as K, initGetModelName as Kt, base64$1 as L, ATTR_OPERATION_ID as Lt, record as M, uint64be as Mt, string as N, createAdapterFactory as Nt, looseObject as O, concat as Ot, union as P, createWithSpan as Pt, jweEncryption as Q, betterFetch as Qt, base64Url as R, import_src as Rt, ZodString as S, JWTExpired as St, boolean as T, checkCryptoKey as Tt, validateClaimsSet as U, runWithAdapter as Ut, jwtVerify as V, getCurrentAdapter as Vt, jwsAlgorithm as W, runWithTransaction as Wt, validateCritDuplicates as X, capitalizeFirstLetter as Xt, validateCrit as Y, createRandomStringGenerator as Yt, jweAlgorithm as Z, toKebabCase as Zt, toResponse as _, JWEDecryptionFailed as _t, findInvalidTrustedProxies as a, ENV as an, parseJoseHeader as at, filterOutputFields as b, JWSInvalid as bt, createAuthEndpoint as c, getEnvVar as cn, isJWK as ct, defineRequestState as d, isTest as dn, assertCryptoKey as dt, isSafeUrlScheme as en, jwkToKey as et, hasRequestState as f, APIError as fn, isCryptoKey as ft, createRouter$1 as g, defineErrorCodes as gn, JOSENotSupported as gt, runWithEndpointContext as h, BASE_ERROR_CODES as hn, JOSEAlgNotAllowed as ht, createRateLimitKey as i, shouldPublishLog as in, encodeBase64url as it, optional as j, uint32be as jt, number as k, decoder as kt, createAuthMiddleware as l, isDevelopment as ln, isObject$1 as lt, getCurrentAuthContext as m, kAPIErrorHeaderSymbol as mn, isKeyObject as mt, socialProviders as n, createLogger as nn, decodeBase64url as nt, getIp as o, env as on, unprotected as ot, runWithRequestState as p, BetterAuthError as pn, isKeyLike as pt, JWS_RECOGNIZED as q, initGetFieldName as qt, isLoopbackHost as r, logger as rn, digest as rt, deprecate as s, getBooleanEnvVar as sn, isDisjoint as st, SocialProviderListEnum as t, normalizePathname as tn, assertNotSet as tt, isAPIError as u, isProduction as un, encode$1 as ut, serializeCookie as v, JWEInvalid as vt, array as w, invalidKeyInput as wt, ZodBoolean as x, JWTClaimValidationFailed as xt, serializeSignedCookie as y, JWKInvalid as yt, decodeProtectedHeader as z, safeJSONParse as zt };
+export { JWKInvalid as $, createFetch as $t, validateCritDuplicates as A, toResponse as At, unprotected as B, getAuthTables as Bt, validateClaimsSet as C, object as Ct, JWS_RECOGNIZED as D, union as Dt, JWE_RECOGNIZED as E, string as Et, assertNotSet as F, ATTR_CONTEXT as Ft, assertCryptoKey as G, getBetterAuthVersion as Gt, isJWK as H, queueAfterTransactionHook as Ht, decodeBase64url as I, ATTR_HOOK_TYPE as It, isKeyObject as J, generateId as Jt, isCryptoKey as K, initGetModelName as Kt, digest as L, ATTR_OPERATION_ID as Lt, jweEncryption as M, serializeSignedCookie as Mt, prepareKey as N, createAdapterFactory as Nt, validateAlgorithms as O, _coercedBoolean as Ot, jwkToKey as P, createWithSpan as Pt, JWEInvalid as Q, betterFetch as Qt, encodeBase64url as R, import_src as Rt, JWTClaimsBuilder as S, number as St, sign as T, record as Tt, isObject as U, runWithAdapter as Ut, isDisjoint as V, getCurrentAdapter as Vt, encode as W, runWithTransaction as Wt, JOSENotSupported as X, capitalizeFirstLetter as Xt, JOSEAlgNotAllowed as Y, createRandomStringGenerator as Yt, JWEDecryptionFailed as Z, toKebabCase as Zt, base64 as _, array as _t, findInvalidTrustedProxies as a, ENV as an, checkCryptoKey as at, importJWK as b, literal as bt, createAuthEndpoint as c, getEnvVar as cn, concat as ct, defineRequestState as d, isTest as dn, uint32be as dt, isSafeUrlScheme as en, JWSInvalid as et, hasRequestState as f, APIError as fn, uint64be as ft, filterOutputFields as g, defineErrorCodes as gn, any as gt, runWithEndpointContext as h, BASE_ERROR_CODES as hn, ZodString as ht, createRateLimitKey as i, shouldPublishLog as in, invalidKeyInput as it, jweAlgorithm as j, serializeCookie as jt, validateCrit as k, _coercedString as kt, createAuthMiddleware as l, isDevelopment as ln, decoder as lt, getCurrentAuthContext as m, kAPIErrorHeaderSymbol as mn, ZodBoolean as mt, socialProviders as n, createLogger as nn, JWTExpired as nt, getIp as o, env as on, checkModulusLength as ot, runWithRequestState as p, BetterAuthError as pn, createRouter$1 as pt, isKeyLike as q, initGetFieldName as qt, isLoopbackHost as r, logger as rn, JWTInvalid as rt, deprecate as s, getBooleanEnvVar as sn, checkUsage as st, SocialProviderListEnum as t, normalizePathname as tn, JWTClaimValidationFailed as tt, isAPIError as u, isProduction as un, encode$1 as ut, base64Url as v, boolean as vt, jwsAlgorithm as w, optional as wt, jwtVerify as x, looseObject as xt, decodeProtectedHeader as y, email as yt, parseJoseHeader as z, safeJSONParse as zt };

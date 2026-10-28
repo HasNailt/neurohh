@@ -1,0 +1,1 @@
+import"./rolldown-runtime-hePW80VL.js";import{t as e}from"./react-Cvdyeg_0.js";import{S as t}from"./shared-DhCKoMO2.js";import{K as n}from"./index-CdzZ2h1P.js";e();var r=t(),i=`/login`;function a({to:e=i}){return(0,r.jsx)(n,{to:e})}export{a as t};

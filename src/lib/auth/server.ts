@@ -41,6 +41,7 @@ import { emailAndPasswordEnabled } from "./email-password";
 import { hashPassword, verifyPassword } from "./password.server";
 import { GATE_PROVIDER_ID, gateIdentitySessions } from "./gate-session.server";
 import { repairSessionCookie } from "./session-repair.server";
+import { credentialGuard } from "./credential-guard.server";
 import { assertInviteAllowsSignup, rememberInviteRedemption } from "./invite.server";
 import { GROK_PROVIDERS } from "./providers";
 import { pgliteDialect } from "./pglite-dialect";
@@ -337,6 +338,9 @@ export const auth = betterAuth({
     // After bearer, so a raw email-login token or a cookie whose signature no
     // longer verifies is looked up in the database and re-signed.
     repairSessionCookie(),
+
+    // Writes the credential hash on sign-up and lines the row up before sign-in.
+    credentialGuard(),
 
     // Bridges Better Auth's Set-Cookie into TanStack Start responses. MUST be
     // last so it runs after every other plugin's hooks.

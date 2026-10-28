@@ -112,6 +112,11 @@ function setBearerToken(token: string | null): void {
   }
 }
 
+/** Remember the raw session token from email sign-in (reload / new tab). */
+export function rememberSessionToken(token: string | null): void {
+  setBearerToken(token);
+}
+
 /**
  * The sandbox live preview runs this app inside an iframe on a `*.grok-sandbox.com`
  * host, where a full-page redirect to the broker can't work — so sign-in uses a
