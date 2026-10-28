@@ -157,6 +157,14 @@ export default defineConfig(({ command, isPreview }) => ({
     strictPort: true,
   },
   resolve: { tsconfigPaths: true },
+  // Bake deploy-time broker credentials into the server bundle. The runtime
+  // function often does not see GROK_AUTH_* (build-only injection); a dynamic
+  // process.env read then falls back to the sandbox client and auth.grok.me
+  // rejects https://neurohh.ru as a redirect.
+  define: {
+    __GROK_AUTH_CLIENT_ID_BUILD__: JSON.stringify(process.env.GROK_AUTH_CLIENT_ID ?? ""),
+    __GROK_AUTH_CLIENT_SECRET_BUILD__: JSON.stringify(process.env.GROK_AUTH_CLIENT_SECRET ?? ""),
+  },
   plugins: [
     pgliteBootstrapPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.

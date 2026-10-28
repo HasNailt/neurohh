@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
 import { GROK_PROVIDERS, authClient, signIn, signInTelegram } from "@/lib/auth/client";
+import { credentialHint } from "@/lib/auth/credential-hint";
 import { stageInvite } from "@/lib/auth/invite-gate";
 import { getLoginOptions } from "@/lib/auth/login-options";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
@@ -38,9 +39,6 @@ function mapAuth(message: string): string {
 function LoginPage() {
   const { user, isPending } = useCurrentUserState();
   const [mode, setMode] = useState<"in" | "up">("up");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [invite, setInvite] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -71,26 +69,43 @@ function LoginPage() {
     await stageInvite({ data: { code } });
   }
 
-  async function onSubmit(e: FormEvent) {
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    const emailValue = String(form.get("email") ?? "").trim().toLowerCase();
+    const passwordValue = String(form.get("password") ?? "");
+    const nameValue = String(form.get("name") ?? "").trim();
     setError(null);
     setBusy(true);
     try {
+      if (!emailValue.includes("@")) throw new Error("Проверьте email");
+      if (passwordValue.length < 8) throw new Error("Пароль — минимум 8 символов");
       if (mode === "up") {
         await stageIfNeeded(true);
         const res = await authClient.signUp.email({
-          email: email.trim(),
-          password,
-          name: name.trim() || email.split("@")[0] || "Художник",
+          email: emailValue,
+          password: passwordValue,
+          name: nameValue || emailValue.split("@")[0] || "Художник",
         });
         if (res.error) throw new Error(res.error.message || "Не получилось");
+        const again = await authClient.signIn.email({ email: emailValue, password: passwordValue });
+        if (again.error) throw new Error(again.error.message || "Не получилось");
       } else {
-        const res = await authClient.signIn.email({ email: email.trim(), password });
+        const res = await authClient.signIn.email({ email: emailValue, password: passwordValue });
         if (res.error) throw new Error(res.error.message || "Не получилось");
       }
       window.location.href = "/";
     } catch (err) {
-      setError(mapAuth(err instanceof Error ? err.message : "Не получилось"));
+      const message = err instanceof Error ? err.message : "Не получилось";
+      if (/invalid email or password/i.test(message)) {
+        const hint = await credentialHint({ data: { email: emailValue } }).catch(() => null);
+        if (hint?.kind === "social") {
+          setError(`Для этого адреса пароль не задан. Войдите через ${hint.via}.`);
+          setBusy(false);
+          return;
+        }
+      }
+      setError(mapAuth(message));
       setBusy(false);
     }
   }
@@ -182,33 +197,39 @@ function LoginPage() {
               Вход
             </button>
           </div>
-          <form onSubmit={(e) => void onSubmit(e)} className="space-y-3">
+          <form onSubmit={(e) => void onSubmit(e)} className="space-y-3" autoComplete="on">
             {mode === "up" ? (
               <label className="block text-sm">
                 Имя
-                <input value={name} onChange={(e) => setName(e.target.value)} className={`${fieldClass} mt-1`} maxLength={40} />
+                <input name="name" autoComplete="name" className={`${fieldClass} mt-1`} maxLength={40} />
               </label>
             ) : null}
             <label className="block text-sm">
               Email
               <input
+                name="email"
                 type="email"
                 required
                 autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                inputMode="email"
                 className={`${fieldClass} mt-1`}
               />
             </label>
             <label className="block text-sm">
               Пароль
               <input
+                name="password"
                 type="password"
                 required
                 minLength={8}
+                maxLength={128}
                 autoComplete={mode === "up" ? "new-password" : "current-password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 className={`${fieldClass} mt-1`}
               />
             </label>

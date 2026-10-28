@@ -37,6 +37,7 @@ import { randomBytes } from "node:crypto";
 import { Pool } from "pg";
 import { ensureDbReady, getPglite } from "../db";
 import { emailAndPasswordEnabled } from "./email-password";
+import { hashPassword, verifyPassword } from "./password.server";
 import { GATE_PROVIDER_ID, gateIdentitySessions } from "./gate-session.server";
 import { assertInviteAllowsSignup, rememberInviteRedemption } from "./invite.server";
 import { GROK_PROVIDERS } from "./providers";
@@ -69,11 +70,35 @@ function previewAuthSecret(): string {
   return globalAuthRef.__grokAuthPreviewSecret__;
 }
 
-/** Read an env var, treating empty/whitespace as unset. */
 const env = (key: string): string | undefined => {
   const value = process.env[key]?.trim();
   return value ? value : undefined;
 };
+
+declare const __GROK_AUTH_CLIENT_ID_BUILD__: string;
+declare const __GROK_AUTH_CLIENT_SECRET_BUILD__: string;
+
+function buildTime(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed || undefined;
+}
+
+/** Runtime injection wins; otherwise the value baked at `vite build`. */
+function resolveGrokClient(): { id: string; secret: string } {
+  const runtimeId = env("GROK_AUTH_CLIENT_ID");
+  const runtimeSecret = env("GROK_AUTH_CLIENT_SECRET");
+  if (runtimeId && runtimeSecret) return { id: runtimeId, secret: runtimeSecret };
+  const bakedId = buildTime(
+    typeof __GROK_AUTH_CLIENT_ID_BUILD__ === "string" ? __GROK_AUTH_CLIENT_ID_BUILD__ : undefined,
+  );
+  const bakedSecret = buildTime(
+    typeof __GROK_AUTH_CLIENT_SECRET_BUILD__ === "string"
+      ? __GROK_AUTH_CLIENT_SECRET_BUILD__
+      : undefined,
+  );
+  if (bakedId && bakedSecret) return { id: bakedId, secret: bakedSecret };
+  return { id: PREVIEW_CLIENT_ID, secret: PREVIEW_CLIENT_SECRET };
+}
 
 // Explicit off-switch. The deployer sets `VITE_AUTH_ENABLED=true` when it
 // provisions auth; set it to "false" to force auth off everywhere (dev user).
@@ -83,8 +108,14 @@ const authDisabled = env("VITE_AUTH_ENABLED") === "false";
 // otherwise fall back to the shared live-preview client, which the broker accepts
 // for any `*.grok-sandbox.com` callback (see `./preview`).
 const grokIssuer = env("GROK_AUTH_ISSUER") ?? GROK_ISSUER_DEFAULT;
-const grokClientId = env("GROK_AUTH_CLIENT_ID") ?? PREVIEW_CLIENT_ID;
-const grokClientSecret = env("GROK_AUTH_CLIENT_SECRET") ?? PREVIEW_CLIENT_SECRET;
+const grokClient = resolveGrokClient();
+const grokClientId = grokClient.id;
+const grokClientSecret = grokClient.secret;
+
+/** Client id sent to auth.grok.me. Not the secret. */
+export function grokOAuthClientId(): string {
+  return grokClientId;
+}
 
 /** True when federated sign-in is active (real auth is enforced). */
 export const authConfigured =
@@ -108,25 +139,25 @@ const LOCAL_DEV_ORIGINS: string[] = [
   "http://127.0.0.1:8080",
   "http://[::1]:8080",
 ];
-// Sandbox preview has no fixed host. On Vercel the public site is neurohh.ru:
-// pinning baseURL makes the Google redirect_uri
-// https://neurohh.ru/api/auth/oauth2/callback/grok-google
-// instead of a Grok or broker host.
-const baseURL =
-  env("VERCEL") === "1" || !isWorkspacePreview()
-    ? SITE_ORIGIN
-    : {
-        allowedHosts: [
-          ...previewAllowedHosts,
-          "localhost",
-          "127.0.0.1",
-          "[::1]",
-          "neurohh.ru",
-          "www.neurohh.ru",
-        ],
-        protocol: "auto" as const,
-        fallback: "http://localhost:8080",
-      };
+// Sandbox preview has no fixed host. Production may be opened on neurohh.ru or
+// the Vercel alias: the OAuth redirect_uri has to be whichever of those hosts
+// the broker client allows, because the state cookie is host-only. Google
+// sign-in starts on that host (see `/api/auth/google`) and, if it is not
+// neurohh.ru, hands the session back there. Fallback stays the public site so a
+// spoofed Host cannot become the redirect.
+const baseURL = {
+  allowedHosts: [
+    ...previewAllowedHosts,
+    "localhost",
+    "127.0.0.1",
+    "[::1]",
+    "neurohh.ru",
+    "www.neurohh.ru",
+    "*.vercel.app",
+  ],
+  protocol: "auto" as const,
+  fallback: SITE_ORIGIN,
+};
 
 function extraTrustedOrigin(): string[] {
   if (!explicitBaseURL || explicitBaseURL === SITE_ORIGIN) return [];
@@ -150,6 +181,8 @@ function extraTrustedOrigin(): string[] {
 const trustedOrigins: string[] = [
   SITE_ORIGIN,
   "https://www.neurohh.ru",
+  "https://neurohh.vercel.app",
+  "https://*.vercel.app",
   ...LOCAL_DEV_ORIGINS,
   ...extraTrustedOrigin(),
   ...(isWorkspacePreview()
@@ -180,7 +213,14 @@ const vkClientSecret = env("VK_CLIENT_SECRET");
 // schema from `migrations/auth/0001_auth.sql`, copied into `migrations/` when
 // the app turns sign-in on.
 const database = databaseUrl
-  ? new Pool({ connectionString: databaseUrl })
+  ? new Pool({
+      connectionString: databaseUrl,
+      // One warm lambda should not open a pile of Neon connections.
+      max: 5,
+      idleTimeoutMillis: 20_000,
+      connectionTimeoutMillis: 15_000,
+      allowExitOnIdle: true,
+    })
   : { dialect: pgliteDialect(() => getPglite()), type: "postgres" as const };
 
 /** Session token cookie name — also read by the live-preview popup completion page. */
@@ -253,8 +293,24 @@ export const auth = betterAuth({
   // flicker-prevention guidance (gate on `isPending`; SSR the session).
   session: { cookieCache: { enabled: true, maxAge: 300 } },
 
-  // Local email/password — toggled only via `./email-password` (not a plugin).
-  ...(emailAndPasswordEnabled ? { emailAndPassword: { enabled: true } } : {}),
+  // Local email/password. Hash is pinned to node:crypto scrypt (see password.server)
+  // so sign-up and sign-in cannot disagree. Joins stay off: with them on,
+  // Better Auth drops the stored password and every sign-in looks wrong.
+  ...(emailAndPasswordEnabled
+    ? {
+        emailAndPassword: {
+          enabled: true,
+          autoSignIn: true,
+          minPasswordLength: 8,
+          maxPasswordLength: 128,
+          password: {
+            hash: hashPassword,
+            verify: verifyPassword,
+          },
+        },
+      }
+    : {}),
+  experimental: { joins: false },
 
   databaseHooks: {
     user: {
