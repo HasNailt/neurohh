@@ -1,5 +1,5 @@
 {
-  "url": "http://127.0.0.1:8081/?q=&tag=&kind=all&sort=new&page=1",
+  "url": "http://127.0.0.1:8081/",
   "viewports": {
     "desktop": {
       "width": 1280,
@@ -7,8 +7,8 @@
       "status": 200,
       "title": "AdoptAI — открытые лоты",
       "hasCanvas": false,
-      "bodyTextLen": 717,
-      "bodyTextHash": "32fe154eaafd2f833e4feedc1ab575d9f8a27c83baff686a7f6736ec15cadd6d",
+      "bodyTextLen": 171,
+      "bodyTextHash": "d86ae3d8b411d7c8a00aeaad4bc79ac5a008eb306ecee9ac32216d36b994c80c",
       "bodyTextPrefix": "К содержанию SYS // 01 + LIVE BOOTH PAY OFF-SITE A AdoptAI ADOPT",
       "horizontalOverflow": false,
       "consoleErrors": [],
@@ -21,9 +21,9 @@
       "status": 200,
       "title": "AdoptAI — открытые лоты",
       "hasCanvas": false,
-      "bodyTextLen": 686,
-      "bodyTextHash": "62719c70e55eb5cff5c15dac2feddbd57762ead293de738fd2d94890bd422e8e",
-      "bodyTextPrefix": "К содержанию SYS // 01 PAY OFF-SITE A AdoptAI ADOPT BOOTH Лот ВО",
+      "bodyTextLen": 158,
+      "bodyTextHash": "efa869ad242a3c99e46a718b46b35c55e94dd37fb687bcd9d53613ab77f080b1",
+      "bodyTextPrefix": "К содержанию SYS // 01 PAY OFF-SITE A AdoptAI ADOPT BOOTH Лот Во",
       "horizontalOverflow": false,
       "consoleErrors": [],
       "pageErrors": [],
@@ -33,9 +33,6 @@
   "brandWarnings": [],
   "authWarnings": [],
   "verdictFile": "/workspace/screenshots/app-builder-built.json",
-  "divergesFromBaseline": true,
-  "baselineReasons": [
-    "desktop: body text changed (429 -> 717 chars, hash mismatch)",
-    "mobile: body text changed (432 -> 686 chars, hash mismatch)"
-  ]
+  "divergesFromBaseline": false,
+  "baselineReasons": []
 }

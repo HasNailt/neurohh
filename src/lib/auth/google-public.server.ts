@@ -10,7 +10,7 @@
 import { randomBytes } from "node:crypto";
 import { getSql } from "../db";
 import { SITE_ORIGIN } from "../site";
-import { auth, grokOAuthClientId, SESSION_TOKEN_COOKIE } from "./server";
+import { grokOAuthClientId, SESSION_TOKEN_COOKIE } from "./server";
 import { PREVIEW_CLIENT_ID } from "./preview";
 
 const CALLBACK_PATH = "/api/auth/oauth2/callback/grok-google";
@@ -131,26 +131,8 @@ export async function startPublicGoogle(request: Request): Promise<Response> {
   return beginOAuth(request, callbackURL);
 }
 
-async function beginOAuth(request: Request, callbackURL: string): Promise<Response> {
-  const headers = new Headers(request.headers);
-  if (!headers.has("origin")) headers.set("origin", requestOrigin(request));
-  const apiRes = await auth.api.signInWithOAuth2({
-    body: {
-      providerId: "grok-google",
-      callbackURL,
-      errorCallbackURL: `${SITE_ORIGIN}/login`,
-    },
-    headers,
-    asResponse: true,
-  });
-  if (!apiRes.ok) {
-    return html("Не получилось начать вход через Google. Попробуйте ещё раз.");
-  }
-  const body = (await apiRes.json().catch(() => null)) as { url?: string } | null;
-  if (!body?.url) return html("Не получилось начать вход через Google. Попробуйте ещё раз.");
-  const out = new Headers({ location: body.url, "cache-control": "no-store" });
-  for (const cookie of apiRes.headers.getSetCookie()) out.append("set-cookie", cookie);
-  return new Response(null, { status: 302, headers: out });
+async function beginOAuth(_request: Request, _callbackURL: string): Promise<Response> {
+  return html("Вход через Google отключён. Используйте email и пароль на сайте.");
 }
 
 function needsHandoff(host: string): boolean {

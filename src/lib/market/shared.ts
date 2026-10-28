@@ -1,7 +1,7 @@
 export const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export const PREVIEW_MAX = 2 * 1024 * 1024;
+export const PREVIEW_MAX = 4 * 1024 * 1024;
 export const FILE_MAX = 4 * 1024 * 1024;
 export const MAX_DIM = 4000;
 export const MAX_PREVIEWS = 4;

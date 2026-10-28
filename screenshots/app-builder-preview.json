@@ -1,5 +1,5 @@
 {
-  "url": "http://127.0.0.1:8080/?q=&tag=&kind=all&sort=new&page=1",
+  "url": "http://127.0.0.1:8080/",
   "viewports": {
     "desktop": {
       "width": 1280,
@@ -7,8 +7,8 @@
       "status": 200,
       "title": "AdoptAI — открытые лоты",
       "hasCanvas": false,
-      "bodyTextLen": 429,
-      "bodyTextHash": "b77d39eb8ca657b3c38be085192b4028131438ab04adbf9ab10abeded06e055c",
+      "bodyTextLen": 165,
+      "bodyTextHash": "cd43b19025967759feb362ff20ecc66a4f0ef68176ada113d3488b0e89cd9090",
       "bodyTextPrefix": "К содержанию SYS // 01 + LIVE BOOTH PAY OFF-SITE A AdoptAI ADOPT",
       "horizontalOverflow": false,
       "consoleErrors": [],
@@ -21,9 +21,9 @@
       "status": 200,
       "title": "AdoptAI — открытые лоты",
       "hasCanvas": false,
-      "bodyTextLen": 432,
-      "bodyTextHash": "339586de2ccdba33b8139110e71f91551cadc2f4be4fc2acabb7f37a096e0153",
-      "bodyTextPrefix": "К содержанию SYS // 01 PAY OFF-SITE A AdoptAI ADOPT BOOTH Лот ВО",
+      "bodyTextLen": 158,
+      "bodyTextHash": "efa869ad242a3c99e46a718b46b35c55e94dd37fb687bcd9d53613ab77f080b1",
+      "bodyTextPrefix": "К содержанию SYS // 01 PAY OFF-SITE A AdoptAI ADOPT BOOTH Лот Во",
       "horizontalOverflow": false,
       "consoleErrors": [],
       "pageErrors": [],

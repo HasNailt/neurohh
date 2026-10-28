@@ -30,10 +30,10 @@
  * a verified id via `@/lib/auth/middleware`.
  */
 import { betterAuth } from "better-auth";
-import { bearer, genericOAuth } from "better-auth/plugins";
+import { bearer } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { getCookie } from "@tanstack/react-start/server";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { Pool } from "pg";
 import { ensureDbReady, getPglite } from "../db";
 import { emailAndPasswordEnabled } from "./email-password";
@@ -41,13 +41,10 @@ import { hashPassword, verifyPassword } from "./password.server";
 import { GATE_PROVIDER_ID, gateIdentitySessions } from "./gate-session.server";
 import { assertInviteAllowsSignup, rememberInviteRedemption } from "./invite.server";
 import { GROK_PROVIDERS } from "./providers";
-import { telegramPlugin } from "./telegram.server";
-import { vkOAuthConfig } from "./vk.server";
 import { pgliteDialect } from "./pglite-dialect";
 import { isWorkspacePreview } from "../env.server";
 import { SITE_ORIGIN } from "../site";
 import {
-  GROK_ISSUER_DEFAULT,
   PREVIEW_ALLOWED_HOSTS,
   PREVIEW_CLIENT_ID,
   PREVIEW_CLIENT_SECRET,
@@ -68,6 +65,20 @@ const globalAuthRef = globalThis as typeof globalThis & {
 function previewAuthSecret(): string {
   globalAuthRef.__grokAuthPreviewSecret__ ??= randomBytes(32).toString("hex");
   return globalAuthRef.__grokAuthPreviewSecret__;
+}
+
+/**
+ * One secret for every server instance. A random fallback is fine in the
+ * preview (one process, PGLite wiped on restart) but on the deployed site each
+ * lambda would mint its own secret, fail the signed session cookie, and the
+ * next tab focus would look like a logout.
+ */
+function authSecret(): string {
+  const fromEnv = env("BETTER_AUTH_SECRET");
+  if (fromEnv) return fromEnv;
+  const db = env("DATABASE_URL");
+  if (db) return createHash("sha256").update(`neurohh-session-v1\0${db}`).digest("hex");
+  return previewAuthSecret();
 }
 
 const env = (key: string): string | undefined => {
@@ -107,7 +118,6 @@ const authDisabled = env("VITE_AUTH_ENABLED") === "false";
 // Broker federation creds: the deployer injects a per-app client when deployed;
 // otherwise fall back to the shared live-preview client, which the broker accepts
 // for any `*.grok-sandbox.com` callback (see `./preview`).
-const grokIssuer = env("GROK_AUTH_ISSUER") ?? GROK_ISSUER_DEFAULT;
 const grokClient = resolveGrokClient();
 const grokClientId = grokClient.id;
 const grokClientSecret = grokClient.secret;
@@ -195,18 +205,6 @@ const trustedOrigins: string[] = [
 
 const databaseUrl = env("DATABASE_URL");
 
-// Static broker OAuth endpoints (skip OIDC discovery on every sign-in / callback).
-// Discovery would cost an extra network hop to the broker before the popup can
-// even redirect to Google/X — the live-preview popup felt stuck on the app for
-// that whole round-trip. These paths match the broker's discovery document.
-const issuerBase = grokIssuer.replace(/\/+$/, "");
-const grokAuthorizationUrl = `${issuerBase}/api/auth/oauth2/authorize`;
-const grokTokenUrl = `${issuerBase}/api/auth/oauth2/token`;
-const grokUserInfoUrl = `${issuerBase}/api/auth/oauth2/userinfo`;
-
-const vkClientId = env("VK_CLIENT_ID");
-const vkClientSecret = env("VK_CLIENT_SECRET");
-
 // Real Postgres when `DATABASE_URL` is set (deployed apps), else the app's
 // embedded PGLite (preview) via a Kysely dialect — so Better Auth persists to the
 // SAME DB as app data, including email/password users. Both use the Better Auth
@@ -226,38 +224,11 @@ const database = databaseUrl
 /** Session token cookie name — also read by the live-preview popup completion page. */
 export const SESSION_TOKEN_COOKIE = "__Host-grok-auth.session_token";
 
-// Built separately so the `betterAuth({...})` call stays easy to edit without
-// breaking brackets (models often trip on the conditional plugin spread).
-const grokOAuthPlugin = authConfigured
-  ? genericOAuth({
-      config: [
-        ...GROK_PROVIDERS.map(({ providerId, idp }) => ({
-          providerId,
-          clientId: grokClientId as string,
-          clientSecret: grokClientSecret as string,
-          // Prefer static endpoints over `discoveryUrl` so initiating (and
-          // completing) OAuth does not wait on a broker discovery fetch.
-          authorizationUrl: grokAuthorizationUrl,
-          tokenUrl: grokTokenUrl,
-          userInfoUrl: grokUserInfoUrl,
-          scopes: ["openid", "profile", "email"],
-          // `prompt: "login"` forces the broker to re-authenticate against the
-          // upstream on every sign-in instead of silently reusing an existing
-          // broker session. Combined with the broker sending Google
-          // `prompt=select_account`, the user always gets the account chooser
-          // and can pick (or switch) which account to sign in with.
-          authorizationUrlParams: { idp, prompt: "login" },
-        })),
-        ...(vkClientId && vkClientSecret ? [vkOAuthConfig(vkClientId, vkClientSecret)] : []),
-      ],
-    })
-  : null;
-
 export const auth = betterAuth({
   baseURL,
-  // Deployed apps inject BETTER_AUTH_SECRET. Preview: process-stable secret on
-  // globalThis so HMR doesn't invalidate PGLite-backed sessions (see above).
-  secret: env("BETTER_AUTH_SECRET") ?? previewAuthSecret(),
+  // Deployed: BETTER_AUTH_SECRET, or a hash of DATABASE_URL so every instance
+  // verifies the same cookie. Preview: process-stable secret (see above).
+  secret: authSecret(),
   database,
 
   // CSRF / origin check for credentialed auth POSTs (email sign-up/sign-in, …).
@@ -287,11 +258,13 @@ export const auth = betterAuth({
     },
   },
 
-  // Cache the session in the short-lived signed `session_data` cookie so reads
-  // (incl. the client's `/get-session`) skip the DB — this shrinks the "loading"
-  // window and reduces auth flicker. See the `auth` skill for the full
-  // flicker-prevention guidance (gate on `isPending`; SSR the session).
-  session: { cookieCache: { enabled: true, maxAge: 300 } },
+  // 30 days in the database, and a day-long signed cookie cache so a tab
+  // switch does not depend on a fresh database read to stay signed in.
+  session: {
+    expiresIn: 60 * 60 * 24 * 30,
+    updateAge: 60 * 60 * 24,
+    cookieCache: { enabled: true, maxAge: 60 * 60 * 24 },
+  },
 
   // Local email/password. Hash is pinned to node:crypto scrypt (see password.server)
   // so sign-up and sign-in cannot disagree. Joins stay off: with them on,
@@ -346,11 +319,8 @@ export const auth = betterAuth({
   plugins: [
     gateIdentitySessions(),
 
-    // One genericOAuth provider per upstream (when auth is on), all federating
-    // to the broker with the SAME client and differing only by the `idp` hint.
-    ...(grokOAuthPlugin ? [grokOAuthPlugin] : []),
-
-    telegramPlugin(),
+    // Email and password only. Google, VK and Telegram are not registered,
+    // so those sign-in routes do not exist.
 
     // Accept `Authorization: Bearer <session-token>` as an alternative to the
     // cookie. Needed for the LIVE PREVIEW: the app runs in an embedded iframe

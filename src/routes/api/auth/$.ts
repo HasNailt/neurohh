@@ -1,16 +1,26 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { maybeRewriteHandoff, redeemHandoff, startPublicGoogle } from "@/lib/auth/google-public.server";
 import { auth } from "@/lib/auth/server";
+
+function socialDisabled(): Response {
+  return new Response("Вход через соцсети отключён. Используйте email и пароль на сайте.", {
+    status: 410,
+    headers: { "content-type": "text/plain; charset=utf-8" },
+  });
+}
 
 async function handle(request: Request): Promise<Response> {
   const path = new URL(request.url).pathname;
-  if (path === "/api/auth/google") return startPublicGoogle(request);
-  if (path === "/api/auth/handoff") return redeemHandoff(request);
-  const response = await auth.handler(request);
-  if (request.method === "GET" && path.includes("/oauth2/callback/")) {
-    return maybeRewriteHandoff(request, response);
+  if (
+    path === "/api/auth/google" ||
+    path === "/api/auth/handoff" ||
+    path.includes("/oauth2/") ||
+    path.includes("/sign-in/social") ||
+    path.includes("/sign-in/telegram") ||
+    path.includes("/callback/vk")
+  ) {
+    return socialDisabled();
   }
-  return response;
+  return auth.handler(request);
 }
 
 export const Route = createFileRoute("/api/auth/$")({

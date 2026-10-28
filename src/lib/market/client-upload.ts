@@ -1,4 +1,3 @@
-import { getBearerToken } from "@/lib/auth/client";
 import { uploadMedia } from "@/lib/market/server";
 import { FILE_MAX, MAX_DIM, PREVIEW_MAX } from "@/lib/market/shared";
 
@@ -15,40 +14,41 @@ function readB64(file: File): Promise<string> {
   });
 }
 
-export async function pushFile(listingId: string, file: File, kind: "preview" | "file") {
-  const max = kind === "preview" ? PREVIEW_MAX : FILE_MAX;
-  if (file.size > max) {
-    throw new Error(kind === "preview" ? `«${file.name}» больше 2 МБ` : `«${file.name}» больше 4 МБ`);
-  }
+/** Reject a preview before a lot exists. Throws instead of uploading. */
+export async function checkPreviewFile(file: File): Promise<void> {
+  if (file.size > PREVIEW_MAX) throw new Error(`«${file.name}» больше 4 МБ`);
   if (file.size < 32) throw new Error("Файл пустой");
-  if (file.type.startsWith("image/")) {
-    const bmp = await createImageBitmap(file);
-    const { width, height } = bmp;
-    bmp.close();
-    if (width > MAX_DIM || height > MAX_DIM) {
-      throw new Error(`«${file.name}» больше ${MAX_DIM}×${MAX_DIM}`);
-    }
-  } else if (kind === "preview") {
+  if (file.type && !file.type.startsWith("image/")) {
     throw new Error("Превью — только PNG, JPG, WEBP или GIF");
+  }
+  let bmp: ImageBitmap;
+  try {
+    bmp = await createImageBitmap(file);
+  } catch {
+    throw new Error("Превью — только PNG, JPG, WEBP или GIF");
+  }
+  const { width, height } = bmp;
+  bmp.close();
+  if (width > MAX_DIM || height > MAX_DIM) {
+    throw new Error(`«${file.name}» больше ${MAX_DIM}×${MAX_DIM}`);
+  }
+}
+
+export async function pushFile(listingId: string, file: File, kind: "preview" | "file") {
+  if (kind === "preview") {
+    await checkPreviewFile(file);
+  } else {
+    if (file.size > FILE_MAX) throw new Error(`«${file.name}» больше 4 МБ`);
+    if (file.size < 32) throw new Error("Файл пустой");
+    if (file.type.startsWith("image/")) {
+      const bmp = await createImageBitmap(file);
+      const { width, height } = bmp;
+      bmp.close();
+      if (width > MAX_DIM || height > MAX_DIM) {
+        throw new Error(`«${file.name}» больше ${MAX_DIM}×${MAX_DIM}`);
+      }
+    }
   }
   const b64 = await readB64(file);
   await uploadMedia({ data: { listingId, kind, filename: file.name, b64 } });
-}
-
-export async function downloadMedia(id: string, filename: string) {
-  const token = getBearerToken();
-  const res = await fetch(`/api/media/${id}`, {
-    credentials: "same-origin",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) throw new Error("Файл недоступен");
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
 }

@@ -5,9 +5,9 @@ import { TagField } from "@/components/tag-field";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { pushFile } from "@/lib/market/client-upload";
-import { createListing } from "@/lib/market/server";
-import { DURATIONS, SNIPE_OPTIONS, errText } from "@/lib/market/shared";
+import { checkPreviewFile, pushFile } from "@/lib/market/client-upload";
+import { createListing, discardListing } from "@/lib/market/server";
+import { DURATIONS, MAX_PREVIEWS, SNIPE_OPTIONS, errText } from "@/lib/market/shared";
 
 export const Route = createFileRoute("/sell")({
   head: () => ({ meta: [{ title: "Новый лот — AdoptAI" }] }),
@@ -32,14 +32,37 @@ function SellForm() {
   const [antiSnipeMinutes, setAntiSnipeMinutes] = useState(3);
   const [tags, setTags] = useState<string[]>([]);
   const [previews, setPreviews] = useState<File[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+
+  async function onPickFiles(list: FileList | null, input: HTMLInputElement) {
+    const files = Array.from(list ?? []).slice(0, MAX_PREVIEWS);
+    if (files.length === 0) {
+      setPreviews([]);
+      setFileError(null);
+      return;
+    }
+    try {
+      for (const file of files) await checkPreviewFile(file);
+      setPreviews(files);
+      setFileError(null);
+    } catch (err) {
+      input.value = "";
+      setPreviews([]);
+      const message = errText(err);
+      setFileError(message);
+      toast.error(message);
+    }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setNote("");
+    let createdId: string | null = null;
     try {
+      for (const file of previews) await checkPreviewFile(file);
       const created = await createListing({
         data: {
           title,
@@ -53,18 +76,21 @@ function SellForm() {
           tags,
         },
       });
-      const queue = previews.map((file) => ({ file, kind: "preview" as const }));
-      for (let i = 0; i < queue.length; i += 1) {
-        setNote(`Файл ${i + 1} из ${queue.length}`);
-        await pushFile(created.id, queue[i].file, queue[i].kind);
+      createdId = created.id;
+      for (let i = 0; i < previews.length; i += 1) {
+        setNote(`Файл ${i + 1} из ${previews.length}`);
+        await pushFile(created.id, previews[i], "preview");
       }
-      toast.success("Лот на ленте");
-      await navigate({ to: "/lot/$id", params: { id: created.id } });
     } catch (err) {
-      toast.error(errText(err));
+      if (createdId) await discardListing({ data: createdId }).catch(() => undefined);
+      toast.error(createdId ? `${errText(err)} Лот не опубликован.` : errText(err));
       setBusy(false);
       setNote("");
+      return;
     }
+    toast.success("Лот на ленте");
+    if (!createdId) return;
+    await navigate({ to: "/lot/$id", params: { id: createdId } });
   }
 
   return (
@@ -72,6 +98,19 @@ function SellForm() {
       <div>
         <Kicker>new lot</Kicker>
         <h1 className="mt-2 font-display text-5xl leading-none">выставить.</h1>
+      </div>
+      <div className="border border-ink/30 bg-card p-4">
+        <p className="font-display text-2xl leading-none">Картинки</p>
+        <p className="mt-2 text-sm text-muted">До 4 файлов, каждый до 4 МБ, до 4000×4000. PNG, JPG, WEBP или GIF.</p>
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          multiple
+          className="mt-3 block w-full cursor-pointer text-sm text-foam file:mr-4 file:inline-flex file:min-h-11 file:cursor-pointer file:border-0 file:bg-wine file:px-4 file:py-2 file:font-medium file:text-foam"
+          onChange={(e) => void onPickFiles(e.target.files, e.currentTarget)}
+        />
+        {previews.length > 0 ? <p className="mt-2 font-mono text-xs text-muted">{previews.map((f) => f.name).join(", ")}</p> : null}
+        {fileError ? <p className="mt-2 text-sm">{fileError}</p> : null}
       </div>
       <label className="block text-sm">
         Название
@@ -135,17 +174,6 @@ function SellForm() {
         <p className="mb-2 text-sm">Теги</p>
         <TagField tags={tags} onChange={setTags} />
       </div>
-      <label className="block text-sm">
-        Превью, до 4 штук, до 2 МБ, до 4000×4000
-        <input
-          type="file"
-          accept="image/png,image/jpeg,image/webp,image/gif"
-          multiple
-          className="mt-2 block w-full text-sm"
-          onChange={(e) => setPreviews(Array.from(e.target.files ?? []).slice(0, 4))}
-        />
-      </label>
-      {previews.length > 0 ? <p className="font-mono text-xs text-muted">{previews.map((f) => f.name).join(", ")}</p> : null}
       {note ? <p className="font-mono text-xs">{note}</p> : null}
       <Button type="submit" variant="wine" disabled={busy}>
         {busy ? "Публикуем…" : "Опубликовать"}

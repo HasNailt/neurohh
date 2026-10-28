@@ -20,6 +20,12 @@ import { GROK_PROVIDERS } from "./providers";
  */
 export const authClient = createAuthClient({
   plugins: [genericOAuthClient()],
+  // A focus refetch that gets a null session replaces the in-memory user and
+  // the UI sends the visitor to sign-in. The cookie is the source of truth on
+  // the next real navigation; don't drop it just because the tab changed.
+  sessionOptions: {
+    refetchOnWindowFocus: false,
+  },
   fetchOptions: {
     onRequest(ctx) {
       const token = getBearerToken();

@@ -222,42 +222,46 @@ async function openDeal(sql: Sql, row: CloseRow): Promise<string | null> {
 }
 
 async function settle(sql: Sql) {
-  const closed = await sql<CloseRow>`
-    update listings
-    set status = case when current_bidder_id is null then 'ended' else 'sold' end,
-        winner_id = current_bidder_id,
-        updated_at = now()
-    where status = 'active' and kind = 'auction' and ends_at is not null and ends_at <= now()
-    returning id, title, seller_id, winner_id, coalesce(current_bid, price) as amount
-  `;
-  for (const row of closed) {
-    if (row.winner_id) {
-      await openDeal(sql, row);
-    } else {
-      await notify(
-        sql,
-        row.seller_id,
-        "auction_end",
-        "Аукцион завершён",
-        `«${row.title}» закрыт без ставок`,
-        `/lot/${row.id}`,
-      );
+  try {
+    const closed = await sql<CloseRow>`
+      update listings
+      set status = case when current_bidder_id is null then 'ended' else 'sold' end,
+          winner_id = current_bidder_id,
+          updated_at = now()
+      where status = 'active' and kind = 'auction' and ends_at is not null and ends_at <= now()
+      returning id, title, seller_id, winner_id, coalesce(current_bid, price) as amount
+    `;
+    for (const row of closed) {
+      if (row.winner_id) {
+        await openDeal(sql, row);
+      } else {
+        await notify(
+          sql,
+          row.seller_id,
+          "auction_end",
+          "Аукцион завершён",
+          `«${row.title}» закрыт без ставок`,
+          `/lot/${row.id}`,
+        );
+      }
     }
+    const missing = await sql<CloseRow>`
+      select l.id, l.title, l.seller_id, l.winner_id, coalesce(l.current_bid, l.price) as amount
+      from listings l
+      left join deals d on d.listing_id = l.id
+      where l.status = 'sold' and l.winner_id is not null and d.id is null
+    `;
+    for (const row of missing) await openDeal(sql, row);
+  } catch (err) {
+    console.error("[feed] settle failed", err);
   }
-  const missing = await sql<CloseRow>`
-    select l.id, l.title, l.seller_id, l.winner_id, coalesce(l.current_bid, l.price) as amount
-    from listings l
-    left join deals d on d.listing_id = l.id
-    where l.status = 'sold' and l.winner_id is not null and d.id is null
-  `;
-  for (const row of missing) await openDeal(sql, row);
 }
 
 const CARD_SQL = `
   l.id, l.title, l.kind, l.price, l.buy_now, l.current_bid, l.bid_count,
   l.ends_at, l.status, l.seller_id, l.winner_id, l.pinned,
   (select count(*)::int from listing_likes lk where lk.listing_id = l.id) as like_count,
-  p.handle as seller_handle, p.display_name as seller_name,
+  coalesce(p.handle, '') as seller_handle, coalesce(p.display_name, '') as seller_name,
   (
     select m.id from media m
     where m.listing_id = l.id and m.kind = 'preview'
@@ -362,7 +366,7 @@ export const listListings = createServerFn({ method: "GET" })
           : "order by l.created_at desc";
     const where = `
       from listings l
-      join profiles p on p.user_id = l.seller_id
+      left join profiles p on p.user_id = l.seller_id
       where l.status = 'active'
         and ($1::text = '' or l.title ilike $2 escape '\\' or l.blurb ilike $2 escape '\\')
         and ($3::text = '' or exists (
@@ -426,7 +430,7 @@ export const getListing = createServerFn({ method: "GET" })
     >(
       `select ${CARD_SQL}, l.blurb, l.anti_snipe_minutes, l.created_at
        from listings l
-       join profiles p on p.user_id = l.seller_id
+       left join profiles p on p.user_id = l.seller_id
        where l.id = $1`,
       [id],
     );
@@ -593,7 +597,7 @@ export const createListing = createServerFn({ method: "POST" })
     const profile = await ensureProfile(sql, context.userId);
     assertLive(profile);
     const id = crypto.randomUUID();
-    const interval = `${data.durationHours} hours`;
+    const hours = data.kind === "auction" ? data.durationHours : 0;
     await sql`
       insert into listings (
         id, seller_id, title, blurb, private_description, kind, price, buy_now,
@@ -608,7 +612,7 @@ export const createListing = createServerFn({ method: "POST" })
         ${data.price},
         ${data.buyNow},
         ${data.antiSnipeMinutes},
-        case when ${data.kind} = 'auction' then now() + ${interval}::interval else null end,
+        case when ${data.kind} = 'auction' then now() + (${hours} * interval '1 hour') else null end,
         'active'
       )
     `;
@@ -629,7 +633,7 @@ function parseUpload(input: unknown): UploadBody {
   if (typeof o.listingId !== "string" || !UUID_RE.test(o.listingId)) fail("Некорректный лот");
   if (o.kind !== "preview") fail("Полные файлы через площадку больше не принимаются");
   if (typeof o.filename !== "string" || typeof o.b64 !== "string") fail("Файл не прочитан");
-  if (o.b64.length > 8_000_000) fail("Файл больше лимита");
+  if (o.b64.length > 12_000_000) fail("Файл больше 4 МБ");
   return {
     listingId: o.listingId,
     kind: o.kind,
@@ -662,7 +666,7 @@ export const uploadMedia = createServerFn({ method: "POST" })
     if (!magic) fail("Формат не поддерживается. Нужны PNG, JPG, WEBP, GIF, ZIP или PSD.");
     const max = data.kind === "preview" ? PREVIEW_MAX : FILE_MAX;
     if (buf.length > max) {
-      fail(data.kind === "preview" ? "Превью больше 2 МБ" : "Файл больше 4 МБ");
+      fail(data.kind === "preview" ? "Превью больше 4 МБ" : "Файл больше 4 МБ");
     }
     if (data.kind === "preview" && !isRaster(magic)) fail("Превью — только PNG, JPG, WEBP или GIF");
     if (buf.length < 32) fail("Файл пустой");
@@ -768,6 +772,24 @@ export const cancelListing = createServerFn({ method: "POST" })
       returning id
     `;
     if (!updated[0]) fail("Нельзя снять лот, по которому уже есть ставки или он закрыт");
+    return { ok: true };
+  });
+
+/** Drop a lot that was inserted but then failed image checks. Never leaves it active. */
+export const discardListing = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((id: unknown) => {
+    if (typeof id !== "string" || !UUID_RE.test(id)) fail("Некорректный лот");
+    return id;
+  })
+  .handler(async ({ data: id, context }) => {
+    const sql = await getSql();
+    const updated = await sql`
+      delete from listings
+      where id = ${id} and seller_id = ${context.userId} and status = 'active' and bid_count = 0
+      returning id
+    `;
+    if (!updated[0]) fail("Лот уже нельзя отменить");
     return { ok: true };
   });
 
@@ -1054,7 +1076,7 @@ export const getPublicProfile = createServerFn({ method: "GET" })
     const items = await sql.query<CardRow>(
       `select ${CARD_SQL}
        from listings l
-       join profiles p on p.user_id = l.seller_id
+       left join profiles p on p.user_id = l.seller_id
        where l.seller_id = $1 and l.status in ('active', 'sold', 'ended')
        order by l.pinned desc, l.created_at desc
        limit 60`,
@@ -1622,7 +1644,7 @@ export const adminOverview = createServerFn({ method: "GET" })
     }>`
       select l.id, l.title, l.status, l.kind, p.handle
       from listings l
-      join profiles p on p.user_id = l.seller_id
+      left join profiles p on p.user_id = l.seller_id
       order by l.created_at desc
       limit 20
     `;
@@ -1869,7 +1891,7 @@ export const listRecommendations = createServerFn({ method: "GET" }).handler(asy
   const items = await sql.query<CardRow>(
     `select ${CARD_SQL}
      from listings l
-     join profiles p on p.user_id = l.seller_id
+     left join profiles p on p.user_id = l.seller_id
      where l.status = 'active' and l.kind = 'auction'
      order by (
        -ln(greatest(random(), 0.0000001))
@@ -1888,7 +1910,7 @@ export const listMine = createServerFn({ method: "GET" })
     const items = await sql.query<CardRow>(
       `select ${CARD_SQL}
        from listings l
-       join profiles p on p.user_id = l.seller_id
+       left join profiles p on p.user_id = l.seller_id
        where l.seller_id = $1 and l.status <> 'removed'
        order by (l.kind = 'auction') desc, l.pinned desc, l.created_at desc
        limit 80`,

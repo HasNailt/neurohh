@@ -1,30 +1,18 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
-import { toast } from "sonner";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
-import { GROK_PROVIDERS, authClient, signIn, signInTelegram } from "@/lib/auth/client";
+import { authClient } from "@/lib/auth/client";
 import { credentialHint } from "@/lib/auth/credential-hint";
 import { stageInvite } from "@/lib/auth/invite-gate";
 import { getLoginOptions } from "@/lib/auth/login-options";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { siteCallbackURL } from "@/lib/site";
 
 export const Route = createFileRoute("/login")({
   head: () => ({ meta: [{ title: "Вход — AdoptAI" }] }),
   component: LoginPage,
 });
 
-type TgUser = {
-  id: number;
-  first_name?: string;
-  last_name?: string;
-  username?: string;
-  photo_url?: string;
-  auth_date: number;
-  hash: string;
-};
-
-type LoginOptions = { vk: boolean; telegramBotId: string | null; requireInvite: boolean };
+type LoginOptions = { requireInvite: boolean };
 
 function mapAuth(message: string): string {
   if (/invite|инвайт/i.test(message)) return message;
@@ -32,7 +20,6 @@ function mapAuth(message: string): string {
   if (/invalid email or password/i.test(message)) return "Неверный email или пароль";
   if (/password/i.test(message) && /8|short|least|characters/i.test(message)) return "Пароль — минимум 8 символов";
   if (/invalid email/i.test(message)) return "Проверьте email";
-  if (/Telegram не настроен/i.test(message)) return "Вход через Telegram ещё не настроен на сервере";
   return message;
 }
 
@@ -47,7 +34,7 @@ function LoginPage() {
   useEffect(() => {
     void getLoginOptions()
       .then(setOptions)
-      .catch(() => setOptions({ vk: false, telegramBotId: null, requireInvite: false }));
+      .catch(() => setOptions({ requireInvite: false }));
   }, []);
 
   useEffect(() => {
@@ -100,58 +87,12 @@ function LoginPage() {
       if (/invalid email or password/i.test(message)) {
         const hint = await credentialHint({ data: { email: emailValue } }).catch(() => null);
         if (hint?.kind === "social") {
-          setError(`Для этого адреса пароль не задан. Войдите через ${hint.via}.`);
+          setError("Для этого адреса пароль не задан. Войдите по email, для которого задавали пароль на сайте.");
           setBusy(false);
           return;
         }
       }
       setError(mapAuth(message));
-      setBusy(false);
-    }
-  }
-
-  async function onTelegram() {
-    if (!options?.telegramBotId) {
-      toast.error("Нужен TELEGRAM_BOT_TOKEN. В BotFather укажите домен neurohh.ru.");
-      return;
-    }
-    setBusy(true);
-    try {
-      await stageIfNeeded(false);
-      await loadTelegramWidget();
-      const login = window.Telegram?.Login;
-      if (!login) throw new Error("Виджет Telegram не загрузился");
-      login.auth({ bot_id: options.telegramBotId }, (data) => {
-        if (!data) {
-          setBusy(false);
-          return;
-        }
-        void signInTelegram(data)
-          .catch((err) => {
-            toast.error(mapAuth(err instanceof Error ? err.message : "Не получилось"));
-            setBusy(false);
-          });
-      });
-    } catch (err) {
-      toast.error(mapAuth(err instanceof Error ? err.message : "Не получилось"));
-      setBusy(false);
-    }
-  }
-
-  async function onVk() {
-    if (!options?.vk) {
-      toast.error("Нужны VK_CLIENT_ID и VK_CLIENT_SECRET. Редирект: https://neurohh.ru/api/auth/oauth2/callback/vk");
-      return;
-    }
-    setBusy(true);
-    try {
-      await stageIfNeeded(false);
-      await signIn("vk", {
-        callbackURL: siteCallbackURL("/"),
-        errorCallbackURL: siteCallbackURL("/login"),
-      });
-    } catch (err) {
-      toast.error(mapAuth(err instanceof Error ? err.message : "Не получилось"));
       setBusy(false);
     }
   }
@@ -238,71 +179,8 @@ function LoginPage() {
               {busy ? "Секунду…" : mode === "up" ? "Создать аккаунт" : "Войти по email"}
             </Button>
           </form>
-          <details className="border border-ink/20 bg-card">
-            <summary className="cursor-pointer list-none px-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
-              Другие способы входа
-            </summary>
-            <div className="grid gap-2 border-t border-ink/15 p-3">
-              <Button type="button" variant="line" className="w-full" disabled={busy} onClick={() => void onTelegram()}>
-                Telegram
-              </Button>
-              <Button type="button" variant="line" className="w-full" disabled={busy} onClick={() => void onVk()}>
-                ВКонтакте
-              </Button>
-              {GROK_PROVIDERS.map((p) => (
-                <Button
-                  key={p.providerId}
-                  type="button"
-                  variant="line"
-                  className="w-full"
-                  disabled={busy}
-                  onClick={() => {
-                    setBusy(true);
-                    void stageIfNeeded(false)
-                      .then(() =>
-                        signIn(p.providerId, {
-                          callbackURL: siteCallbackURL("/"),
-                          errorCallbackURL: siteCallbackURL("/login"),
-                        }),
-                      )
-                      .catch((err) => {
-                        toast.error(mapAuth(err instanceof Error ? err.message : "Не получилось"));
-                        setBusy(false);
-                      });
-                  }}
-                >
-                  {p.label}
-                </Button>
-              ))}
-            </div>
-          </details>
         </>
       )}
     </div>
   );
-}
-
-function loadTelegramWidget(): Promise<void> {
-  if (window.Telegram?.Login) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "https://telegram.org/js/telegram-widget.js?22";
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Не удалось загрузить виджет Telegram"));
-    document.head.appendChild(script);
-  });
-}
-
-declare global {
-  interface Window {
-    Telegram?: {
-      Login?: {
-        auth: (
-          options: { bot_id: string; request_access?: string },
-          callback: (data: TgUser | false) => void,
-        ) => void;
-      };
-    };
-  }
 }
