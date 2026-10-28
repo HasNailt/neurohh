@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Syne", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-paper: #131211;
+  --color-ink: #ece7df;
+  --color-muted: #9c968c;
+  --color-wine: #8b2e4a;
+  --color-wine-deep: #6b1e3a;
+  --color-foam: #f4efe8;
+  --color-card: #1b1a18;
+  --color-soft: #262320;
+
+  --radius-sm: 0.125rem;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    min-height: 100vh;
+    background-color: var(--color-paper);
+    background-image:
+      linear-gradient(rgba(236, 231, 223, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(236, 231, 223, 0.045) 1px, transparent 1px);
+    background-size: 56px 56px;
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  ::selection {
+    background: var(--color-wine);
+    color: var(--color-foam);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-wine);
+    outline-offset: 2px;
+  }
+}
+
+.poster {
+  aspect-ratio: 3 / 4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
