@@ -1,22 +1,37 @@
 import { pendingMigrations } from "../../scripts/migration-plan.mjs";
+import {
+  isSupabaseUrl,
+  postgresPoolConfig,
+  resolveDatabaseUrl,
+} from "../../scripts/database-url.mjs";
 
 /** Which database backend is active. */
-export type DbSource = "neon" | "pglite";
+export type DbSource = "supabase" | "postgres" | "pglite";
 
-// An empty/whitespace DATABASE_URL (an easy misconfig in deploy UIs) must mean
-// "unset" — otherwise production would silently run on the PGLite fallback.
-const rawDatabaseUrl =
-  typeof process !== "undefined" ? process.env.DATABASE_URL : undefined;
+// Empty/whitespace URLs mean "unset". Supabase (when configured) wins over a
+// platform DATABASE_URL so a new deploy cannot swap in an empty database.
 const databaseUrl =
-  rawDatabaseUrl && rawDatabaseUrl.trim() ? rawDatabaseUrl : undefined;
+  typeof process !== "undefined" ? resolveDatabaseUrl() : undefined;
 
 /**
- * Active backend: real **Neon** when `DATABASE_URL` is set (deployed / configured
- * sandbox), otherwise a local embedded **PGLite** (Postgres compiled to WASM) so
- * the app has a working database even with nothing configured — the live preview
- * included. Swap in Neon later by just setting `DATABASE_URL`; no code changes.
+ * Active backend: Supabase or another Postgres when a connection string is set
+ * (deployed), otherwise embedded PGLite so the live preview still runs.
+ * Preview data is wiped on process restart; Supabase is not.
  */
-export const dbSource: DbSource = databaseUrl ? "neon" : "pglite";
+export const dbSource: DbSource = !databaseUrl
+  ? "pglite"
+  : isSupabaseUrl(databaseUrl)
+    ? "supabase"
+    : "postgres";
+
+if (typeof process !== "undefined" && typeof window === "undefined") {
+  const wantsSupabase = Boolean(process.env.SUPABASE_URL?.trim());
+  if (wantsSupabase && dbSource !== "supabase") {
+    console.error(
+      "[db] SUPABASE_URL is set, but there is no Supabase Postgres URI. Set SUPABASE_DB_URL to the connection string from Supabase → Database (or SUPABASE_DB_PASSWORD). Accounts and lots stay on the previous database until then.",
+    );
+  }
+}
 
 /**
  * Minimal shared SQL surface, satisfied by both Neon and PGLite. Both the
@@ -85,15 +100,14 @@ function toSql(run: Run): Sql {
   return sql;
 }
 
-function createNeonSql(): Promise<Sql> {
+function createPgSql(): Promise<Sql> {
   globalRef.__pgSqlPromise__ ??= (async () => {
-    // Regular Postgres driver: node-postgres (`pg`) — works directly with Neon's
-    // pooled endpoint. One pool per process; warm serverless instances reuse it.
     const { Pool, types } = await import("pg");
     types.setTypeParser(OID_INT8, Number);
     types.setTypeParser(OID_DATE, identity);
     types.setTypeParser(OID_INTERVAL, identity);
-    const pool = new Pool({ connectionString: databaseUrl });
+    if (!databaseUrl) throw new Error("Postgres URL is not configured");
+    const pool = new Pool(postgresPoolConfig(databaseUrl, 5));
     return toSql(async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);
       return res.rows as T[];
@@ -177,7 +191,7 @@ async function createSql(): Promise<Sql> {
         "or a server route loader, never from client code.",
     );
   }
-  return dbSource === "neon" ? createNeonSql() : createPgliteSql();
+  return dbSource === "pglite" ? createPgliteSql() : createPgSql();
 }
 
 /**

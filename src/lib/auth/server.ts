@@ -35,6 +35,7 @@ import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { getCookie } from "@tanstack/react-start/server";
 import { createHash, randomBytes } from "node:crypto";
 import { Pool } from "pg";
+import { postgresPoolConfig, resolveDatabaseUrl, sessionSecretMaterial } from "../../../scripts/database-url.mjs";
 import { ensureDbReady, getPglite } from "../db";
 import { emailAndPasswordEnabled } from "./email-password";
 import { hashPassword, verifyPassword } from "./password.server";
@@ -76,8 +77,11 @@ function previewAuthSecret(): string {
 function authSecret(): string {
   const fromEnv = env("BETTER_AUTH_SECRET");
   if (fromEnv) return fromEnv;
-  const db = env("DATABASE_URL");
-  if (db) return createHash("sha256").update(`neurohh-session-v1\0${db}`).digest("hex");
+  // SUPABASE_URL when set, else the database URI. Both are stable across
+  // deploys, so the signed session cookie still verifies after a republish
+  // and after the visitor switches tabs.
+  const material = sessionSecretMaterial();
+  if (material) return createHash("sha256").update(`neurohh-session-v1\0${material}`).digest("hex");
   return previewAuthSecret();
 }
 
@@ -203,22 +207,13 @@ const trustedOrigins: string[] = [
     : []),
 ];
 
-const databaseUrl = env("DATABASE_URL");
+const databaseUrl = resolveDatabaseUrl();
 
-// Real Postgres when `DATABASE_URL` is set (deployed apps), else the app's
-// embedded PGLite (preview) via a Kysely dialect — so Better Auth persists to the
-// SAME DB as app data, including email/password users. Both use the Better Auth
-// schema from `migrations/auth/0001_auth.sql`, copied into `migrations/` when
-// the app turns sign-in on.
+// Real Postgres (Supabase when configured, otherwise DATABASE_URL), else the
+// app's embedded PGLite — so Better Auth persists to the SAME database as lots,
+// bids, and chats. Email/password users live in this database too.
 const database = databaseUrl
-  ? new Pool({
-      connectionString: databaseUrl,
-      // One warm lambda should not open a pile of Neon connections.
-      max: 5,
-      idleTimeoutMillis: 20_000,
-      connectionTimeoutMillis: 15_000,
-      allowExitOnIdle: true,
-    })
+  ? new Pool(postgresPoolConfig(databaseUrl, 5))
   : { dialect: pgliteDialect(() => getPglite()), type: "postgres" as const };
 
 /** Session token cookie name — also read by the live-preview popup completion page. */

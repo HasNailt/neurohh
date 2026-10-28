@@ -1,4 +1,5 @@
 import { getRequest } from "@tanstack/react-start/server";
+import { resolveDatabaseUrl } from "../../../scripts/database-url.mjs";
 import { gateIdentityEnabled } from "./gate-identity.server";
 import { auth, authConfigured } from "./server";
 
@@ -12,8 +13,8 @@ import { auth, authConfigured } from "./server";
  * client-supplied user id — only the result of this verification.
  */
 
-/** True when a real database is configured server-side. */
-const databaseConfigured = Boolean(process.env.DATABASE_URL?.trim());
+/** True when a real database is configured server-side (Supabase or DATABASE_URL). */
+const databaseConfigured = Boolean(resolveDatabaseUrl());
 
 /** Re-export so callers can branch on it without importing `server.ts`. */
 export { authConfigured };
