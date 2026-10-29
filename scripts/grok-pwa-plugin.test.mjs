@@ -23,10 +23,10 @@ const TEMPLATE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 test("injects before </head>", () => {
   const out = injectGrokPwaHead("<html><head><title>x</title></head><body></body></html>");
-  assert.match(out, /rel="manifest"/);
-  assert.match(out, /apple-touch-icon/);
+  assert.doesNotMatch(out, /rel="manifest"/);
+  assert.doesNotMatch(out, /apple-touch-icon/);
   assert.doesNotMatch(out, /grok-app-builder\/extensions\.js/);
-  assert.ok(out.indexOf("manifest") < out.indexOf("</head>"));
+  assert.doesNotMatch(out, /fonts\.googleapis\.com/);
 });
 
 test("does not inject the extensions script", () => {
@@ -391,7 +391,7 @@ test("omits the extensions script when the deployer disables it", () => {
     assert.doesNotMatch(out, /grok-app-builder\/extensions\.js/);
     assert.match(out, /name="grok-project-id" content="proj-123"/);
     assert.match(out, /property="grok:app_id" content="proj-123"/);
-    assert.match(out, /rel="manifest"/);
+    assert.doesNotMatch(out, /rel="manifest"/);
     const twice = injectGrokPwaHead(out, { appName: "Demo", projectId: "proj-123" });
     assert.equal(out, twice);
   } finally {
@@ -445,8 +445,7 @@ test("streaming injector handles </head> split across chunks", () => {
     ...injector.push("ad><body>hello</body></html>"),
   ];
   const out = Buffer.concat(chunks).toString("utf8");
-  assert.match(out, /rel="manifest"/);
-  assert.ok(out.indexOf("manifest") < out.indexOf("</head>"));
+  assert.doesNotMatch(out, /\/__grok\/manifest/);
   assert.match(out, /<body>hello<\/body>/);
   assert.deepEqual(injector.flush(), []);
 });
@@ -462,7 +461,7 @@ test("streaming injector falls back when no </head> is seen", () => {
   const injector = createHeadInjector();
   assert.deepEqual(injector.push("<html><head>"), []);
   const out = Buffer.concat(injector.flush()).toString("utf8");
-  assert.match(out, /rel="manifest"/);
+  assert.doesNotMatch(out, /rel="manifest"/);
 });
 
 test("detects install query", () => {

@@ -1,7 +1,5 @@
 /**
- * Single source of truth for platform head chrome (PWA, OG).
- * extensions.js is never injected: that host is blocked for some visitors
- * and a third-party script must not sit on every page.
+ * Single source of truth for platform head chrome (PWA, extensions.js, OG),
  * shared by the Vite plugin and Nitro middleware. Plain ESM so `node --test`
  * and the Nitro bundler can both consume it.
  */
@@ -186,10 +184,6 @@ export function renderWebManifest(hostHeader) {
 
 export function grokPwaHeadTags(appName = DEFAULT_APP_NAME) {
   return [
-    // Standalone display comes from the manifest ("display": "standalone");
-    // the legacy *-web-app-capable metas it replaces are deliberately absent.
-    ["manifest", '<link rel="manifest" href="/__grok/manifest.webmanifest">'],
-    ["apple-touch-icon", '<link rel="apple-touch-icon" href="/__grok/icon-180.png">'],
     [
       "apple-mobile-web-app-title",
       `<meta name="apple-mobile-web-app-title" content="${escapeHtml(appName)}">`,
@@ -202,14 +196,15 @@ export function grokPwaHeadTags(appName = DEFAULT_APP_NAME) {
   ];
 }
 
+export const GROK_EXTENSIONS_SCRIPT_SRC = "https://grok.com/grok-app-builder/extensions.js";
+
 export function readGrokProjectId() {
   const fromProcess = typeof process !== "undefined" ? process.env?.VITE_PROJECT_ID : "";
   return String(fromProcess ?? "").trim();
 }
 
 export function readGrokExtensionsEnabled() {
-  // Permanently off. VITE_GROK_EXTENSIONS must not turn the script back on:
-  // grok.com is blocked for some visitors and stalls the page.
+  // grok.com is blocked for some visitors and must not sit on every page.
   return false;
 }
 
@@ -233,11 +228,20 @@ export function grokXCreatorHeadTags(creator = readXCreator(), creatorId = readX
   ];
 }
 
-/** Project id meta only. The grok.com extensions script is not allowed. */
+/** Platform "Created with Grok" banner — injected into every HTML document. */
 export function grokExtensionsHeadTags(projectId = readGrokProjectId()) {
   const id = escapeHtml(projectId);
-  if (!projectId) return [];
-  return [`<meta name="grok-project-id" content="${id}">`];
+  const tags = [];
+  if (projectId) {
+    tags.push(`<meta name="grok-project-id" content="${id}">`);
+  }
+  if (!readGrokExtensionsEnabled()) return tags;
+  tags.push(
+    `<script src="${GROK_EXTENSIONS_SCRIPT_SRC}"${
+      projectId ? ` data-project-id="${id}"` : ""
+    } defer></script>`,
+  );
+  return tags;
 }
 
 export function readOgSite(cwd = process.cwd()) {
@@ -373,6 +377,19 @@ export function grokOgHeadTags({
   return tags;
 }
 
+function stripBlockedHeadLinks(html) {
+  return String(html).replace(/<link\b[^>]*>/gi, (tag) => {
+    if (
+      /fonts\.googleapis\.com|fonts\.gstatic\.com|\/__grok\/manifest\.webmanifest|\/__grok\/icon-180\.png/i.test(
+        tag,
+      )
+    ) {
+      return "";
+    }
+    return tag;
+  });
+}
+
 function stripGrokExtensionsScript(html) {
   return String(html).replace(
     /<script\b[^>]*\bsrc\s*=\s*["'][^"']*\/grok-app-builder\/extensions\.js[^"']*["'][^>]*>\s*<\/script>/gi,
@@ -437,14 +454,10 @@ export function injectGrokPwaHead(html, ctx = {}) {
     host,
     documentTitle,
   );
-  let next = stripGrokExtensionsScript(stripShareMetaTags(html));
+  let next = stripBlockedHeadLinks(stripGrokExtensionsScript(stripShareMetaTags(html)));
 
   const missing = grokPwaHeadTags(appName)
-    .filter(([key]) => {
-      if (key === "manifest") return !next.includes('href="/__grok/manifest.webmanifest"');
-      if (key === "apple-touch-icon") return !next.includes('href="/__grok/icon-180.png"');
-      return !next.includes(`name="${key}"`);
-    })
+    .filter(([key]) => !next.includes(`name="${key}"`))
     .map(([, tag]) => tag);
 
   next = insertAfterHeadOpen(
@@ -452,8 +465,10 @@ export function injectGrokPwaHead(html, ctx = {}) {
     grokOgHeadTags({ host, appName, site, documentTitle, cwd }).join(""),
   );
 
-  if (projectId && !next.includes('name="grok-project-id"')) {
+  if (readGrokExtensionsEnabled() && !next.includes("/grok-app-builder/extensions.js")) {
     missing.push(...grokExtensionsHeadTags(projectId));
+  } else if (projectId && !next.includes('name="grok-project-id"')) {
+    missing.push(`<meta name="grok-project-id" content="${escapeHtml(projectId)}">`);
   }
   if (
     projectId &&
