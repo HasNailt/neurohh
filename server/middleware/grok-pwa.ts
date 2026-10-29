@@ -22,7 +22,6 @@ import {
   isDocumentPath,
   isInstallQuery,
   renderInstallPageHtml,
-  renderWebManifest,
 } from "../../scripts/grok-pwa-shared.mjs";
 
 interface GrokPwaEvent {
@@ -70,14 +69,8 @@ export default async function grokPwaMiddleware(
   const path = event.url.pathname;
   const urlWithQuery = path + event.url.search;
 
-  if (path === "/__grok/manifest.webmanifest" || path === "/__grok/manifest.json") {
-    return new Response(renderWebManifest(requestHost(event)), {
-      headers: {
-        "content-type": "application/manifest+json; charset=utf-8",
-        "cache-control": "no-cache",
-      },
-    });
-  }
+  // /__grok/* is not part of the public site. A plain 404 is applied by the
+  // static-assets middleware and by the Vercel route table.
 
   if (
     isInstallQuery(urlWithQuery) &&

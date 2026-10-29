@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   isSupabaseUrl,
+  postgresPoolConfig,
   resolveDatabaseUrl,
   resolveMigrationUrl,
   sessionSecretMaterial,
@@ -67,6 +68,33 @@ test("migrations prefer the non-pooling URI", () => {
     POSTGRES_URL_NON_POOLING: "postgresql://postgres:pw@db.abcdef.supabase.co:5432/postgres",
   });
   assert.match(url, /db\.abcdef\.supabase\.co/);
+});
+
+test("direct Supabase host is rewritten to the IPv4 pooler when the region is known", () => {
+  const url = resolveDatabaseUrl({
+    SUPABASE_DB_URL: "postgresql://postgres:pw@db.abcdef.supabase.co:5432/postgres",
+    SUPABASE_REGION: "eu-central-1",
+  });
+  assert.match(url, /postgres\.abcdef:pw@aws-0-eu-central-1\.pooler\.supabase\.com:5432/);
+  assert.match(url, /sslmode=require/);
+});
+
+test("transaction pooler port is rewritten to session mode", () => {
+  const url = resolveDatabaseUrl({
+    SUPABASE_DB_URL:
+      "postgresql://postgres.abcdef:pw@aws-0-eu-central-1.pooler.supabase.com:6543/postgres",
+  });
+  assert.match(url, /:5432\//);
+  assert.doesNotMatch(url, /:6543/);
+});
+
+test("the runtime pool stays small and times out instead of hanging", () => {
+  const pool = postgresPoolConfig(supabaseUri, 5);
+  assert.equal(pool.max, 2);
+  assert.equal(pool.connectionTimeoutMillis, 8_000);
+  assert.equal(pool.query_timeout, 10_000);
+  assert.equal(pool.allowExitOnIdle, true);
+  assert.equal(pool.keepAlive, true);
 });
 
 function withNoDoubleSsl(url) {

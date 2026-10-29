@@ -34,8 +34,8 @@ import { bearer } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { getCookie } from "@tanstack/react-start/server";
 import { createHash, randomBytes } from "node:crypto";
-import { Pool } from "pg";
-import { postgresPoolConfig, resolveDatabaseUrl, sessionSecretMaterial } from "../../../scripts/database-url.mjs";
+import { resolveDatabaseUrl, sessionSecretMaterial } from "../../../scripts/database-url.mjs";
+import { getSharedPool } from "../../../scripts/pg-pool.mjs";
 import { ensureDbReady, getPglite } from "../db";
 import { emailAndPasswordEnabled } from "./email-password";
 import { hashPassword, verifyPassword } from "./password.server";
@@ -215,7 +215,7 @@ const databaseUrl = resolveDatabaseUrl();
 // app's embedded PGLite — so Better Auth persists to the SAME database as lots,
 // bids, and chats. Email/password users live in this database too.
 const database = databaseUrl
-  ? new Pool(postgresPoolConfig(databaseUrl, 5))
+  ? getSharedPool()
   : { dialect: pgliteDialect(() => getPglite()), type: "postgres" as const };
 
 /** Session token cookie name — also read by the live-preview popup completion page. */

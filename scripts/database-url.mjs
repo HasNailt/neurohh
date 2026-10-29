@@ -85,29 +85,58 @@ function buildFromParts(env) {
   return `postgresql://postgres:${encodedPass}@db.${ref}.supabase.co:5432/postgres`;
 }
 
+/**
+ * db.<ref>.supabase.co is often IPv6-only. Vercel is IPv4, so that host
+ * hangs and the browser reports ERR_CONNECTION_RESET after ~30s. When the
+ * region is known, use the IPv4 session pooler instead. Port 6543 is
+ * transaction mode and breaks node-postgres prepared statements.
+ * @param {string} url
+ * @param {NodeJS.ProcessEnv} env
+ */
+export function rewriteSupabaseHost(url, env) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+  const direct = parsed.hostname.match(/^db\.([a-z0-9]+)\.supabase\.co$/i);
+  const region = read(env, "SUPABASE_REGION");
+  if (direct && region) {
+    const ref = direct[1];
+    if (decodeURIComponent(parsed.username) === "postgres") {
+      parsed.username = `postgres.${ref}`;
+    }
+    parsed.hostname = `aws-0-${region}.pooler.supabase.com`;
+    parsed.port = "5432";
+  } else if (/pooler\.supabase\.com$/i.test(parsed.hostname) && parsed.port === "6543") {
+    parsed.port = "5432";
+  } else {
+    return url;
+  }
+  return parsed.toString();
+}
+
 /** Runtime connection string. Supabase beats a platform DATABASE_URL. */
 /** @param {NodeJS.ProcessEnv} [env] */
 export function resolveDatabaseUrl(env = process.env) {
   const explicit = firstPostgres(env, ["SUPABASE_DB_URL", "SUPABASE_DATABASE_URL"]);
-  if (explicit) return withSslMode(explicit, true);
+  const built = explicit ? undefined : buildFromParts(env);
+  const postgresUrl =
+    explicit || built
+      ? undefined
+      : firstPostgres(env, ["POSTGRES_URL", "POSTGRES_PRISMA_URL", "POSTGRES_URL_NON_POOLING"]);
+  const databaseUrl = explicit || built || postgresUrl ? undefined : firstPostgres(env, ["DATABASE_URL"]);
 
-  const built = buildFromParts(env);
-  if (built) return withSslMode(built, true);
-
-  const postgresUrl = firstPostgres(env, [
-    "POSTGRES_URL",
-    "POSTGRES_PRISMA_URL",
-    "POSTGRES_URL_NON_POOLING",
-  ]);
-  if (postgresUrl && (isSupabaseUrl(postgresUrl) || read(env, "SUPABASE_URL"))) {
-    return withSslMode(postgresUrl, isSupabaseUrl(postgresUrl));
+  let chosen = explicit || built;
+  if (!chosen && postgresUrl && (isSupabaseUrl(postgresUrl) || read(env, "SUPABASE_URL"))) {
+    chosen = postgresUrl;
   }
-
-  const databaseUrl = firstPostgres(env, ["DATABASE_URL"]);
-  if (databaseUrl) return withSslMode(databaseUrl, isSupabaseUrl(databaseUrl));
-
-  if (postgresUrl) return withSslMode(postgresUrl, isSupabaseUrl(postgresUrl));
-  return undefined;
+  if (!chosen && databaseUrl) chosen = databaseUrl;
+  if (!chosen && postgresUrl) chosen = postgresUrl;
+  if (!chosen) return undefined;
+  const rewritten = rewriteSupabaseHost(chosen, env);
+  return withSslMode(rewritten, isSupabaseUrl(rewritten));
 }
 
 /** Migrations prefer a direct (non-pooled) URI when the host provides one. */
@@ -128,14 +157,20 @@ export function sessionSecretMaterial(env = process.env) {
 }
 
 /** @param {string} connectionString @param {number} [max] */
-export function postgresPoolConfig(connectionString, max = 5) {
+export function postgresPoolConfig(connectionString, max = 2) {
   const supabase = isSupabaseUrl(connectionString);
   return {
     connectionString: withSslMode(connectionString, supabase),
-    max,
-    idleTimeoutMillis: 20_000,
-    connectionTimeoutMillis: 15_000,
+    // Keep this tiny. Each Vercel isolate used to open 10 clients and the
+    // pooler then reset new connections after they waited half a minute.
+    max: Math.min(Math.max(max, 1), 2),
+    idleTimeoutMillis: 5_000,
+    connectionTimeoutMillis: 8_000,
+    query_timeout: 10_000,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
     allowExitOnIdle: true,
+    application_name: "adoptai",
     ...(supabase ? { ssl: { rejectUnauthorized: false } } : {}),
   };
 }

@@ -455,6 +455,15 @@ export function injectGrokPwaHead(html, ctx = {}) {
     documentTitle,
   );
   let next = stripBlockedHeadLinks(stripGrokExtensionsScript(stripShareMetaTags(html)));
+  if (!/http-equiv=["']Content-Security-Policy["']/i.test(next)) {
+    // Blocks https://grok.com/grok-app-builder/extensions.js even if an edge
+    // injector puts the tag back. That host does not open from Russia and
+    // leaves the page spinning.
+    next = insertAfterHeadOpen(
+      next,
+      `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'">`,
+    );
+  }
 
   const missing = grokPwaHeadTags(appName)
     .filter(([key]) => !next.includes(`name="${key}"`))

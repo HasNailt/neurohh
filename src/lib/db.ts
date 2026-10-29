@@ -1,9 +1,9 @@
 import { pendingMigrations } from "../../scripts/migration-plan.mjs";
 import {
   isSupabaseUrl,
-  postgresPoolConfig,
   resolveDatabaseUrl,
 } from "../../scripts/database-url.mjs";
+import { getSharedPool } from "../../scripts/pg-pool.mjs";
 
 /** Which database backend is active. */
 export type DbSource = "supabase" | "postgres" | "pglite";
@@ -101,14 +101,20 @@ function migrationSources(): Record<string, string> {
  */
 async function migratePostgres(pool: {
   connect: () => Promise<{
-    query: (text: string, params?: unknown[]) => Promise<{ rows: { name: string }[] }>;
+    query: (text: string, params?: unknown[]) => Promise<{ rows: { name: string; locked?: boolean }[] }>;
     release: () => void;
   }>;
 }): Promise<void> {
   const migrate = async (): Promise<void> => {
     const migrations = migrationSources();
     const client = await pool.connect();
+    let locked = false;
     try {
+      // One isolate migrates. The others must not wait on a lock until the
+      // gateway resets the request.
+      const lock = await client.query("select pg_try_advisory_lock(881122334) as locked");
+      locked = Boolean(lock.rows[0]?.locked);
+      if (!locked) return;
       await client.query(
         "create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now())",
       );
@@ -130,6 +136,13 @@ async function migratePostgres(pool: {
         }
       }
     } finally {
+      if (locked) {
+        try {
+          await client.query("select pg_advisory_unlock(881122334)");
+        } catch {
+          // The connection may already be dead.
+        }
+      }
       client.release();
     }
   };
@@ -158,12 +171,12 @@ function toSql(run: Run): Sql {
 
 function createPgSql(): Promise<Sql> {
   globalRef.__pgSqlPromise__ ??= (async () => {
-    const { Pool, types } = await import("pg");
+    const { types } = await import("pg");
     types.setTypeParser(OID_INT8, Number);
     types.setTypeParser(OID_DATE, identity);
     types.setTypeParser(OID_INTERVAL, identity);
     if (!databaseUrl) throw new Error("Postgres URL is not configured");
-    const pool = new Pool(postgresPoolConfig(databaseUrl, 5));
+    const pool = getSharedPool();
     await migratePostgres(pool);
     return toSql(async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);

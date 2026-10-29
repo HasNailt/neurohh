@@ -181,6 +181,11 @@ export default defineConfig(({ command, isPreview }) => ({
             preset: "vercel",
             // Source directory for server/middleware (PWA install page).
             serverDir: "./server",
+            vercel: {
+              // Pin document requests to this deployment so hashed /assets
+              // are not loaded from a newer deploy that no longer has them.
+              skewProtection: true,
+            },
             // Canonical Build Output API paths. Relative overrides can land
             // outside `.vercel/output` on Vercel, and the deploy then 404s
             // because functions/static/services are missing.
