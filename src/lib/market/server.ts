@@ -703,6 +703,10 @@ export const uploadMedia = createServerFn({ method: "POST" })
         ${buf.length}
       )
     `;
+    if (data.kind === "preview") {
+      const { storePreviewVariants } = await import("@/lib/image-variants.server");
+      await storePreviewVariants(sql, id, buf);
+    }
     return { id };
   });
 
@@ -2065,10 +2069,22 @@ export const uploadProfileImage = createServerFn({ method: "POST" })
     const cap = data.kind === "avatar" ? 2000 : MAX_DIM;
     if (size.width > cap || size.height > cap) fail(`Слишком большой кадр, максимум ${cap}px`);
     await sql`
-      insert into profile_images (user_id, kind, mime, data_b64)
-      values (${context.userId}, ${data.kind}, ${magic}, ${buf.toString("base64")})
-      on conflict (user_id, kind) do update set mime = excluded.mime, data_b64 = excluded.data_b64
+      insert into profile_images (user_id, kind, mime, data_b64, view_b64)
+      values (${context.userId}, ${data.kind}, ${magic}, ${buf.toString("base64")}, null)
+      on conflict (user_id, kind) do update
+        set mime = excluded.mime, data_b64 = excluded.data_b64, view_b64 = null
     `;
+    try {
+      const { webpFit } = await import("@/lib/image-variants.server");
+      const edge = data.kind === "avatar" ? 512 : 1400;
+      const webp = await webpFit(buf, edge, data.kind === "avatar" ? 76 : 78);
+      await sql`
+        update profile_images set view_b64 = ${webp.toString("base64")}
+        where user_id = ${context.userId} and kind = ${data.kind}
+      `;
+    } catch (err) {
+      console.error("[profile-image] variant skipped:", err instanceof Error ? err.message : err);
+    }
     return { ok: true };
   });
 

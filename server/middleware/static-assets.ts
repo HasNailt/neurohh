@@ -42,11 +42,17 @@ export default async function staticAssets(
   if (!(result instanceof Response)) return result;
   const type = result.headers.get("content-type") ?? "";
   if (!type.includes("text/html")) return result;
+  const html = await result.text();
+  const cleaned = html
+    .replace(/<script\b[^>]*grok-app-builder\/extensions\.js[^>]*>\s*<\/script>/gi, "")
+    .replace(/<link\b[^>]*\/__grok\/[^>]*>/gi, "")
+    .replace(/<link\b[^>]*fonts\.googleapis\.com[^>]*>/gi, "")
+    .replace(/<link\b[^>]*fonts\.gstatic\.com[^>]*>/gi, "");
   const headers = new Headers(result.headers);
   headers.set("content-security-policy", CSP);
   headers.set("cache-control", "private, no-cache, must-revalidate");
   headers.delete("content-length");
-  return new Response(result.body, {
+  return new Response(cleaned, {
     status: result.status,
     statusText: result.statusText,
     headers,

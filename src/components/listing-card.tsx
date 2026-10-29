@@ -14,6 +14,33 @@ function LiveLeft({ endsAt }: { endsAt: string }) {
   return <span className="tabular-nums">{text}</span>;
 }
 
+function CardPreview({ id, title }: { id: string; title: string }) {
+  const [attempt, setAttempt] = useState(0);
+  const [dead, setDead] = useState(false);
+  const letter = (title.trim()[0] || "A").toLocaleUpperCase("ru");
+  if (dead) {
+    return (
+      <div className="grid h-full place-items-center bg-wine-deep">
+        <span className="font-display text-7xl leading-none text-foam">{letter}</span>
+      </div>
+    );
+  }
+  const src = `/api/media/${id}?s=card${attempt ? `&n=${attempt}` : ""}`;
+  return (
+    <img
+      src={src}
+      alt={title}
+      loading="lazy"
+      decoding="async"
+      className="h-full w-full object-cover"
+      onError={() => {
+        if (attempt < 2) window.setTimeout(() => setAttempt((n) => n + 1), 700);
+        else setDead(true);
+      }}
+    />
+  );
+}
+
 export function ListingCardView({ item, showPrice = true }: { item: ListingCard; showPrice?: boolean }) {
   const price = item.kind === "auction" ? (item.currentBid ?? item.price) : item.price;
   const letter = (item.title.trim()[0] || "A").toLocaleUpperCase("ru");
@@ -23,7 +50,7 @@ export function ListingCardView({ item, showPrice = true }: { item: ListingCard;
         <Frame>
           <div className="poster relative overflow-hidden bg-soft">
             {item.previewId ? (
-              <img src={`/api/media/${item.previewId}`} alt={item.title} className="h-full w-full object-cover" />
+              <CardPreview id={item.previewId} title={item.title} />
             ) : (
               <div className="grid h-full place-items-center bg-wine-deep">
                 <span className="font-display text-7xl leading-none text-foam">{letter}</span>

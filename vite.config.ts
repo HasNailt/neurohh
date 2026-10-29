@@ -157,6 +157,9 @@ export default defineConfig(({ command, isPreview }) => ({
     strictPort: true,
   },
   resolve: { tsconfigPaths: true },
+  ssr: {
+    external: ["sharp"],
+  },
   // Bake deploy-time broker credentials into the server bundle. The runtime
   // function often does not see GROK_AUTH_* (build-only injection); a dynamic
   // process.env read then falls back to the sandbox client and auth.grok.me
@@ -181,6 +184,9 @@ export default defineConfig(({ command, isPreview }) => ({
             preset: "vercel",
             // Source directory for server/middleware (PWA install page).
             serverDir: "./server",
+            // sharp is a native module. Trace it into the function instead of
+            // bundling the binary, or image responses crash on Vercel.
+            traceDeps: ["sharp"],
             vercel: {
               // Pin document requests to this deployment so hashed /assets
               // are not loaded from a newer deploy that no longer has them.

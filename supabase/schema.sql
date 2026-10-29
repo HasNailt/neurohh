@@ -399,6 +399,11 @@ where u.email <> lower(u.email)
     where other.id <> u.id and lower(other.email) = lower(u.email)
   );
 
+-- Small display copies. Original uploads stay in data_b64 and are not sent to the feed.
+alter table media add column if not exists card_b64 text;
+alter table media add column if not exists view_b64 text;
+alter table profile_images add column if not exists view_b64 text;
+
 insert into _migrations (name) values
   ('0001_auth.sql'),
   ('0002_marketplace.sql'),
@@ -409,5 +414,6 @@ insert into _migrations (name) values
   ('0007_email_lower.sql'),
   ('0008_auth_handoff.sql'),
   ('0009_supabase_lockdown.sql'),
-  ('0010_credential_password.sql')
+  ('0010_credential_password.sql'),
+  ('0011_media_thumbs.sql')
 on conflict (name) do nothing;

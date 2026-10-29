@@ -40,7 +40,7 @@ function DealsPage() {
                 <Frame>
                   <div className="flex items-center gap-3 bg-card p-3">
                     {deal.previewId ? (
-                      <img src={`/api/media/${deal.previewId}`} alt="" className="h-16 w-12 object-cover" />
+                      <img src={`/api/media/${deal.previewId}?s=card`} alt="" className="h-16 w-12 object-cover" loading="lazy" decoding="async" />
                     ) : (
                       <span className="grid h-16 w-12 place-items-center bg-wine-deep font-display text-foam">{deal.title.slice(0, 1)}</span>
                     )}

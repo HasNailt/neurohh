@@ -476,13 +476,13 @@ function Gallery({ lot }: { lot: ListingDetail }) {
   return (
     <div className="space-y-2">
       <Frame>
-        <img src={`/api/media/${active}`} alt={lot.title} className="max-h-[70vh] w-full bg-soft object-contain" />
+        <img src={`/api/media/${active}?s=view`} alt={lot.title} className="max-h-[70vh] w-full bg-soft object-contain" decoding="async" />
       </Frame>
       {lot.previews.length > 1 ? (
         <div className="flex gap-2 overflow-x-auto">
           {lot.previews.map((p) => (
             <button key={p.id} type="button" onClick={() => setActive(p.id)} className={p.id === active ? "border-2 border-ink" : "border border-ink/20"}>
-              <img src={`/api/media/${p.id}`} alt="" className="h-16 w-14 object-cover" />
+              <img src={`/api/media/${p.id}?s=card`} alt="" className="h-16 w-14 object-cover" loading="lazy" decoding="async" />
             </button>
           ))}
         </div>

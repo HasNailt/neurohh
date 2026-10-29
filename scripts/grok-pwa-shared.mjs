@@ -192,7 +192,7 @@ export function grokPwaHeadTags(appName = DEFAULT_APP_NAME) {
       "apple-mobile-web-app-status-bar-style",
       '<meta name="apple-mobile-web-app-status-bar-style" content="black">',
     ],
-    ["theme-color", '<meta name="theme-color" content="#000000">'],
+    ["theme-color", '<meta name="theme-color" content="#131211">'],
   ];
 }
 
@@ -204,7 +204,6 @@ export function readGrokProjectId() {
 }
 
 export function readGrokExtensionsEnabled() {
-  // grok.com is blocked for some visitors and must not sit on every page.
   return false;
 }
 
@@ -228,19 +227,13 @@ export function grokXCreatorHeadTags(creator = readXCreator(), creatorId = readX
   ];
 }
 
-/** Platform "Created with Grok" banner — injected into every HTML document. */
+/** Platform project id only. The extensions.js loader is never added. */
 export function grokExtensionsHeadTags(projectId = readGrokProjectId()) {
   const id = escapeHtml(projectId);
   const tags = [];
   if (projectId) {
     tags.push(`<meta name="grok-project-id" content="${id}">`);
   }
-  if (!readGrokExtensionsEnabled()) return tags;
-  tags.push(
-    `<script src="${GROK_EXTENSIONS_SCRIPT_SRC}"${
-      projectId ? ` data-project-id="${id}"` : ""
-    } defer></script>`,
-  );
   return tags;
 }
 
@@ -377,19 +370,6 @@ export function grokOgHeadTags({
   return tags;
 }
 
-function stripBlockedHeadLinks(html) {
-  return String(html).replace(/<link\b[^>]*>/gi, (tag) => {
-    if (
-      /fonts\.googleapis\.com|fonts\.gstatic\.com|\/__grok\/manifest\.webmanifest|\/__grok\/icon-180\.png/i.test(
-        tag,
-      )
-    ) {
-      return "";
-    }
-    return tag;
-  });
-}
-
 function stripGrokExtensionsScript(html) {
   return String(html).replace(
     /<script\b[^>]*\bsrc\s*=\s*["'][^"']*\/grok-app-builder\/extensions\.js[^"']*["'][^>]*>\s*<\/script>/gi,
@@ -454,19 +434,15 @@ export function injectGrokPwaHead(html, ctx = {}) {
     host,
     documentTitle,
   );
-  let next = stripBlockedHeadLinks(stripGrokExtensionsScript(stripShareMetaTags(html)));
-  if (!/http-equiv=["']Content-Security-Policy["']/i.test(next)) {
-    // Blocks https://grok.com/grok-app-builder/extensions.js even if an edge
-    // injector puts the tag back. That host does not open from Russia and
-    // leaves the page spinning.
-    next = insertAfterHeadOpen(
-      next,
-      `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'">`,
-    );
-  }
+  let next = stripShareMetaTags(html);
+  if (!readGrokExtensionsEnabled()) next = stripGrokExtensionsScript(next);
 
   const missing = grokPwaHeadTags(appName)
-    .filter(([key]) => !next.includes(`name="${key}"`))
+    .filter(([key]) => {
+      if (key === "manifest") return !next.includes('href="/__grok/manifest.webmanifest"');
+      if (key === "apple-touch-icon") return !next.includes('href="/__grok/icon-180.png"');
+      return !next.includes(`name="${key}"`);
+    })
     .map(([, tag]) => tag);
 
   next = insertAfterHeadOpen(
