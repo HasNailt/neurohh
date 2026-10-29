@@ -63,6 +63,7 @@ const globalRef = globalThis as typeof globalThis & {
   __pgSqlPromise__?: Promise<Sql>;
   __pgliteInstance__?: Promise<import("@electric-sql/pglite").PGlite>;
   __pgliteMigrateChain__?: Promise<void>;
+  __pgMigrateChain__?: Promise<void>;
 };
 
 /**
@@ -83,6 +84,61 @@ const OID_INTERVAL = 1186;
 const identity = (v: string) => v;
 
 type Run = <T>(text: string, params: unknown[]) => Promise<T[]>;
+
+/** SQL files in migrations/ (not migrations/auth). Inlined by the bundler. */
+function migrationSources(): Record<string, string> {
+  return import.meta.glob("/migrations/*.sql", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>;
+}
+
+/**
+ * Apply pending migrations/*.sql once. Build-time migrate only sees env vars
+ * present during `npm run build`; a runtime-only SUPABASE_DB_URL used to leave
+ * Postgres with auth tables and no `listings`.
+ */
+async function migratePostgres(pool: {
+  connect: () => Promise<{
+    query: (text: string, params?: unknown[]) => Promise<{ rows: { name: string }[] }>;
+    release: () => void;
+  }>;
+}): Promise<void> {
+  const migrate = async (): Promise<void> => {
+    const migrations = migrationSources();
+    const client = await pool.connect();
+    try {
+      await client.query(
+        "create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now())",
+      );
+      const doneRows = await client.query("select name from _migrations");
+      const done = doneRows.rows.map((r) => r.name);
+      for (const { name, path } of pendingMigrations(Object.keys(migrations), done)) {
+        try {
+          await client.query("begin");
+          await client.query(migrations[path]);
+          await client.query("insert into _migrations (name) values ($1)", [name]);
+          await client.query("commit");
+        } catch (err) {
+          try {
+            await client.query("rollback");
+          } catch {
+            // The connection may already be dead.
+          }
+          throw err;
+        }
+      }
+    } finally {
+      client.release();
+    }
+  };
+  const pass = (globalRef.__pgMigrateChain__ ?? Promise.resolve())
+    .catch(() => undefined)
+    .then(migrate);
+  globalRef.__pgMigrateChain__ = pass;
+  await pass;
+}
 
 /** Wrap a query runner in the tagged-template + `.query()` `Sql` surface. */
 function toSql(run: Run): Sql {
@@ -108,6 +164,7 @@ function createPgSql(): Promise<Sql> {
     types.setTypeParser(OID_INTERVAL, identity);
     if (!databaseUrl) throw new Error("Postgres URL is not configured");
     const pool = new Pool(postgresPoolConfig(databaseUrl, 5));
+    await migratePostgres(pool);
     return toSql(async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);
       return res.rows as T[];
@@ -152,11 +209,7 @@ async function createPgliteSql(): Promise<Sql> {
   // passes serialized on a global chain so concurrent callers never
   // double-apply.
   const migrate = async (): Promise<void> => {
-    const migrations = import.meta.glob("/migrations/*.sql", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }) as Record<string, string>;
+    const migrations = migrationSources();
     const doneRows = await pg.query<{ name: string }>(
       "select name from _migrations",
     );
