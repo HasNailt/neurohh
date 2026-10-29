@@ -26,7 +26,7 @@ function SellForm() {
   const [title, setTitle] = useState("");
   const [blurb, setBlurb] = useState("");
   const [kind, setKind] = useState<"fixed" | "auction">("auction");
-  const [price, setPrice] = useState("1500");
+  const [price, setPrice] = useState("");
   const [buyNow, setBuyNow] = useState("");
   const [durationHours, setDurationHours] = useState(24);
   const [antiSnipeMinutes, setAntiSnipeMinutes] = useState(3);
