@@ -139,6 +139,7 @@ export type ListingCard = {
   sellerHandle: string;
   sellerName: string;
   previewId: string | null;
+  previewSrc: string | null;
   tags: Tag[];
 };
 
@@ -161,7 +162,7 @@ export type ListingDetail = ListingCard & {
   winnerId: string | null;
   antiSnipeMinutes: number;
   createdAt: string;
-  previews: { id: string }[];
+  previews: { id: string; src: string | null; card: string | null }[];
   bids: BidRow[];
   dealId: string | null;
   privateDescription: string | null;

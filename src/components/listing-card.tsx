@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { PreviewImg } from "@/components/preview-img";
 import { Frame } from "@/components/ui-bits";
 import { formatLeft, formatPrice, type ListingCard } from "@/lib/market/shared";
 
@@ -14,33 +15,6 @@ function LiveLeft({ endsAt }: { endsAt: string }) {
   return <span className="tabular-nums">{text}</span>;
 }
 
-function CardPreview({ id, title }: { id: string; title: string }) {
-  const [attempt, setAttempt] = useState(0);
-  const [dead, setDead] = useState(false);
-  const letter = (title.trim()[0] || "A").toLocaleUpperCase("ru");
-  if (dead) {
-    return (
-      <div className="grid h-full place-items-center bg-wine-deep">
-        <span className="font-display text-7xl leading-none text-foam">{letter}</span>
-      </div>
-    );
-  }
-  const src = `/api/media/${id}?s=card${attempt ? `&n=${attempt}` : ""}`;
-  return (
-    <img
-      src={src}
-      alt={title}
-      loading="lazy"
-      decoding="async"
-      className="h-full w-full object-cover"
-      onError={() => {
-        if (attempt < 2) window.setTimeout(() => setAttempt((n) => n + 1), 700);
-        else setDead(true);
-      }}
-    />
-  );
-}
-
 export function ListingCardView({ item, showPrice = true }: { item: ListingCard; showPrice?: boolean }) {
   const price = item.kind === "auction" ? (item.currentBid ?? item.price) : item.price;
   const letter = (item.title.trim()[0] || "A").toLocaleUpperCase("ru");
@@ -49,8 +23,18 @@ export function ListingCardView({ item, showPrice = true }: { item: ListingCard;
       <Link to="/lot/$id" params={{ id: item.id }} className="block">
         <Frame>
           <div className="poster relative overflow-hidden bg-soft">
-            {item.previewId ? (
-              <CardPreview id={item.previewId} title={item.title} />
+            {item.previewId || item.previewSrc ? (
+              <PreviewImg
+                id={item.previewId}
+                src={item.previewSrc}
+                alt={item.title}
+                className="h-full w-full object-cover"
+                fallback={
+                  <div className="grid h-full place-items-center bg-wine-deep">
+                    <span className="font-display text-7xl leading-none text-foam">{letter}</span>
+                  </div>
+                }
+              />
             ) : (
               <div className="grid h-full place-items-center bg-wine-deep">
                 <span className="font-display text-7xl leading-none text-foam">{letter}</span>

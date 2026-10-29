@@ -268,6 +268,17 @@ const CARD_SQL = `
     order by m.created_at asc
     limit 1
   ) as preview_id,
+  (
+    select case
+      when m.card_b64 is not null and length(m.card_b64) < 400000 then 'image/jpeg|' || m.card_b64
+      when m.view_b64 is not null and length(m.view_b64) < 400000 then 'image/jpeg|' || m.view_b64
+      else null
+    end
+    from media m
+    where m.listing_id = l.id and m.kind = 'preview'
+    order by m.created_at asc
+    limit 1
+  ) as preview_inline,
   coalesce((
     select json_agg(json_build_object('slug', t.slug, 'label', t.label) order by t.label)
     from listing_tags lt
@@ -291,10 +302,21 @@ type CardRow = {
   seller_handle: string;
   seller_name: string;
   preview_id: string | null;
+  preview_inline: string | null;
   tags: unknown;
   like_count: number;
   pinned: boolean;
 };
+
+function inlineImage(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const cut = value.indexOf("|");
+  if (cut < 6) return null;
+  const mime = value.slice(0, cut);
+  const b64 = value.slice(cut + 1);
+  if (!mime.startsWith("image/") || b64.length < 32) return null;
+  return `data:${mime};base64,${b64}`;
+}
 
 function mapCard(row: CardRow): ListingCard {
   return {
@@ -314,6 +336,7 @@ function mapCard(row: CardRow): ListingCard {
     sellerHandle: row.seller_handle,
     sellerName: row.seller_name,
     previewId: row.preview_id,
+    previewSrc: inlineImage(row.preview_inline),
     tags: asTags(row.tags),
   };
 }
@@ -446,8 +469,11 @@ export const getListing = createServerFn({ method: "GET" })
     }
     if (row.status === "removed" && !isSeller && !staff) return null;
 
-    const previews = await sql<{ id: string }>`
-      select id from media where listing_id = ${id} and kind = 'preview' order by created_at asc
+    const previews = await sql<{ id: string; card_b64: string | null; view_b64: string | null }>`
+      select id, card_b64, view_b64
+      from media
+      where listing_id = ${id} and kind = 'preview'
+      order by created_at asc
     `;
     const bids = await sql<{ id: string; amount: number; handle: string; created_at: unknown }>`
       select b.id, b.amount, p.handle, b.created_at
@@ -504,7 +530,11 @@ export const getListing = createServerFn({ method: "GET" })
       winnerId: row.winner_id,
       antiSnipeMinutes: num(row.anti_snipe_minutes),
       createdAt: iso(row.created_at),
-      previews: previews.map((p) => ({ id: p.id })),
+      previews: previews.map((p) => ({
+        id: p.id,
+        src: p.view_b64 ? `data:image/jpeg;base64,${p.view_b64}` : p.card_b64 ? `data:image/jpeg;base64,${p.card_b64}` : null,
+        card: p.card_b64 ? `data:image/jpeg;base64,${p.card_b64}` : null,
+      })),
       bids: bidRows,
       dealId,
       privateDescription,
@@ -625,6 +655,7 @@ type UploadBody = {
   kind: "preview" | "file";
   filename: string;
   b64: string;
+  cardB64: string | null;
 };
 
 function parseUpload(input: unknown): UploadBody {
@@ -634,13 +665,38 @@ function parseUpload(input: unknown): UploadBody {
   if (o.kind !== "preview") fail("Полные файлы через площадку больше не принимаются");
   if (typeof o.filename !== "string" || typeof o.b64 !== "string") fail("Файл не прочитан");
   if (o.b64.length > 12_000_000) fail("Файл больше 4 МБ");
+  let cardB64: string | null = null;
+  if (typeof o.cardB64 === "string") {
+    const cleaned = o.cardB64.replace(/^data:[^,]*,/, "").replace(/\s/g, "");
+    if (cleaned.length > 80 && cleaned.length < 700_000) cardB64 = cleaned;
+  }
   return {
     listingId: o.listingId,
     kind: o.kind,
     filename: o.filename,
     b64: o.b64.replace(/^data:[^,]*,/, "").replace(/\s/g, ""),
+    cardB64,
   };
 }
+
+export const imageData = createServerFn({ method: "POST" })
+  .validator((input: unknown) => {
+    if (!input || typeof input !== "object") fail("Нет изображения");
+    const id = (input as { id?: unknown }).id;
+    const variant = (input as { variant?: unknown }).variant;
+    if (typeof id !== "string" || !UUID_RE.test(id)) fail("Некорректный файл");
+    return { id, variant: variant === "view" ? ("view" as const) : ("card" as const) };
+  })
+  .handler(async ({ data }): Promise<{ src: string | null }> => {
+    try {
+      const { resolvePreview } = await import("@/lib/market/preview-store");
+      const sql = await getSql();
+      return { src: await resolvePreview(sql, data.id, data.variant) };
+    } catch (err) {
+      console.error("[image]", err instanceof Error ? err.message : err);
+      return { src: null };
+    }
+  });
 
 export const uploadMedia = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -689,8 +745,26 @@ export const uploadMedia = createServerFn({ method: "POST" })
 
     const filename = data.filename.replace(/[^\p{L}\p{N}._\- ()]+/gu, "_").slice(0, 80) || "file";
     const id = crypto.randomUUID();
+    let cardB64: string | null = null;
+    if (data.cardB64) {
+      const card = Buffer.from(data.cardB64, "base64");
+      if (card.length > 32 && card.length < 400_000 && card[0] === 0xff && card[1] === 0xd8) {
+        cardB64 = card.toString("base64");
+      }
+    }
+    let viewB64: string | null = null;
+    if (data.kind === "preview") {
+      try {
+        const { thumbsFromOriginal } = await import("@/lib/market/preview-store");
+        const made = thumbsFromOriginal(buf, magic);
+        cardB64 = cardB64 ?? made.card;
+        viewB64 = made.view;
+      } catch (err) {
+        console.error("[upload] thumb", err instanceof Error ? err.message : err);
+      }
+    }
     await sql`
-      insert into media (id, listing_id, kind, filename, mime, data_b64, width, height, size_bytes)
+      insert into media (id, listing_id, kind, filename, mime, data_b64, card_b64, view_b64, width, height, size_bytes)
       values (
         ${id},
         ${data.listingId},
@@ -698,15 +772,13 @@ export const uploadMedia = createServerFn({ method: "POST" })
         ${filename},
         ${magic},
         ${buf.toString("base64")},
+        ${cardB64},
+        ${viewB64},
         ${width},
         ${height},
         ${buf.length}
       )
     `;
-    if (data.kind === "preview") {
-      const { storePreviewVariants } = await import("@/lib/image-variants.server");
-      await storePreviewVariants(sql, id, buf);
-    }
     return { id };
   });
 
@@ -2069,22 +2141,11 @@ export const uploadProfileImage = createServerFn({ method: "POST" })
     const cap = data.kind === "avatar" ? 2000 : MAX_DIM;
     if (size.width > cap || size.height > cap) fail(`Слишком большой кадр, максимум ${cap}px`);
     await sql`
-      insert into profile_images (user_id, kind, mime, data_b64, view_b64)
-      values (${context.userId}, ${data.kind}, ${magic}, ${buf.toString("base64")}, null)
+      insert into profile_images (user_id, kind, mime, data_b64)
+      values (${context.userId}, ${data.kind}, ${magic}, ${buf.toString("base64")})
       on conflict (user_id, kind) do update
-        set mime = excluded.mime, data_b64 = excluded.data_b64, view_b64 = null
+        set mime = excluded.mime, data_b64 = excluded.data_b64
     `;
-    try {
-      const { webpFit } = await import("@/lib/image-variants.server");
-      const edge = data.kind === "avatar" ? 512 : 1400;
-      const webp = await webpFit(buf, edge, data.kind === "avatar" ? 76 : 78);
-      await sql`
-        update profile_images set view_b64 = ${webp.toString("base64")}
-        where user_id = ${context.userId} and kind = ${data.kind}
-      `;
-    } catch (err) {
-      console.error("[profile-image] variant skipped:", err instanceof Error ? err.message : err);
-    }
     return { ok: true };
   });
 

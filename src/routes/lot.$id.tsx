@@ -1,440 +1,347 @@
 import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Button, Frame, Kicker, StatusChip, fieldClass } from "@/components/ui-bits";
+import { PreviewImg } from "@/components/preview-img";
+import { Button, fieldClass, Frame, Kicker, StatusChip } from "@/components/ui-bits";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
   addListingComment,
   buyFixed,
   buyNow,
-  cancelListing,
-  deleteListingComment,
   getListing,
-  getMe,
   placeBid,
   reportListing,
   toggleLike,
 } from "@/lib/market/server";
-import {
-  UUID_RE,
-  errText,
-  formatPrice,
-  formatWhen,
-  isStaff,
-  type ListingDetail,
-  type Me,
-} from "@/lib/market/shared";
+import { errText, formatPrice, formatWhen, type ListingDetail } from "@/lib/market/shared";
 
 export const Route = createFileRoute("/lot/$id")({
-  loader: async ({ params }) => {
-    if (!UUID_RE.test(params.id)) return null;
-    return getListing({ data: params.id });
-  },
+  loader: ({ params }) => getListing({ data: params.id }),
   head: ({ loaderData }) => ({
-    meta: [{ title: loaderData?.title ? `${loaderData.title} — AdoptAI` : "Лот — AdoptAI" }],
+    meta: [{ title: loaderData ? `${loaderData.title} — AdoptAI` : "Лот — AdoptAI" }],
   }),
   component: LotPage,
 });
 
 function LotPage() {
-  const initial = Route.useLoaderData();
-  const { id } = Route.useParams();
-  const router = useRouter();
-  const navigate = useNavigate();
-  const { user } = useCurrentUserState();
-  const [lot, setLot] = useState<ListingDetail | null>(initial);
-  const [missing, setMissing] = useState(initial == null);
-  const [amount, setAmount] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [armed, setArmed] = useState<"buy" | "now" | "cancel" | null>(null);
-  const [reason, setReason] = useState("");
-
-  useEffect(() => {
-    setLot(initial);
-    setMissing(initial == null);
-  }, [initial]);
-
-  useEffect(() => {
-    if (!lot || lot.kind !== "auction" || lot.status !== "active") return;
-    const timer = window.setInterval(() => {
-      void getListing({ data: id }).then((next) => {
-        if (next) setLot(next);
-      });
-    }, 6000);
-    return () => window.clearInterval(timer);
-  }, [id, lot?.kind, lot?.status]);
-
-  if (missing || !lot) {
+  const lot = Route.useLoaderData();
+  if (!lot) {
     return (
-      <div>
-        <h1 className="font-display text-4xl">Лот не найден</h1>
-        <Link to="/" search={{ q: "", tag: "", kind: "all", sort: "new", page: 1 }} className="mt-4 inline-flex underline">
-          На ленту
+      <div className="space-y-3">
+        <Kicker>404</Kicker>
+        <h1 className="font-display text-5xl leading-none">лот не найден.</h1>
+        <Link to="/" search={{ q: "", tag: "", kind: "all", sort: "new", page: 1 }} className="font-mono text-sm text-muted hover:text-ink">
+          в ленту
         </Link>
       </div>
     );
   }
+  return <LotView lot={lot} />;
+}
 
+function LotView({ lot }: { lot: ListingDetail }) {
+  const { user } = useCurrentUserState();
+  const router = useRouter();
+  const navigate = useNavigate();
   const mine = user?.id === lot.sellerId;
-  const minBid = lot.currentBid != null ? lot.currentBid + 1 : lot.price;
-  const showPrice = lot.kind === "auction" ? (lot.currentBid ?? lot.price) : lot.price;
+  const live = lot.status === "active";
+  const [liked, setLiked] = useState(lot.liked);
+  const [likes, setLikes] = useState(lot.likeCount);
+  const [bid, setBid] = useState("");
+  const [comment, setComment] = useState("");
+  const [reason, setReason] = useState("");
+  const [reportOpen, setReportOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  async function run(action: () => Promise<unknown>, ok: string) {
+  const floor = (lot.currentBid ?? lot.price - 1) + 1;
+  const showBuyNow =
+    live && !mine && lot.kind === "auction" && lot.buyNow != null && (lot.currentBid == null || lot.currentBid < lot.buyNow);
+
+  async function run(job: () => Promise<void>) {
     setBusy(true);
     try {
-      await action();
-      toast.success(ok);
+      await job();
       await router.invalidate();
-      const next = await getListing({ data: id });
-      if (next) setLot(next);
     } catch (err) {
       toast.error(errText(err));
     } finally {
       setBusy(false);
-      setArmed(null);
     }
   }
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)]">
-      <div className="space-y-4">
+    <div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
+      <div className="space-y-6">
         <Gallery lot={lot} />
         <div>
-          <Kicker>{lot.kind === "auction" ? "auction lot" : "fixed lot"}</Kicker>
-          <h1 className="mt-2 font-display text-4xl leading-none sm:text-5xl">{lot.title}</h1>
-          <p className="mt-2 text-muted">
-            <Link to="/u/$handle" params={{ handle: lot.sellerHandle }} className="text-ink underline">
+          <Kicker>{lot.kind === "auction" ? "auction" : "fixed"}</Kicker>
+          <h1 className="mt-2 font-display text-5xl leading-none">{lot.title}</h1>
+          <p className="mt-3 text-ink/90">{lot.blurb || "Без короткого описания."}</p>
+          <p className="mt-3 font-mono text-xs text-muted">
+            <Link to="/u/$handle" params={{ handle: lot.sellerHandle }} className="hover:text-ink">
               @{lot.sellerHandle}
             </Link>
             {" · "}
-            {lot.sellerName}
+            {formatWhen(lot.createdAt)}
+            {lot.kind === "auction" ? ` · антиснайп ${lot.antiSnipeMinutes} мин` : ""}
           </p>
+          {mine && lot.privateDescription ? (
+            <p className="mt-3 border border-ink/15 bg-card px-3 py-2 text-sm text-muted">Для вас: {lot.privateDescription}</p>
+          ) : null}
+          {lot.tags.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {lot.tags.map((tag) => (
+                <Link
+                  key={tag.slug}
+                  to="/"
+                  search={{ q: "", tag: tag.slug, kind: "all", sort: "new", page: 1 }}
+                  className="border border-ink/25 px-2 py-1 font-mono text-xs hover:border-wine"
+                >
+                  {tag.label}
+                </Link>
+              ))}
+            </div>
+          ) : null}
         </div>
-        {lot.blurb ? <p className="max-w-prose text-lg">{lot.blurb}</p> : null}
-        <LikeRow lot={lot} onChange={setLot} />
-        {mine ? (
-          <Link to="/studio" className="inline-flex text-sm underline">
-            Править в моих лотах
-          </Link>
-        ) : null}
-        <div className="flex flex-wrap gap-2">
-          {lot.tags.map((tag) => (
-            <Link
-              key={tag.slug}
-              to="/"
-              search={{ q: "", tag: tag.slug, kind: "all", sort: "new", page: 1 }}
-              className="border border-ink/25 px-2 py-1 font-mono text-xs hover:border-wine hover:bg-wine/20"
+        <section className="space-y-3">
+          <Kicker>notes</Kicker>
+          <ul className="space-y-2">
+            {lot.comments.length === 0 ? <li className="text-sm text-muted">Комментариев пока нет.</li> : null}
+            {lot.comments.map((item) => (
+              <li key={item.id} className="border border-ink/15 bg-card px-3 py-2">
+                <p className="font-mono text-xs text-muted">
+                  <Link to="/u/$handle" params={{ handle: item.authorHandle }} className="hover:text-ink">
+                    @{item.authorHandle}
+                  </Link>
+                  {" · "}
+                  {formatWhen(item.createdAt)}
+                </p>
+                <p className="mt-1 whitespace-pre-wrap">{item.body}</p>
+              </li>
+            ))}
+          </ul>
+          {user ? (
+            <form
+              className="flex gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const body = comment.trim();
+                if (!body) return;
+                void run(async () => {
+                  await addListingComment({ data: { listingId: lot.id, body } });
+                  setComment("");
+                });
+              }}
             >
-              {tag.label}
+              <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий" className={fieldClass} />
+              <Button type="submit" variant="line" disabled={busy}>
+                ок
+              </Button>
+            </form>
+          ) : (
+            <Link to="/login" className="font-mono text-xs text-muted hover:text-ink">
+              войдите, чтобы комментировать
             </Link>
-          ))}
-        </div>
+          )}
+        </section>
+      </div>
+      <aside className="space-y-4">
+        <Frame>
+          <div className="space-y-3 bg-card p-4">
+            <div className="flex items-center justify-between gap-2">
+              <StatusChip kind="listing" status={lot.status} />
+              <button
+                type="button"
+                className="font-mono text-sm text-ink"
+                onClick={() => {
+                  if (!user) {
+                    toast.error("Войдите, чтобы отметить лот");
+                    return;
+                  }
+                  void run(async () => {
+                    const res = await toggleLike({ data: lot.id });
+                    setLiked(res.liked);
+                    setLikes((n) => n + (res.liked ? 1 : -1));
+                  });
+                }}
+              >
+                {liked ? "♥" : "♡"} {Math.max(0, likes)}
+              </button>
+            </div>
+            <p className="font-display text-4xl tabular-nums leading-none">
+              {formatPrice(lot.kind === "auction" ? (lot.currentBid ?? lot.price) : lot.price)}
+            </p>
+            {lot.kind === "auction" ? (
+              <p className="font-mono text-xs text-muted">
+                старт {formatPrice(lot.price)}
+                {lot.bidCount > 0 ? ` · ${lot.bidCount} став.` : ""}
+                {lot.buyNow != null ? ` · сразу ${formatPrice(lot.buyNow)}` : ""}
+              </p>
+            ) : null}
+            {lot.kind === "auction" && lot.endsAt && live ? <Countdown endsAt={lot.endsAt} /> : null}
+            {lot.dealId && user ? (
+              <Link to="/deals/$id" params={{ id: lot.dealId }} className="inline-flex font-mono text-sm text-wine hover:underline">
+                открыть сделку
+              </Link>
+            ) : null}
+            {live && lot.kind === "auction" && user ? (
+              <form
+                className="space-y-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const amount = Number(bid);
+                  void run(async () => {
+                    const res = await placeBid({ data: { listingId: lot.id, amount } });
+                    toast.success(res.extended ? "Ставка принята, аукцион продлён" : "Ставка принята");
+                    setBid("");
+                  });
+                }}
+              >
+                <input
+                  value={bid}
+                  onChange={(e) => setBid(e.target.value)}
+                  inputMode="numeric"
+                  placeholder={`от ${floor} ₽`}
+                  className={`${fieldClass} tabular-nums`}
+                />
+                <Button type="submit" disabled={busy} className="w-full">
+                  {mine ? "Своя ставка" : "Поставить"}
+                </Button>
+              </form>
+            ) : null}
+            {showBuyNow ? (
+              <Button
+                variant="wine"
+                className="w-full"
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    const res = await buyNow({ data: lot.id });
+                    toast.success("Лот ваш");
+                    await navigate({ to: "/deals/$id", params: { id: res.dealId } });
+                  })
+                }
+              >
+                Купить сейчас · {formatPrice(lot.buyNow ?? 0)}
+              </Button>
+            ) : null}
+            {live && lot.kind === "fixed" && user && !mine ? (
+              <Button
+                className="w-full"
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    const res = await buyFixed({ data: lot.id });
+                    toast.success("Лот ваш");
+                    await navigate({ to: "/deals/$id", params: { id: res.dealId } });
+                  })
+                }
+              >
+                Забрать за {formatPrice(lot.price)}
+              </Button>
+            ) : null}
+            {!user && live ? (
+              <Link to="/login" className="block text-center font-mono text-xs text-muted hover:text-ink">
+                войдите, чтобы участвовать
+              </Link>
+            ) : null}
+          </div>
+        </Frame>
         {lot.kind === "auction" && lot.bids.length > 0 ? (
           <Frame>
-            <div className="p-4">
-              <Kicker>ставки</Kicker>
-              <ul className="mt-3 divide-y divide-ink/10">
-                {lot.bids.map((bid) => (
-                  <li key={bid.id} className="flex items-center justify-between gap-3 py-2 font-mono text-sm">
-                    <span>@{bid.handle}</span>
-                    <span className="tabular-nums">{formatPrice(bid.amount)}</span>
-                    <span className="text-muted" suppressHydrationWarning>
-                      {formatWhen(bid.createdAt)}
-                    </span>
+            <div className="bg-card p-4">
+              <Kicker>bids</Kicker>
+              <ul className="mt-2 space-y-1 font-mono text-xs">
+                {lot.bids.map((row) => (
+                  <li key={row.id} className="flex justify-between gap-2">
+                    <Link to="/u/$handle" params={{ handle: row.handle }} className="hover:text-ink">
+                      @{row.handle}
+                    </Link>
+                    <span className="tabular-nums">{formatPrice(row.amount)}</span>
                   </li>
                 ))}
               </ul>
             </div>
           </Frame>
         ) : null}
-        <LotComments lot={lot} onChange={setLot} />
-      </div>
-      <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-        <Frame>
-          <div className="space-y-4 bg-card p-4">
-            <div className="flex items-center justify-between gap-2">
-              <StatusChip kind="listing" status={lot.status} />
-              {lot.kind === "auction" ? <span className="font-mono text-xs">anti-snipe {lot.antiSnipeMinutes}м</span> : null}
-            </div>
-            <p className="font-display text-4xl tabular-nums">{formatPrice(showPrice)}</p>
-            {lot.kind === "auction" && lot.currentBid != null ? (
-              <p className="text-sm text-muted">Старт был {formatPrice(lot.price)}</p>
-            ) : null}
-            {lot.kind === "auction" && lot.endsAt && lot.status === "active" ? (
-              <p className="font-mono text-sm">
-                До конца: <Live endsAt={lot.endsAt} />
-              </p>
-            ) : null}
-            {lot.dealId ? (
-              <Link to="/deals/$id" params={{ id: lot.dealId }} className="inline-flex min-h-11 items-center underline">
-                Открыть сделку
-              </Link>
-            ) : null}
-            {lot.status === "active" && !mine && user && lot.kind === "fixed" ? (
-              <Button
-                type="button"
-                variant="wine"
-                disabled={busy}
-                className="w-full"
-                onClick={() => {
-                  if (armed !== "buy") {
-                    setArmed("buy");
-                    return;
-                  }
+        {user && !mine ? (
+          <div>
+            <button type="button" className="font-mono text-xs text-muted hover:text-ink" onClick={() => setReportOpen((v) => !v)}>
+              пожаловаться
+            </button>
+            {reportOpen ? (
+              <form
+                className="mt-2 space-y-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
                   void run(async () => {
-                    const res = await buyFixed({ data: lot.id });
-                    await navigate({ to: "/deals/$id", params: { id: res.dealId } });
-                  }, "Сделка открыта");
+                    await reportListing({ data: { listingId: lot.id, reason } });
+                    setReason("");
+                    setReportOpen(false);
+                    toast.success("Жалоба отправлена");
+                  });
                 }}
               >
-                {armed === "buy" ? "Подтвердить покупку" : `Купить за ${formatPrice(lot.price)}`}
-              </Button>
-            ) : null}
-            {lot.status === "active" && user && lot.kind === "auction" ? (
-              <>
-                {mine ? (
-                  <p className="text-sm text-muted">Это ваш аукцион — ставку от своего имени поставить можно.</p>
-                ) : null}
-                <form
-                  className="space-y-2"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void run(
-                      () => placeBid({ data: { listingId: lot.id, amount: Number(amount) } }),
-                      "Ставка принята",
-                    );
-                  }}
-                >
-                  <label className="block text-sm">
-                    Ставка от {formatPrice(minBid)}
-                    <input
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                      inputMode="numeric"
-                      className={`${fieldClass} mt-1 tabular-nums`}
-                    />
-                  </label>
-                  <Button type="submit" disabled={busy} className="w-full">
-                    Поставить
-                  </Button>
-                </form>
-                {lot.buyNow != null && (lot.currentBid == null || lot.currentBid < lot.buyNow) ? (
-                  <Button
-                    type="button"
-                    variant="wine"
-                    disabled={busy}
-                    className="w-full"
-                    onClick={() => {
-                      if (armed !== "now") {
-                        setArmed("now");
-                        return;
-                      }
-                      void run(async () => {
-                        const res = await buyNow({ data: lot.id });
-                        await navigate({ to: "/deals/$id", params: { id: res.dealId } });
-                      }, "Выкупили сразу");
-                    }}
-                  >
-                    {armed === "now" ? "Подтвердить" : `Купить сейчас ${formatPrice(lot.buyNow)}`}
-                  </Button>
-                ) : null}
-                <p className="text-sm text-muted">
-                  Ставка в последние {lot.antiSnipeMinutes} мин продлевает аукцион на {lot.antiSnipeMinutes} мин.
-                </p>
-              </>
-            ) : null}
-            {lot.status === "active" && !user ? (
-              <Link to="/login" className="inline-flex min-h-11 items-center border border-wine bg-wine px-4 font-medium text-foam">
-                Войти, чтобы купить
-              </Link>
-            ) : null}
-            {mine && lot.status === "active" && lot.bidCount === 0 ? (
-              <Button
-                type="button"
-                variant="line"
-                disabled={busy}
-                onClick={() => {
-                  if (armed !== "cancel") {
-                    setArmed("cancel");
-                    return;
-                  }
-                  void run(async () => {
-                    await cancelListing({ data: lot.id });
-                    await navigate({ to: "/" , search: { q: "", tag: "", kind: "all", sort: "new", page: 1 } });
-                  }, "Лот снят");
-                }}
-              >
-                {armed === "cancel" ? "Точно снять" : "Снять лот"}
-              </Button>
+                <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} className={fieldClass} placeholder="Что не так с лотом" />
+                <Button type="submit" variant="line" disabled={busy}>
+                  отправить
+                </Button>
+              </form>
             ) : null}
           </div>
-        </Frame>
-        {!mine && user ? (
-          <form
-            className="space-y-2 border border-ink/20 p-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void run(async () => {
-                await reportListing({ data: { listingId: lot.id, reason } });
-                setReason("");
-              }, "Жалоба ушла модерации");
-            }}
-          >
-            <Kicker>жалоба на лот</Kicker>
-            <label className="block text-sm">
-              Причина
-              <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} maxLength={500} className={`${fieldClass} mt-1 py-2`} />
-            </label>
-            <Button type="submit" variant="ghost" disabled={busy || reason.trim().length < 4}>
-              Отправить жалобу
-            </Button>
-          </form>
         ) : null}
       </aside>
     </div>
   );
 }
 
-function LikeRow({ lot, onChange }: { lot: ListingDetail; onChange: (lot: ListingDetail) => void }) {
-  const { user } = useCurrentUserState();
-  const [busy, setBusy] = useState(false);
-  if (!user) {
-    return (
-      <Link to="/login" className="inline-flex min-h-11 items-center border border-ink/25 px-3 font-mono text-xs">
-        лайк {lot.likeCount}
-      </Link>
-    );
-  }
-  return (
-    <button
-      type="button"
-      disabled={busy}
-      className={
-        lot.liked
-          ? "inline-flex min-h-11 items-center border border-wine bg-wine px-3 font-mono text-xs text-foam"
-          : "inline-flex min-h-11 items-center border border-ink/25 px-3 font-mono text-xs"
-      }
-      onClick={() => {
-        setBusy(true);
-        void toggleLike({ data: lot.id })
-          .then(async (res) => {
-            const next = await getListing({ data: lot.id });
-            if (next) onChange(next);
-            else onChange({ ...lot, liked: res.liked, likeCount: lot.likeCount + (res.liked ? 1 : -1) });
-          })
-          .catch((err) => toast.error(errText(err)))
-          .finally(() => setBusy(false));
-      }}
-    >
-      {lot.liked ? "лайк есть" : "лайк"} {lot.likeCount}
-    </button>
-  );
-}
-
-function LotComments({ lot, onChange }: { lot: ListingDetail; onChange: (lot: ListingDetail) => void }) {
-  const { user, isPending } = useCurrentUserState();
-  const [me, setMe] = useState<Me | null>(null);
-  const [body, setBody] = useState("");
-  const [busy, setBusy] = useState(false);
-
+function Gallery({ lot }: { lot: ListingDetail }) {
+  const [active, setActive] = useState(lot.previews[0]?.id ?? "");
   useEffect(() => {
-    if (!user) {
-      setMe(null);
-      return;
-    }
-    void getMe().then(setMe).catch(() => undefined);
-  }, [user]);
-
-  async function refresh() {
-    const next = await getListing({ data: lot.id });
-    if (next) onChange(next);
-  }
-
-  return (
-    <section className="space-y-3">
-      <Kicker>комментарии лота</Kicker>
+    setActive(lot.previews[0]?.id ?? "");
+  }, [lot.id, lot.previews]);
+  const letter = (lot.title.trim()[0] || "A").toLocaleUpperCase("ru");
+  const current = lot.previews.find((p) => p.id === active) ?? lot.previews[0];
+  if (!current) {
+    return (
       <Frame>
-        <div className="space-y-3 bg-card p-4">
-          {lot.comments.length === 0 ? (
-            <p className="text-sm text-muted">Пока без комментариев.</p>
-          ) : (
-            <ul className="divide-y divide-ink/10">
-              {lot.comments.map((comment) => {
-                const canDelete = me && (comment.authorHandle === me.handle || isStaff(me.role));
-                return (
-                  <li key={comment.id} className="py-3">
-                    <p className="font-mono text-xs text-muted">
-                      <Link to="/u/$handle" params={{ handle: comment.authorHandle }} className="hover:text-ink">
-                        @{comment.authorHandle}
-                      </Link>
-                      {" · "}
-                      <span suppressHydrationWarning>{formatWhen(comment.createdAt)}</span>
-                    </p>
-                    <p className="mt-1 whitespace-pre-wrap">{comment.body}</p>
-                    {canDelete ? (
-                      <button
-                        type="button"
-                        className="mt-1 font-mono text-xs text-muted hover:text-ink"
-                        disabled={busy}
-                        onClick={() => {
-                          setBusy(true);
-                          void deleteListingComment({ data: comment.id })
-                            .then(refresh)
-                            .catch((err) => toast.error(errText(err)))
-                            .finally(() => setBusy(false));
-                        }}
-                      >
-                        Удалить
-                      </button>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          {isPending ? null : !user ? (
-            <Link to="/login" className="inline-flex min-h-11 items-center border border-wine px-4 text-sm">
-              Войти, чтобы комментировать
-            </Link>
-          ) : me?.banned ? (
-            <p className="text-sm text-muted">Аккаунт ограничен, комментарии недоступны.</p>
-          ) : (
-            <form
-              className="space-y-2 border-t border-ink/15 pt-3"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const text = body.trim();
-                if (!text) return;
-                setBusy(true);
-                void addListingComment({ data: { listingId: lot.id, body: text } })
-                  .then(async () => {
-                    setBody("");
-                    await refresh();
-                  })
-                  .catch((err) => toast.error(errText(err)))
-                  .finally(() => setBusy(false));
-              }}
-            >
-              <textarea
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                rows={3}
-                maxLength={500}
-                placeholder="Комментарий к лоту"
-                className={`${fieldClass} py-2`}
-              />
-              <Button type="submit" variant="wine" disabled={busy || body.trim().length === 0}>
-                Комментировать
-              </Button>
-            </form>
-          )}
+        <div className="poster grid place-items-center bg-wine-deep">
+          <span className="font-display text-8xl leading-none text-foam">{letter}</span>
         </div>
       </Frame>
-    </section>
+    );
+  }
+  const fallback = (
+    <div className="poster grid place-items-center bg-wine-deep">
+      <span className="font-display text-8xl leading-none text-foam">{letter}</span>
+    </div>
+  );
+  return (
+    <div className="space-y-2">
+      <Frame>
+        <PreviewImg
+          id={current.id}
+          src={current.src || current.card}
+          variant="view"
+          alt={lot.title}
+          className="max-h-[70vh] w-full bg-soft object-contain"
+          fallback={fallback}
+        />
+      </Frame>
+      {lot.previews.length > 1 ? (
+        <div className="flex gap-2 overflow-x-auto">
+          {lot.previews.map((p) => (
+            <button key={p.id} type="button" onClick={() => setActive(p.id)} className={p.id === active ? "border-2 border-ink" : "border border-ink/20"}>
+              <PreviewImg id={p.id} src={p.card || p.src} alt="" className="h-16 w-14 object-cover" />
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
-function Live({ endsAt }: { endsAt: string }) {
+function Countdown({ endsAt }: { endsAt: string }) {
   const [text, setText] = useState("···");
   useEffect(() => {
     const tick = () => {
@@ -455,38 +362,5 @@ function Live({ endsAt }: { endsAt: string }) {
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
   }, [endsAt]);
-  return <span className="tabular-nums">{text}</span>;
-}
-
-function Gallery({ lot }: { lot: ListingDetail }) {
-  const [active, setActive] = useState(lot.previews[0]?.id ?? "");
-  useEffect(() => {
-    setActive(lot.previews[0]?.id ?? "");
-  }, [lot.id, lot.previews]);
-  if (!active) {
-    const letter = (lot.title.trim()[0] || "A").toLocaleUpperCase("ru");
-    return (
-      <Frame>
-        <div className="poster grid place-items-center bg-wine-deep">
-          <span className="font-display text-8xl leading-none text-foam">{letter}</span>
-        </div>
-      </Frame>
-    );
-  }
-  return (
-    <div className="space-y-2">
-      <Frame>
-        <img src={`/api/media/${active}?s=view`} alt={lot.title} className="max-h-[70vh] w-full bg-soft object-contain" decoding="async" />
-      </Frame>
-      {lot.previews.length > 1 ? (
-        <div className="flex gap-2 overflow-x-auto">
-          {lot.previews.map((p) => (
-            <button key={p.id} type="button" onClick={() => setActive(p.id)} className={p.id === active ? "border-2 border-ink" : "border border-ink/20"}>
-              <img src={`/api/media/${p.id}?s=card`} alt="" className="h-16 w-14 object-cover" loading="lazy" decoding="async" />
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
+  return <p className="font-mono text-sm tabular-nums">до конца {text}</p>;
 }

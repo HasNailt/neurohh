@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { PreviewImg } from "@/components/preview-img";
 import { Frame, Kicker, StatusChip } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
@@ -40,7 +41,7 @@ function DealsPage() {
                 <Frame>
                   <div className="flex items-center gap-3 bg-card p-3">
                     {deal.previewId ? (
-                      <img src={`/api/media/${deal.previewId}?s=card`} alt="" className="h-16 w-12 object-cover" loading="lazy" decoding="async" />
+                      <PreviewImg id={deal.previewId} alt="" className="h-16 w-12 object-cover" />
                     ) : (
                       <span className="grid h-16 w-12 place-items-center bg-wine-deep font-display text-foam">{deal.title.slice(0, 1)}</span>
                     )}
