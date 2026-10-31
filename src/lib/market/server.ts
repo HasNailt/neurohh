@@ -4,6 +4,10 @@ import { authMiddleware } from "@/lib/auth/middleware";
 import { optionalAuth } from "@/lib/market/optional-auth";
 import { decodedImageSize, isRaster, psdSize, sniffMagic } from "@/lib/market/images";
 import {
+  BLURB_MAX,
+  CHAT_IMAGE_COUNT,
+  CHAT_IMAGE_DIM,
+  CHAT_IMAGE_MAX,
   FILE_MAX,
   MAX_DIM,
   MAX_FILES,
@@ -25,6 +29,8 @@ import {
   asStatus,
   type AdminData,
   type BidRow,
+  type ChatImage,
+  type ChatMessage,
   type DealDetail,
   type DealStatus,
   type DealSummary,
@@ -449,9 +455,14 @@ export const getListing = createServerFn({ method: "GET" })
     await settle(sql);
     const userId = context.userId;
     const rows = await sql.query<
-      CardRow & { blurb: string; anti_snipe_minutes: number; created_at: unknown }
+      CardRow & {
+        blurb: string;
+        anti_snipe_minutes: number;
+        created_at: unknown;
+        current_bidder_id: string | null;
+      }
     >(
-      `select ${CARD_SQL}, l.blurb, l.anti_snipe_minutes, l.created_at
+      `select ${CARD_SQL}, l.blurb, l.anti_snipe_minutes, l.created_at, l.current_bidder_id
        from listings l
        left join profiles p on p.user_id = l.seller_id
        where l.id = $1`,
@@ -460,6 +471,7 @@ export const getListing = createServerFn({ method: "GET" })
     const row = rows[0];
     if (!row) return null;
     const isSeller = userId != null && userId === row.seller_id;
+    if (row.status === "draft" && !isSeller) return null;
     let staff = false;
     if (userId && !isSeller && row.status === "removed") {
       const viewer = await sql<{ role: string }>`
@@ -548,6 +560,7 @@ export const getListing = createServerFn({ method: "GET" })
           authorName: c.author_name,
         }),
       ),
+      currentBidderId: row.current_bidder_id,
     };
   });
 
@@ -581,7 +594,7 @@ function parseCreate(input: unknown): CreateBody {
   if (!input || typeof input !== "object") fail("Пустая форма");
   const o = input as Record<string, unknown>;
   const title = cleanText(typeof o.title === "string" ? o.title : "", 80);
-  const blurb = cleanText(typeof o.blurb === "string" ? o.blurb : "", 400);
+  const blurb = cleanText(typeof o.blurb === "string" ? o.blurb : "", BLURB_MAX);
   const privateDescription = cleanText(
     typeof o.privateDescription === "string" ? o.privateDescription : "",
     8000,
@@ -643,11 +656,43 @@ export const createListing = createServerFn({ method: "POST" })
         ${data.buyNow},
         ${data.antiSnipeMinutes},
         case when ${data.kind} = 'auction' then now() + (${hours} * interval '1 hour') else null end,
-        'active'
+        'draft'
       )
     `;
     await attachTags(sql, id, data.tags);
     return { id };
+  });
+
+/** A draft stays hidden until it has a cover. No cover — the lot is deleted. */
+export const publishListing = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((id: unknown) => {
+    if (typeof id !== "string" || !UUID_RE.test(id)) fail("Некорректный лот");
+    return id;
+  })
+  .handler(async ({ data: id, context }) => {
+    const sql = await getSql();
+    const owned = await sql<{ status: string; bid_count: number }>`
+      select status, bid_count from listings where id = ${id} and seller_id = ${context.userId}
+    `;
+    const row = owned[0];
+    if (!row) fail("Лот не найден");
+    const covers = await sql<{ n: number }>`
+      select count(*)::int as n from media where listing_id = ${id} and kind = 'preview'
+    `;
+    if (num(covers[0]?.n) < 1) {
+      if (row.status === "draft" || (row.status === "active" && num(row.bid_count) === 0)) {
+        await sql`delete from listings where id = ${id} and seller_id = ${context.userId} and bid_count = 0`;
+      }
+      fail("Нужна обложка");
+    }
+    if (row.status === "draft") {
+      await sql`
+        update listings set status = 'active', updated_at = now()
+        where id = ${id} and seller_id = ${context.userId} and status = 'draft'
+      `;
+    }
+    return { ok: true };
   });
 
 type UploadBody = {
@@ -707,7 +752,7 @@ export const uploadMedia = createServerFn({ method: "POST" })
     assertLive(profile);
     const owned = await sql<{ id: string }>`
       select id from listings
-      where id = ${data.listingId} and seller_id = ${context.userId} and status = 'active'
+      where id = ${data.listingId} and seller_id = ${context.userId} and status in ('active', 'draft')
     `;
     if (!owned[0]) fail("Лот нельзя дополнять");
     const counts = await sql<{ n: number }>`
@@ -808,7 +853,7 @@ function parseCopy(input: unknown): CopyBody {
   const o = input as Record<string, unknown>;
   if (typeof o.id !== "string" || !UUID_RE.test(o.id)) fail("Некорректный лот");
   const title = cleanText(typeof o.title === "string" ? o.title : "", 80);
-  const blurb = cleanText(typeof o.blurb === "string" ? o.blurb : "", 400);
+  const blurb = cleanText(typeof o.blurb === "string" ? o.blurb : "", BLURB_MAX);
   if (title.length < 3) fail("Название — хотя бы 3 символа");
   const tags = Array.isArray(o.tags) ? o.tags.filter((t): t is string => typeof t === "string").slice(0, 8) : [];
   return { id: o.id, title, blurb, tags };
@@ -851,6 +896,25 @@ export const cancelListing = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/** Owner can remove any of their lots, including sold and just-created ones. */
+export const deleteListing = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((id: unknown) => {
+    if (typeof id !== "string" || !UUID_RE.test(id)) fail("Некорректный лот");
+    return id;
+  })
+  .handler(async ({ data: id, context }) => {
+    const sql = await getSql();
+    const updated = await sql`
+      update listings
+      set status = 'removed', pinned = false, updated_at = now()
+      where id = ${id} and seller_id = ${context.userId} and status <> 'removed'
+      returning id
+    `;
+    if (!updated[0]) fail("Этот лот уже удалён");
+    return { ok: true };
+  });
+
 /** Drop a lot that was inserted but then failed image checks. Never leaves it active. */
 export const discardListing = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -862,7 +926,7 @@ export const discardListing = createServerFn({ method: "POST" })
     const sql = await getSql();
     const updated = await sql`
       delete from listings
-      where id = ${id} and seller_id = ${context.userId} and status = 'active' and bid_count = 0
+      where id = ${id} and seller_id = ${context.userId} and status in ('active', 'draft') and bid_count = 0
       returning id
     `;
     if (!updated[0]) fail("Лот уже нельзя отменить");
@@ -900,7 +964,6 @@ export const placeBid = createServerFn({ method: "POST" })
     `;
     const lot = before[0];
     if (!lot || lot.kind !== "auction" || lot.status !== "active") fail("Аукцион уже закрыт");
-    if (lot.current_bidder_id === context.userId) fail("Вы уже лидер. Дождитесь другой ставки.");
     if (lot.buy_now != null && data.amount >= num(lot.buy_now)) {
       fail("Для этой суммы нажмите «Купить сейчас»");
     }
@@ -921,7 +984,6 @@ export const placeBid = createServerFn({ method: "POST" })
         and status = 'active'
         and kind = 'auction'
         and ends_at > now()
-        and (current_bidder_id is null or current_bidder_id <> ${context.userId})
         and ${data.amount} >= price
         and ${data.amount} > coalesce(current_bid, price - 1)
         and (buy_now is null or ${data.amount} < buy_now)
@@ -1257,6 +1319,56 @@ export const listDeals = createServerFn({ method: "GET" })
     }));
   });
 
+type RawMessage = {
+  id: string;
+  sender_id: string;
+  body: string;
+  created_at: unknown;
+  handle: string | null;
+};
+
+async function hydrateMessages(sql: Sql, rows: RawMessage[]): Promise<ChatMessage[]> {
+  const images = new Map<string, ChatImage[]>();
+  if (rows.length > 0) {
+    const ids = rows.map((row) => row.id);
+    const pics = await sql<{
+      id: string;
+      message_id: string;
+      filename: string;
+      mime: string;
+      size_bytes: number;
+      width: number | null;
+      height: number | null;
+    }>`
+      select id, message_id, filename, mime, size_bytes, width, height
+      from message_images
+      where message_id = any(${ids}::text[])
+      order by sort asc, created_at asc
+    `;
+    for (const pic of pics) {
+      const list = images.get(pic.message_id) ?? [];
+      list.push({
+        id: pic.id,
+        filename: pic.filename,
+        mime: pic.mime,
+        sizeBytes: num(pic.size_bytes),
+        width: pic.width == null ? null : num(pic.width),
+        height: pic.height == null ? null : num(pic.height),
+      });
+      images.set(pic.message_id, list);
+    }
+  }
+  return rows.map((m) => ({
+    id: m.id,
+    senderId: m.sender_id,
+    handle: m.sender_id === "system" ? null : m.handle,
+    body: m.body,
+    createdAt: iso(m.created_at),
+    system: m.sender_id === "system",
+    images: images.get(m.id) ?? [],
+  }));
+}
+
 async function loadDeal(sql: Sql, id: string, uid: string): Promise<DealDetail | null> {
   const rows = await sql<{
     id: string;
@@ -1331,14 +1443,7 @@ async function loadDeal(sql: Sql, id: string, uid: string): Promise<DealDetail |
     buyerConfirmed: d.buyer_confirmed_at != null,
     privateDescription: showSecret ? d.private_description : null,
     files: showSecret ? await loadFiles(sql, d.listing_id) : null,
-    messages: messages.map((m) => ({
-      id: m.id,
-      senderId: m.sender_id,
-      handle: m.sender_id === "system" ? null : m.handle,
-      body: m.body,
-      createdAt: iso(m.created_at),
-      system: m.sender_id === "system",
-    })),
+    messages: await hydrateMessages(sql, messages),
   };
 }
 
@@ -1409,14 +1514,7 @@ export const getStaffDeal = createServerFn({ method: "GET" })
       status: d.status,
       seller: { handle: d.seller_handle, name: d.seller_name },
       buyer: { handle: d.buyer_handle, name: d.buyer_name },
-      messages: messages.map((m) => ({
-        id: m.id,
-        senderId: m.sender_id,
-        handle: m.sender_id === "system" ? null : m.handle,
-        body: m.body,
-        createdAt: iso(m.created_at),
-        system: m.sender_id === "system",
-      })),
+      messages: await hydrateMessages(sql, messages),
     };
   });
 
@@ -1427,8 +1525,9 @@ export const sendMessage = createServerFn({ method: "POST" })
     const o = input as Record<string, unknown>;
     if (typeof o.dealId !== "string" || !UUID_RE.test(o.dealId)) fail("Некорректная сделка");
     const body = cleanText(typeof o.body === "string" ? o.body : "", 2000);
-    if (!body) fail("Напишите сообщение");
-    return { dealId: o.dealId, body };
+    const withImages = o.withImages === true;
+    if (!body && !withImages) fail("Напишите сообщение или приложите картинку");
+    return { dealId: o.dealId, body, withImages };
   })
   .handler(async ({ data, context }) => {
     const sql = await getSql();
@@ -1441,19 +1540,94 @@ export const sendMessage = createServerFn({ method: "POST" })
     `;
     const d = deal[0];
     if (!d || (d.seller_id !== context.userId && d.buyer_id !== context.userId)) fail("Нет доступа");
+    const id = crypto.randomUUID();
     await sql`
       insert into messages (id, deal_id, sender_id, body)
-      values (${crypto.randomUUID()}, ${data.dealId}, ${context.userId}, ${data.body})
+      values (${id}, ${data.dealId}, ${context.userId}, ${data.body})
     `;
     const other = d.seller_id === context.userId ? d.buyer_id : d.seller_id;
-    await notify(
-      sql,
-      other,
-      "message",
-      "Новое сообщение",
-      `${profile.handle}: ${data.body.slice(0, 140)}`,
-      `/deals/${data.dealId}`,
-    );
+    const preview = data.body ? data.body.slice(0, 140) : "картинка";
+    await notify(sql, other, "message", "Новое сообщение", `${profile.handle}: ${preview}`, `/deals/${data.dealId}`);
+    return { id };
+  });
+
+export const attachDealImage = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    if (!input || typeof input !== "object") fail("Пустой файл");
+    const o = input as Record<string, unknown>;
+    if (typeof o.messageId !== "string" || !UUID_RE.test(o.messageId)) fail("Некорректное сообщение");
+    if (typeof o.filename !== "string" || typeof o.b64 !== "string") fail("Файл не прочитан");
+    const b64 = o.b64.replace(/^data:[^,]*,/, "").replace(/\s/g, "");
+    if (b64.length > 4_600_000) fail("Картинка больше 3 МБ");
+    return {
+      messageId: o.messageId,
+      filename: o.filename,
+      b64,
+    };
+  })
+  .handler(async ({ data, context }) => {
+    const sql = await getSql();
+    const profile = await ensureProfile(sql, context.userId);
+    assertLive(profile);
+    const message = await sql<{ id: string }>`
+      select m.id
+      from messages m
+      join deals d on d.id = m.deal_id
+      where m.id = ${data.messageId}
+        and m.sender_id = ${context.userId}
+        and (d.seller_id = ${context.userId} or d.buyer_id = ${context.userId})
+    `;
+    if (!message[0]) fail("Это сообщение нельзя дополнить");
+    const counts = await sql<{ n: number }>`
+      select count(*)::int as n from message_images where message_id = ${data.messageId}
+    `;
+    if (num(counts[0]?.n) >= CHAT_IMAGE_COUNT) fail("Не больше 10 картинок в одном сообщении");
+    const buf = Buffer.from(data.b64, "base64");
+    if (buf.length > CHAT_IMAGE_MAX) fail("Картинка больше 3 МБ");
+    if (buf.length < 32) fail("Файл пустой");
+    const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+    const magic = sniffMagic(bytes);
+    if (!magic || !isRaster(magic)) fail("В чат — только PNG, JPG, WEBP или GIF");
+    const size = decodedImageSize(bytes);
+    if (!size) fail("Не удалось прочитать размер изображения");
+    if (size.width > CHAT_IMAGE_DIM || size.height > CHAT_IMAGE_DIM) {
+      fail(`Картинка больше ${CHAT_IMAGE_DIM}×${CHAT_IMAGE_DIM}`);
+    }
+    const filename = data.filename.replace(/[^\p{L}\p{N}._\- ()]+/gu, "_").slice(0, 80) || "image";
+    const id = crypto.randomUUID();
+    await sql`
+      insert into message_images (id, message_id, filename, mime, data_b64, width, height, size_bytes, sort)
+      values (
+        ${id},
+        ${data.messageId},
+        ${filename},
+        ${magic},
+        ${buf.toString("base64")},
+        ${size.width},
+        ${size.height},
+        ${buf.length},
+        ${num(counts[0]?.n)}
+      )
+    `;
+    return { id };
+  });
+
+export const discardBlankMessage = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((id: unknown) => {
+    if (typeof id !== "string" || !UUID_RE.test(id)) fail("Некорректное сообщение");
+    return id;
+  })
+  .handler(async ({ data: id, context }) => {
+    const sql = await getSql();
+    await sql`
+      delete from messages
+      where id = ${id}
+        and sender_id = ${context.userId}
+        and body = ''
+        and not exists (select 1 from message_images where message_id = ${id})
+    `;
     return { ok: true };
   });
 
@@ -1553,32 +1727,45 @@ export const confirmPayment = createServerFn({ method: "POST" })
     return loaded;
   });
 
-export const completeDeal = createServerFn({ method: "POST" })
+export const setDealOpen = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((id: unknown) => {
-    if (typeof id !== "string" || !UUID_RE.test(id)) fail("Некорректная сделка");
-    return id;
+  .validator((input: unknown) => {
+    if (!input || typeof input !== "object") fail("Пустой статус");
+    const o = input as Record<string, unknown>;
+    if (typeof o.id !== "string" || !UUID_RE.test(o.id)) fail("Некорректная сделка");
+    if (typeof o.open !== "boolean") fail("Некорректный статус");
+    return { id: o.id, open: o.open };
   })
-  .handler(async ({ data: id, context }): Promise<DealDetail> => {
+  .handler(async ({ data, context }): Promise<DealDetail> => {
     const sql = await getSql();
     await ensureProfile(sql, context.userId);
-    const updated = await sql<{ seller_id: string; buyer_id: string }>`
-      update deals
-      set status = 'completed', completed_at = now()
-      where id = ${id}
-        and status <> 'completed'
-        and (seller_id = ${context.userId} or buyer_id = ${context.userId})
-      returning seller_id, buyer_id
-    `;
+    const note = data.open ? "Сделка снова открыта." : "Сделка закрыта.";
+    const updated = data.open
+      ? await sql<{ seller_id: string; buyer_id: string }>`
+          update deals
+          set status = 'awaiting_payment', completed_at = null
+          where id = ${data.id}
+            and status = 'completed'
+            and (seller_id = ${context.userId} or buyer_id = ${context.userId})
+          returning seller_id, buyer_id
+        `
+      : await sql<{ seller_id: string; buyer_id: string }>`
+          update deals
+          set status = 'completed', completed_at = now()
+          where id = ${data.id}
+            and status <> 'completed'
+            and (seller_id = ${context.userId} or buyer_id = ${context.userId})
+          returning seller_id, buyer_id
+        `;
     if (updated[0]) {
       await sql`
         insert into messages (id, deal_id, sender_id, body)
-        values (${crypto.randomUUID()}, ${id}, 'system', 'Сделка отмечена как завершённая.')
+        values (${crypto.randomUUID()}, ${data.id}, 'system', ${note})
       `;
       const other = updated[0].seller_id === context.userId ? updated[0].buyer_id : updated[0].seller_id;
-      await notify(sql, other, "done", "Сделка завершена", "Вторая сторона закрыла сделку", `/deals/${id}`);
+      await notify(sql, other, "done", data.open ? "Сделка открыта" : "Сделка закрыта", note, `/deals/${data.id}`);
     }
-    const loaded = await loadDeal(sql, id, context.userId);
+    const loaded = await loadDeal(sql, data.id, context.userId);
     if (!loaded) fail("Нет доступа");
     return loaded;
   });
@@ -1964,18 +2151,22 @@ export const adminModerate = createServerFn({ method: "POST" })
 export const listRecommendations = createServerFn({ method: "GET" }).handler(async (): Promise<ListingCard[]> => {
   const sql = await getSql();
   await settle(sql);
-  const items = await sql.query<CardRow>(
+  const hot = await sql.query<CardRow>(
     `select ${CARD_SQL}
      from listings l
      left join profiles p on p.user_id = l.seller_id
-     where l.status = 'active' and l.kind = 'auction'
-     order by (
-       -ln(greatest(random(), 0.0000001))
-       / (1 + l.bid_count + (select count(*) from listing_likes lk where lk.listing_id = l.id))
-     ) asc
-     limit 8`,
+     where l.status = 'active' and l.kind = 'auction' and l.bid_count >= 2
+     order by l.bid_count desc, l.created_at desc`,
   );
-  return items.map(mapCard);
+  const single = await sql.query<CardRow>(
+    `select ${CARD_SQL}
+     from listings l
+     left join profiles p on p.user_id = l.seller_id
+     where l.status = 'active' and l.kind = 'auction' and l.bid_count = 1
+     order by l.created_at desc
+     limit 12`,
+  );
+  return [...hot, ...single].map(mapCard);
 });
 
 export const listMine = createServerFn({ method: "GET" })
@@ -1987,7 +2178,7 @@ export const listMine = createServerFn({ method: "GET" })
       `select ${CARD_SQL}
        from listings l
        left join profiles p on p.user_id = l.seller_id
-       where l.seller_id = $1 and l.status <> 'removed'
+       where l.seller_id = $1 and l.status not in ('removed', 'draft')
        order by (l.kind = 'auction') desc, l.pinned desc, l.created_at desc
        limit 80`,
       [context.userId],

@@ -5,7 +5,7 @@ import { TagField } from "@/components/tag-field";
 import { Button, fieldClass, Frame, Kicker } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { getListing, listMine, setPinned, updateListingCopy } from "@/lib/market/server";
+import { getListing, listMine, setPinned, updateListingCopy, deleteListing } from "@/lib/market/server";
 import { errText, formatPrice, listingStatusLabel, type ListingCard } from "@/lib/market/shared";
 
 export const Route = createFileRoute("/studio")({
@@ -91,6 +91,21 @@ function Shelf({
               </Link>
               <span className="font-mono text-xs text-muted">{listingStatusLabel(item.status)}</span>
               <span className="font-mono text-xs tabular-nums">{formatPrice(item.currentBid ?? item.price)}</span>
+              <button
+                type="button"
+                className="min-h-9 border border-wine px-2 font-mono text-xs text-wine"
+                onClick={() => {
+                  if (!window.confirm("Удалить пост? Он пропадёт из ленты и профиля.")) return;
+                  void deleteListing({ data: item.id })
+                    .then(() => {
+                      toast.success("Пост удалён");
+                      onPin();
+                    })
+                    .catch((err) => toast.error(errText(err)));
+                }}
+              >
+                Удалить пост
+              </button>
               {item.status === "active" ? (
                 <>
                   <button
@@ -193,6 +208,7 @@ function EditSheet({ id, onClose, onSaved }: { id: string; onClose: () => void; 
           <label className="block text-sm">
             Коротко
             <textarea value={blurb} onChange={(e) => setBlurb(e.target.value)} rows={4} maxLength={400} className={`${fieldClass} mt-1 py-2`} />
+            <span className="mt-1 block font-mono text-xs text-muted">{blurb.length}/400</span>
           </label>
           <div>
             <p className="mb-2 text-sm">Теги</p>

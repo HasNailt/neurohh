@@ -1,5 +1,5 @@
-import { uploadMedia } from "@/lib/market/server";
-import { FILE_MAX, MAX_DIM, PREVIEW_MAX } from "@/lib/market/shared";
+import { attachDealImage, uploadMedia } from "@/lib/market/server";
+import { CHAT_IMAGE_DIM, CHAT_IMAGE_MAX, FILE_MAX, MAX_DIM, PREVIEW_MAX } from "@/lib/market/shared";
 
 function readB64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -57,6 +57,33 @@ export async function checkPreviewFile(file: File): Promise<void> {
   if (width > MAX_DIM || height > MAX_DIM) {
     throw new Error(`«${file.name}» больше ${MAX_DIM}×${MAX_DIM}`);
   }
+}
+
+/** Chat pictures stay original: no canvas, no recompress. */
+export async function checkChatImage(file: File): Promise<void> {
+  if (file.size > CHAT_IMAGE_MAX) throw new Error(`«${file.name}» больше 3 МБ`);
+  if (file.size < 32) throw new Error("Файл пустой");
+  if (file.type && !file.type.startsWith("image/")) {
+    throw new Error("В чат — только PNG, JPG, WEBP или GIF");
+  }
+  let bmp: ImageBitmap;
+  try {
+    bmp = await createImageBitmap(file);
+  } catch {
+    throw new Error("В чат — только PNG, JPG, WEBP или GIF");
+  }
+  const { width, height } = bmp;
+  bmp.close();
+  if (width > CHAT_IMAGE_DIM || height > CHAT_IMAGE_DIM) {
+    throw new Error(`«${file.name}» больше ${CHAT_IMAGE_DIM}×${CHAT_IMAGE_DIM}`);
+  }
+}
+
+export async function pushChatImage(messageId: string, file: File): Promise<void> {
+  await checkChatImage(file);
+  const b64 = await readB64(file);
+  if (b64.length < 32) throw new Error("Не удалось прочитать файл");
+  await attachDealImage({ data: { messageId, filename: file.name, b64 } });
 }
 
 export async function pushFile(listingId: string, file: File, kind: "preview" | "file") {

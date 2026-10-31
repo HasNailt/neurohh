@@ -25,6 +25,7 @@ import { Route as LotIdRouteImport } from './routes/lot.$id'
 import { Route as UHandleRouteImport } from './routes/u.$handle'
 import { Route as AdminDealNoRouteImport } from './routes/admin.deal.$no'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiChatImageIdRouteImport } from './routes/api/chat-image/$id'
 import { Route as ApiMediaIdRouteImport } from './routes/api/media/$id'
 import { Route as ApiProfileImageHandleRouteImport } from './routes/api/profile-image/$handle'
 
@@ -108,6 +109,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiChatImageIdRoute = ApiChatImageIdRouteImport.update({
+  id: '/api/chat-image/$id',
+  path: '/api/chat-image/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiMediaIdRoute = ApiMediaIdRouteImport.update({
   id: '/api/media/$id',
   path: '/api/media/$id',
@@ -136,6 +142,7 @@ export interface FileRoutesByFullPath {
   '/deals/': typeof DealsIndexRoute
   '/admin/deal/$no': typeof AdminDealNoRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/chat-image/$id': typeof ApiChatImageIdRoute
   '/api/media/$id': typeof ApiMediaIdRoute
   '/api/profile-image/$handle': typeof ApiProfileImageHandleRoute
 }
@@ -156,6 +163,7 @@ export interface FileRoutesByTo {
   '/deals': typeof DealsIndexRoute
   '/admin/deal/$no': typeof AdminDealNoRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/chat-image/$id': typeof ApiChatImageIdRoute
   '/api/media/$id': typeof ApiMediaIdRoute
   '/api/profile-image/$handle': typeof ApiProfileImageHandleRoute
 }
@@ -177,6 +185,7 @@ export interface FileRoutesById {
   '/deals/': typeof DealsIndexRoute
   '/admin/deal/$no': typeof AdminDealNoRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/chat-image/$id': typeof ApiChatImageIdRoute
   '/api/media/$id': typeof ApiMediaIdRoute
   '/api/profile-image/$handle': typeof ApiProfileImageHandleRoute
 }
@@ -199,6 +208,7 @@ export interface FileRouteTypes {
     | '/deals/'
     | '/admin/deal/$no'
     | '/api/auth/$'
+    | '/api/chat-image/$id'
     | '/api/media/$id'
     | '/api/profile-image/$handle'
   fileRoutesByTo: FileRoutesByTo
@@ -219,6 +229,7 @@ export interface FileRouteTypes {
     | '/deals'
     | '/admin/deal/$no'
     | '/api/auth/$'
+    | '/api/chat-image/$id'
     | '/api/media/$id'
     | '/api/profile-image/$handle'
   id:
@@ -239,6 +250,7 @@ export interface FileRouteTypes {
     | '/deals/'
     | '/admin/deal/$no'
     | '/api/auth/$'
+    | '/api/chat-image/$id'
     | '/api/media/$id'
     | '/api/profile-image/$handle'
   fileRoutesById: FileRoutesById
@@ -259,6 +271,7 @@ export interface RootRouteChildren {
   UHandleRoute: typeof UHandleRoute
   DealsIndexRoute: typeof DealsIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiChatImageIdRoute: typeof ApiChatImageIdRoute
   ApiMediaIdRoute: typeof ApiMediaIdRoute
   ApiProfileImageHandleRoute: typeof ApiProfileImageHandleRoute
 }
@@ -377,6 +390,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/chat-image/$id': {
+      id: '/api/chat-image/$id'
+      path: '/api/chat-image/$id'
+      fullPath: '/api/chat-image/$id'
+      preLoaderRoute: typeof ApiChatImageIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/media/$id': {
       id: '/api/media/$id'
       path: '/api/media/$id'
@@ -420,6 +440,7 @@ const rootRouteChildren: RootRouteChildren = {
   UHandleRoute: UHandleRoute,
   DealsIndexRoute: DealsIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiChatImageIdRoute: ApiChatImageIdRoute,
   ApiMediaIdRoute: ApiMediaIdRoute,
   ApiProfileImageHandleRoute: ApiProfileImageHandleRoute,
 }

@@ -102,7 +102,7 @@ create table if not exists listings (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint listings_kind_chk check (kind in ('fixed', 'auction')),
-  constraint listings_status_chk check (status in ('active', 'sold', 'ended', 'removed')),
+  constraint listings_status_chk check (status in ('active', 'sold', 'ended', 'removed', 'draft')),
   constraint listings_price_chk check (price > 0),
   constraint listings_buynow_chk check (buy_now is null or buy_now > price)
 );
@@ -179,6 +179,21 @@ create table if not exists messages (
 );
 
 create index if not exists messages_deal_idx on messages (deal_id, created_at);
+
+create table if not exists message_images (
+  id text primary key,
+  message_id text not null references messages (id) on delete cascade,
+  filename text not null,
+  mime text not null,
+  data_b64 text not null,
+  width integer,
+  height integer,
+  size_bytes integer not null,
+  sort integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists message_images_msg_idx on message_images (message_id, sort);
 
 create table if not exists notifications (
   id text primary key,

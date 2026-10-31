@@ -6,7 +6,7 @@ import { Button, fieldClass, Kicker } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { checkPreviewFile, pushFile } from "@/lib/market/client-upload";
-import { createListing, discardListing } from "@/lib/market/server";
+import { createListing, discardListing, publishListing } from "@/lib/market/server";
 import { DURATIONS, MAX_PREVIEWS, SNIPE_OPTIONS, errText } from "@/lib/market/shared";
 
 export const Route = createFileRoute("/sell")({
@@ -60,6 +60,11 @@ function SellForm() {
     e.preventDefault();
     setBusy(true);
     setNote("");
+    if (previews.length === 0) {
+      setBusy(false);
+      toast.error("Нужна обложка");
+      return;
+    }
     let createdId: string | null = null;
     try {
       for (const file of previews) await checkPreviewFile(file);
@@ -81,6 +86,7 @@ function SellForm() {
         setNote(`Файл ${i + 1} из ${previews.length}`);
         await pushFile(created.id, previews[i], "preview");
       }
+      await publishListing({ data: created.id });
     } catch (err) {
       if (createdId) await discardListing({ data: createdId }).catch(() => undefined);
       toast.error(createdId ? `${errText(err)} Лот не опубликован.` : errText(err));
@@ -119,6 +125,7 @@ function SellForm() {
       <label className="block text-sm">
         Коротко на карточке
         <textarea value={blurb} onChange={(e) => setBlurb(e.target.value)} maxLength={400} rows={3} className={`${fieldClass} mt-1 py-2`} />
+        <span className="mt-1 block font-mono text-xs text-muted">{blurb.length}/400</span>
       </label>
       <div className="flex gap-2">
         <button type="button" onClick={() => setKind("auction")} className={kind === "auction" ? "min-h-11 border border-wine bg-wine px-4 text-foam" : "min-h-11 border border-ink/25 px-4"}>
@@ -130,7 +137,7 @@ function SellForm() {
       </div>
       <label className="block text-sm">
         {kind === "auction" ? "Стартовая цена, ₽" : "Цена, ₽"}
-        <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="numeric" required className={`${fieldClass} mt-1 tabular-nums`} />
+        <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="numeric" required placeholder="Введите цену" className={`${fieldClass} mt-1 tabular-nums`} />
       </label>
       {kind === "auction" ? (
         <>

@@ -205,8 +205,9 @@ function LotView({ lot }: { lot: ListingDetail }) {
                   className={`${fieldClass} tabular-nums`}
                 />
                 <Button type="submit" disabled={busy} className="w-full">
-                  {mine ? "Своя ставка" : "Поставить"}
+                  {user && lot.currentBidderId === user.id ? "Перебить свою" : mine ? "Своя ставка" : "Поставить"}
                 </Button>
+                <p className="font-mono text-xs text-muted">Можно перебить свою ставку — сумма должна быть выше текущей.</p>
               </form>
             ) : null}
             {showBuyNow ? (

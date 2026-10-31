@@ -33,7 +33,9 @@ function Home() {
           <div>
             <Kicker>weighted</Kicker>
             <h2 className="mt-1 font-display text-3xl leading-none">рекомендации.</h2>
-            <p className="mt-1 text-sm text-muted">Только живые аукционы. Чем больше лайков и ставок, тем выше шанс попасть сюда.</p>
+            <p className="mt-1 text-sm text-muted">
+              Живые аукционы со ставками. Чем больше ставок, тем выше. Две ставки и больше — всегда в этом блоке.
+            </p>
           </div>
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
             {recommended.map((item) => (

@@ -6,6 +6,10 @@ export const FILE_MAX = 4 * 1024 * 1024;
 export const MAX_DIM = 4000;
 export const MAX_PREVIEWS = 4;
 export const MAX_FILES = 6;
+export const BLURB_MAX = 400;
+export const CHAT_IMAGE_MAX = 3 * 1024 * 1024;
+export const CHAT_IMAGE_DIM = 3000;
+export const CHAT_IMAGE_COUNT = 10;
 export const PAGE_SIZE = 12;
 
 export const DURATIONS = [
@@ -20,7 +24,7 @@ export const DURATIONS = [
 export const SNIPE_OPTIONS = [2, 3, 5, 10] as const;
 
 export type Tag = { slug: string; label: string };
-export type ListingStatus = "active" | "sold" | "ended" | "removed";
+export type ListingStatus = "active" | "sold" | "ended" | "removed" | "draft";
 export type DealStatus = "awaiting_payment" | "confirmed" | "files_released" | "completed";
 export type Role = "user" | "moderator" | "admin";
 export type ArtistStatus = "open" | "busy" | "closed" | "away";
@@ -168,6 +172,7 @@ export type ListingDetail = ListingCard & {
   privateDescription: string | null;
   files: MediaMeta[] | null;
   comments: ProfileComment[];
+  currentBidderId: string | null;
 };
 
 export type Profile = {
@@ -229,6 +234,15 @@ export type DealSummary = {
   createdAt: string;
 };
 
+export type ChatImage = {
+  id: string;
+  filename: string;
+  mime: string;
+  sizeBytes: number;
+  width: number | null;
+  height: number | null;
+};
+
 export type ChatMessage = {
   id: string;
   senderId: string;
@@ -236,6 +250,7 @@ export type ChatMessage = {
   body: string;
   createdAt: string;
   system: boolean;
+  images: ChatImage[];
 };
 
 export type DealDetail = {
@@ -423,16 +438,7 @@ export function formatBytes(n: number): string {
 }
 
 export function dealStatusLabel(status: DealStatus): string {
-  switch (status) {
-    case "awaiting_payment":
-      return "Ожидание оплаты";
-    case "confirmed":
-      return "Подтверждено обеими";
-    case "files_released":
-      return "Файлы выданы";
-    case "completed":
-      return "Завершено";
-  }
+  return status === "completed" ? "Закрыто" : "Открыто";
 }
 
 export function listingStatusLabel(status: ListingStatus): string {
@@ -445,6 +451,8 @@ export function listingStatusLabel(status: ListingStatus): string {
       return "Завершён";
     case "removed":
       return "Снят";
+    case "draft":
+      return "Черновик";
   }
 }
 
