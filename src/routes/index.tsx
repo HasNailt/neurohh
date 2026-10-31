@@ -1,17 +1,19 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ListingCardView } from "@/components/listing-card";
-import { Kicker } from "@/components/ui-bits";
 import { listListings, listPopularTags, listRecommendations } from "@/lib/market/server";
-import { parseFeedQuery, type FeedQuery } from "@/lib/market/shared";
+import { parseFeedQuery, type FeedQuery, type FeedResult } from "@/lib/market/shared";
+
+const emptyFeed: FeedResult = { items: [], total: 0, hasMore: false };
 
 export const Route = createFileRoute("/")({
   validateSearch: (search): FeedQuery => parseFeedQuery(search),
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
+    const home = isHome(deps);
     const [feed, tags, recommended] = await Promise.all([
-      listListings({ data: deps }),
+      home ? Promise.resolve(emptyFeed) : listListings({ data: deps }),
       listPopularTags().catch(() => []),
-      listRecommendations().catch(() => []),
+      home ? listRecommendations().catch(() => []) : Promise.resolve([]),
     ]);
     return [feed, tags, recommended] as const;
   },
@@ -19,35 +21,33 @@ export const Route = createFileRoute("/")({
   component: Home,
 });
 
+function isHome(search: FeedQuery): boolean {
+  return !search.q && !search.tag && search.kind === "all";
+}
+
 function Home() {
   const search = Route.useSearch();
   const [feed, tags, recommended] = Route.useLoaderData();
-  const pristine = !search.q && !search.tag && search.kind === "all" && search.page === 1;
-  const showReco = search.page === 1 && !search.q && !search.tag && search.kind !== "fixed" && recommended.length > 0;
+  const home = isHome(search);
 
   return (
     <div className="space-y-8">
-      <FilterBar search={search} tags={tags} />
-      {showReco ? (
+      <FilterBar search={search} tags={tags} showSort={!home} />
+      {home ? (
         <section className="space-y-3">
-          <div>
-            <Kicker>weighted</Kicker>
-            <h2 className="mt-1 font-display text-3xl leading-none">рекомендации.</h2>
-            <p className="mt-1 text-sm text-muted">
-              Живые аукционы со ставками. Чем больше ставок, тем выше. Две ставки и больше — всегда в этом блоке.
-            </p>
-          </div>
-          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-            {recommended.map((item) => (
-              <ListingCardView key={item.id} item={item} />
-            ))}
-          </div>
+          <h2 className="font-display text-3xl leading-none">Топ Аукционов</h2>
+          {recommended.length === 0 ? (
+            <p className="border border-dashed border-ink/30 px-4 py-10 text-center text-muted">Лотов пока нет.</p>
+          ) : (
+            <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+              {recommended.map((item) => (
+                <ListingCardView key={item.id} item={item} />
+              ))}
+            </div>
+          )}
         </section>
-      ) : null}
-      {feed.items.length === 0 ? (
-        <p className="border border-dashed border-ink/30 px-4 py-10 text-center text-muted">
-          {pristine ? "Лотов пока нет." : "По этому запросу лотов нет."}
-        </p>
+      ) : feed.items.length === 0 ? (
+        <p className="border border-dashed border-ink/30 px-4 py-10 text-center text-muted">По этому запросу лотов нет.</p>
       ) : (
         <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
           {feed.items.map((item) => (
@@ -55,7 +55,7 @@ function Home() {
           ))}
         </div>
       )}
-      {feed.total > 0 ? (
+      {!home && feed.total > 0 ? (
         <div className="flex items-center justify-between gap-3 font-mono text-sm">
           {search.page > 1 ? (
             <Link to="/" search={{ ...search, page: search.page - 1 }} className="min-h-11 underline">
@@ -80,7 +80,15 @@ function Home() {
   );
 }
 
-function FilterBar({ search, tags }: { search: FeedQuery; tags: { slug: string; label: string }[] }) {
+function FilterBar({
+  search,
+  tags,
+  showSort,
+}: {
+  search: FeedQuery;
+  tags: { slug: string; label: string }[];
+  showSort: boolean;
+}) {
   const kinds = [
     ["all", "Все"],
     ["auction", "Аукцион"],
@@ -107,21 +115,25 @@ function FilterBar({ search, tags }: { search: FeedQuery; tags: { slug: string; 
             {label}
           </Link>
         ))}
-        <span className="mx-1 hidden w-px bg-ink/15 sm:block" />
-        {sorts.map(([id, label]) => (
-          <Link
-            key={id}
-            to="/"
-            search={{ ...search, sort: id, page: 1 }}
-            className={
-              search.sort === id
-                ? "inline-flex min-h-11 items-center border border-wine bg-wine px-3 text-sm text-foam"
-                : "inline-flex min-h-11 items-center border border-ink/25 px-3 text-sm"
-            }
-          >
-            {label}
-          </Link>
-        ))}
+        {showSort ? (
+          <>
+            <span className="mx-1 hidden w-px bg-ink/15 sm:block" />
+            {sorts.map(([id, label]) => (
+              <Link
+                key={id}
+                to="/"
+                search={{ ...search, sort: id, page: 1 }}
+                className={
+                  search.sort === id
+                    ? "inline-flex min-h-11 items-center border border-wine bg-wine px-3 text-sm text-foam"
+                    : "inline-flex min-h-11 items-center border border-ink/25 px-3 text-sm"
+                }
+              >
+                {label}
+              </Link>
+            ))}
+          </>
+        ) : null}
       </div>
       {tags.length > 0 ? (
         <div className="flex gap-2 overflow-x-auto pb-1">
