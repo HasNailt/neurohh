@@ -3,6 +3,7 @@ import { AuthProvider } from "@/lib/auth/provider";
 import { AppShell } from "@/components/shell";
 import { Toaster } from "sonner";
 import appCss from "../styles.css?url";
+import { themeBoot } from "@/lib/site-theme";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -25,6 +26,7 @@ export const Route = createRootRoute({
   component: () => (
     <html lang="ru" className="antialiased" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBoot }} />
         <HeadContent />
       </head>
       <body>

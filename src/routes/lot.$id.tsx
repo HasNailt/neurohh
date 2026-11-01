@@ -263,7 +263,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
                 {lot.bids.map((row) => (
                   <li key={row.id} className="flex items-baseline justify-between gap-3 border-b border-ink/10 pb-2 last:border-0">
                     <Link to="/u/$handle" params={{ handle: row.handle }} className="hover:text-ink">
-                      {row.premium ? <span className="text-foam">★ </span> : null}
+                      {row.premium ? <span className="star">★ </span> : null}
                       <span className={row.premium ? "text-[#e6c36a]" : undefined}>@{row.handle}</span>
                     </Link>
                     <span className="font-mono text-lg tabular-nums">{formatPrice(row.amount)}</span>

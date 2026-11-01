@@ -120,7 +120,7 @@ function SellForm() {
           type="file"
           accept="image/png,image/jpeg,image/webp,image/gif"
           multiple
-          className="mt-3 block w-full cursor-pointer text-sm text-foam file:mr-4 file:inline-flex file:min-h-11 file:cursor-pointer file:border-0 file:bg-wine file:px-4 file:py-2 file:font-medium file:text-foam"
+          className="mt-3 block w-full cursor-pointer text-sm text-ink file:mr-4 file:inline-flex file:min-h-11 file:cursor-pointer file:border-0 file:bg-wine file:px-4 file:py-2 file:font-medium file:text-foam"
           onChange={(e) => void onPickFiles(e.target.files, e.currentTarget)}
         />
         {previews.length > 0 ? <p className="mt-2 font-mono text-xs text-muted">{previews.map((f) => f.name).join(", ")}</p> : null}

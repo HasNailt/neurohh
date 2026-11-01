@@ -64,7 +64,7 @@ export function ListingCardView({
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-paper via-paper/95 to-transparent px-2 pt-10 pb-2 text-ink">
               <p className={dense ? "truncate font-display text-sm leading-none" : "truncate font-display text-xl leading-none"}>{item.title}</p>
               <p className="mt-1 truncate font-mono text-[11px]">
-                {item.sellerPremium ? <span className="text-foam">★ </span> : null}
+                {item.sellerPremium ? <span className="star">★ </span> : null}
                 <span className={item.sellerPremium ? "text-[#e6c36a]" : "text-muted"}>@{item.sellerHandle}</span>
               </p>
               {showPrice ? (

@@ -1,6 +1,6 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Bell, Plus, Search, X } from "lucide-react";
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Bell, Moon, Plus, Search, Sun, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { authEnabled, signOut } from "@/lib/auth/client";
@@ -8,6 +8,7 @@ import { hasGateSessionMarker } from "@/lib/auth/gate-session-marker";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { getMe, listNotifications, markNotificationsRead } from "@/lib/market/server";
 import { errText, formatWhen, isStaff, type Me, type Notice } from "@/lib/market/shared";
+import { THEME_KEY, toggleSiteTheme } from "@/lib/site-theme";
 
 const subscribeToNothing = () => () => {};
 const noGateSessionOnServer = () => false;
@@ -48,7 +49,7 @@ function Mark() {
       <span className="pointer-events-none absolute -top-px -right-px h-2 w-2 border-t border-r border-wine" />
       <span className="pointer-events-none absolute -bottom-px -left-px h-2 w-2 border-b border-l border-wine" />
       <span className="pointer-events-none absolute -right-px -bottom-px h-2 w-2 border-r border-b border-wine" />
-      <span className="font-display text-lg leading-none text-foam">A</span>
+      <span className="font-display text-lg leading-none text-ink">A</span>
     </span>
   );
 }
@@ -249,10 +250,31 @@ function SignalsButton({ unread, onRead }: { unread: number; onRead: () => void 
   );
 }
 
+function PixelHearts() {
+  const filled = [1, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 1];
+  return (
+    <div className="flex items-center justify-center gap-2.5 border-b border-ink/10 py-3" aria-hidden="true">
+      {filled.map((on, index) => (
+        <svg key={index} width="13" height="11" viewBox="0 0 7 6" shapeRendering="crispEdges" className={on ? "text-ink" : "text-ink/30"}>
+          <path fill="currentColor" d="M1 0h2v1H1zm3 0h2v1H4zM0 1h7v2H0zM1 3h5v1H1zM2 4h3v1H2zM3 5h1v1H3z" />
+        </svg>
+      ))}
+    </div>
+  );
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, isPending } = useCurrentUserState();
   const [me, setMe] = useState<Me | null>(null);
   const userId = user?.id;
+
+  useLayoutEffect(() => {
+    try {
+      document.documentElement.classList.toggle("light", localStorage.getItem(THEME_KEY) === "light");
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   useEffect(() => {
     if (!userId) {
@@ -300,6 +322,15 @@ export function AppShell({ children }: { children: ReactNode }) {
               unread={me?.unread ?? 0}
               onRead={() => setMe((current) => (current ? { ...current, unread: 0 } : current))}
             />
+            <button
+              type="button"
+              aria-label="Переключить тему"
+              onClick={toggleSiteTheme}
+              className="grid size-11 place-items-center border border-ink/25"
+            >
+              <Sun className="theme-sun size-4" />
+              <Moon className="theme-moon size-4" />
+            </button>
             <Link to="/feed" className="inline-flex min-h-11 items-center border border-ink/25 px-3 font-medium">
               Лента
             </Link>
@@ -327,6 +358,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {children}
       </div>
       <footer className="border-t border-ink/20">
+        <PixelHearts />
         <div className="mx-auto flex w-full max-w-[100rem] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 font-mono text-xs text-muted">
           <span>ADOPTAI // OFF-SITE PAY</span>
           {me && isStaff(me.role) ? (

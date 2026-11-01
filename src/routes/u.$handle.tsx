@@ -1,12 +1,12 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { toast } from "sonner";
 import { ListingCardView } from "@/components/listing-card";
 import { Nick, PremiumBadge } from "@/components/nick";
 import { PostCard } from "@/components/post-card";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { ACCENTS, THEMES, type AvatarFrame, type BannerOverlay } from "@/lib/market/themes";
-import { getMe, getPublicProfile, listProfileLots, toggleFollow } from "@/lib/market/server";
+import { siteThemeSnapshot, subscribeSiteTheme } from "@/lib/site-theme";
 import {
   badgeLabel,
   errText,
@@ -36,6 +36,16 @@ function followerWord(n: number): string {
   return "подписчиков";
 }
 
+function lightSurface(bg: string) {
+  const hex = bg.replace("#", "");
+  if (hex.length < 6) return false;
+  const r = Number.parseInt(hex.slice(0, 2), 16);
+  const g = Number.parseInt(hex.slice(2, 4), 16);
+  const b = Number.parseInt(hex.slice(4, 6), 16);
+  if ([r, g, b].some((n) => Number.isNaN(n))) return false;
+  return (r * 299 + g * 587 + b * 114) / 1000 > 150;
+}
+
 function ProfilePage() {
   const loaded = Route.useLoaderData();
   const router = useRouter();
@@ -45,6 +55,7 @@ function ProfilePage() {
   const [page, setPage] = useState(1);
   const [lots, setLots] = useState<ListingCard[]>(loaded?.lots ?? []);
   const [total, setTotal] = useState(loaded?.lotTotal ?? 0);
+  const site = useSyncExternalStore(subscribeSiteTheme, siteThemeSnapshot, () => "dark" as const);
 
   useEffect(() => {
     if (!user) {
@@ -65,6 +76,12 @@ function ProfilePage() {
     return <h1 className="font-display text-4xl">Такого профиля нет</h1>;
   }
   const profile = loaded;
+  const preset = THEMES[profile.theme];
+  const theme =
+    profile.theme === "classic" && !profile.premium && site === "light"
+      ? { ...preset, bg: "#eceae6", ink: "#1c1b19", muted: "#5f5b55", card: "#f7f6f3", line: "rgba(28,27,25,0.16)", foam: "#f7f4ef" }
+      : preset;
+  const hud = lightSurface(theme.bg) ? theme.ink : theme.foam;
   const bg = profile.hasBackground ? profileImageUrl(profile.handle, "background") : "";
   const banner = profile.hasBanner ? profileImageUrl(profile.handle, "banner") : "";
   const pages = Math.max(1, Math.ceil(total / PROFILE_LOT_PAGE));
@@ -83,7 +100,6 @@ function ProfilePage() {
       .catch((err) => toast.error(errText(err)));
   }
 
-  const theme = THEMES[profile.theme];
   const accent = ACCENTS[profile.accent].color;
   const scope: CSSProperties = {
     color: theme.ink,
@@ -111,9 +127,9 @@ function ProfilePage() {
         <div style={bg ? { background: `${theme.bg}cc` } : undefined}>
           <div className="relative h-36 border-b sm:h-48" style={{ borderColor: theme.line, ...bannerStyle }}>
             {banner ? null : <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${accent} 0%, ${theme.bg} 55%, ${theme.card} 100%)` }} />}
-            <span className="pointer-events-none absolute top-3 left-3 h-3 w-3 border-t border-l" style={{ borderColor: theme.foam }} />
-            <span className="pointer-events-none absolute top-3 right-3 h-3 w-3 border-t border-r" style={{ borderColor: theme.foam }} />
-            <p className="absolute bottom-3 left-36 font-mono text-[10px] tracking-[0.22em] uppercase sm:left-44" style={{ color: theme.foam }}>
+            <span className="pointer-events-none absolute top-3 left-3 h-3 w-3 border-t border-l" style={{ borderColor: hud }} />
+            <span className="pointer-events-none absolute top-3 right-3 h-3 w-3 border-t border-r" style={{ borderColor: hud }} />
+            <p className="absolute bottom-3 left-36 font-mono text-[10px] tracking-[0.22em] uppercase sm:left-44" style={{ color: hud }}>
               // {profile.handle}
             </p>
           </div>

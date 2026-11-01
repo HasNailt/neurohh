@@ -12,7 +12,7 @@ export function Nick({
   return (
     <Link to="/u/$handle" params={{ handle }} className={`hover:underline ${className}`}>
       {premium ? (
-        <span className="text-foam" aria-hidden="true">
+        <span className="star" aria-hidden="true">
           ★{" "}
         </span>
       ) : null}

@@ -98,7 +98,7 @@ function DealPage() {
               ) : (
                 <div key={message.id} className={message.senderId === user.id ? "ml-auto max-w-[80%]" : "max-w-[80%]"}>
                   <p className="mb-1 font-mono text-[10px] tracking-wide text-muted uppercase">
-                    {message.premium ? <span className="text-foam">★ </span> : null}
+                    {message.premium ? <span className="star">★ </span> : null}
                     <span className={message.premium ? "text-[#e6c36a]" : undefined}>@{message.handle}</span>
                     {" · "}
                     <span suppressHydrationWarning>{formatWhen(message.createdAt)}</span>
@@ -198,7 +198,7 @@ function DealPage() {
               {deal.youAre === "seller" ? "покупатель" : "продавец"}
             </p>
             <Link to="/u/$handle" params={{ handle: other.handle }} className="mt-1 block font-display text-3xl leading-none hover:underline">
-              {other.premium ? <span className="text-foam">★ </span> : null}
+              {other.premium ? <span className="star">★ </span> : null}
               <span className={other.premium ? "text-[#e6c36a]" : undefined}>@{other.handle}</span>
             </Link>
             <p className="text-sm text-muted">{other.name}</p>
