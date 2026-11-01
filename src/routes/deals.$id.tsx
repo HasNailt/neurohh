@@ -181,7 +181,7 @@ function DealPage() {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder="Сообщение"
-              className={fieldClass}
+              className={`${fieldClass} min-w-0 flex-1`}
               maxLength={2000}
             />
             <Button type="submit" disabled={busy}>

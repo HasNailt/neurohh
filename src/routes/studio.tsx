@@ -250,11 +250,11 @@ function EditSheet({ id, onClose, onSaved }: { id: string; onClose: () => void; 
           </label>
           <label className="block text-sm">
             Коротко
-            <textarea value={blurb} onChange={(e) => setBlurb(e.target.value)} rows={4} maxLength={1200} className={`${fieldClass} mt-1 py-2`} />
-            <span className="mt-1 block font-mono text-xs text-muted">{blurb.length}/1200 · без Premium лимит 400</span>
-            <div className="mt-2">
-              <EmojiBar onPick={(emoji) => setBlurb((value) => value + emoji)} />
+            <div className="mt-1 flex items-end gap-2">
+              <EmojiBar up onPick={(emoji) => setBlurb((value) => value + emoji)} />
+              <textarea value={blurb} onChange={(e) => setBlurb(e.target.value)} rows={4} maxLength={1200} className={`${fieldClass} min-w-0 flex-1 py-2`} />
             </div>
+            <span className="mt-1 block font-mono text-xs text-muted">{blurb.length}/1200 · без Premium лимит 400</span>
           </label>
           <div>
             <p className="mb-2 text-sm">Теги</p>

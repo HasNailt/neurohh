@@ -194,7 +194,7 @@ function ProfilePage() {
             </div>
           ) : null}
           {profile.posts.some((post) => post.pinned) ? (
-            <div className="mx-auto max-w-2xl space-y-3">
+            <div className="mx-auto max-w-5xl space-y-3">
               {profile.posts
                 .filter((post) => post.pinned)
                 .slice(0, 3)
@@ -256,7 +256,7 @@ function ProfilePage() {
       ) : profile.posts.length === 0 ? (
         <p className="text-muted">Постов пока нет.</p>
       ) : (
-        <div className="mx-auto max-w-2xl space-y-4">
+        <div className="mx-auto max-w-5xl space-y-4">
           {profile.posts.map((post) => (
             <PostCard
               key={post.id}

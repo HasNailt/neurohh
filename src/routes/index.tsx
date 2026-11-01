@@ -37,7 +37,7 @@ function Home() {
 
   return (
     <div className="space-y-8">
-      <FilterBar search={search} tags={tags} showSort={!home} />
+      <FilterBar search={search} tags={tags} showSort={!home && search.kind !== "fixed"} />
       {home ? (
         <section className="space-y-3">
           <h2 className="font-display text-3xl leading-none">Топ Аукционов</h2>
@@ -134,7 +134,7 @@ function FilterBar({
           <Link
             key={id}
             to="/"
-            search={{ ...search, kind: id, page: 1 }}
+            search={{ ...search, kind: id, page: 1, ...(id === "fixed" ? { sort: "new" as const } : {}) }}
             className={
               search.kind === id
                 ? "inline-flex min-h-11 items-center border border-wine bg-wine px-3 text-sm text-foam"

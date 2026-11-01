@@ -83,13 +83,15 @@ function LotView({ lot }: { lot: ListingDetail }) {
         <Gallery lot={lot} />
         <div className="border border-ink/20 bg-card p-4">
           <Kicker>{lot.kind === "auction" ? "auction" : "fixed"}</Kicker>
-          <h1 className="mt-2 font-display text-5xl leading-none">{lot.title}</h1>
-          <p className="mt-3 whitespace-pre-wrap text-ink/90">{lot.blurb || "Без короткого описания."}</p>
-          <p className="mt-3 font-mono text-xs text-muted">
+          <h1 className="mt-2 font-display text-2xl leading-tight">{lot.title}</h1>
+          <p className="mt-3 whitespace-pre-wrap text-base text-ink/90">{lot.blurb || "Без короткого описания."}</p>
+          <p className="mt-3 text-base text-ink/90">
             <Nick handle={lot.sellerHandle} premium={lot.sellerPremium} />
-            {" · "}
-            {formatWhen(lot.createdAt)}
-            {lot.kind === "auction" ? ` · ${snipeLabel(lot.antiSnipeMinutes)}` : ""}
+            <span className="text-muted">
+              {" · "}
+              {formatWhen(lot.createdAt)}
+              {lot.kind === "auction" ? ` · ${snipeLabel(lot.antiSnipeMinutes)}` : ""}
+            </span>
           </p>
           {mine && lot.privateDescription ? (
             <p className="mt-3 border border-ink/15 bg-card px-3 py-2 text-sm text-muted">Для вас: {lot.privateDescription}</p>
@@ -126,7 +128,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
           </ul>
           {user ? (
             <form
-              className="space-y-2"
+              className="flex items-center gap-2"
               onSubmit={(event) => {
                 event.preventDefault();
                 const body = comment.trim();
@@ -137,13 +139,11 @@ function LotView({ lot }: { lot: ListingDetail }) {
                 });
               }}
             >
-              <EmojiBar onPick={(emoji) => setComment((value) => value + emoji)} />
-              <div className="flex gap-2">
-              <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий" className={fieldClass} />
+              <EmojiBar up onPick={(emoji) => setComment((value) => value + emoji)} />
+              <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий" className={`${fieldClass} min-w-0 flex-1`} />
               <Button type="submit" variant="line" disabled={busy}>
                 ок
               </Button>
-              </div>
             </form>
           ) : (
             <Link to="/login" className="font-mono text-xs text-muted hover:text-ink">
@@ -159,7 +159,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
               <StatusChip kind="listing" status={lot.status} />
               <button
                 type="button"
-                className="font-mono text-sm text-ink"
+                className="inline-flex min-h-11 items-center gap-1.5 border border-ink/25 px-3 font-mono text-lg leading-none"
                 onClick={() => {
                   if (!user) {
                     toast.error("Войдите, чтобы отметить лот");
@@ -259,14 +259,14 @@ function LotView({ lot }: { lot: ListingDetail }) {
           <Frame>
             <div className="bg-card p-4">
               <Kicker>bids</Kicker>
-              <ul className="mt-2 space-y-1 font-mono text-xs">
+              <ul className="mt-3 space-y-2 text-base">
                 {lot.bids.map((row) => (
-                  <li key={row.id} className="flex justify-between gap-2">
+                  <li key={row.id} className="flex items-baseline justify-between gap-3 border-b border-ink/10 pb-2 last:border-0">
                     <Link to="/u/$handle" params={{ handle: row.handle }} className="hover:text-ink">
                       {row.premium ? <span className="text-foam">★ </span> : null}
                       <span className={row.premium ? "text-[#e6c36a]" : undefined}>@{row.handle}</span>
                     </Link>
-                    <span className="tabular-nums">{formatPrice(row.amount)}</span>
+                    <span className="font-mono text-lg tabular-nums">{formatPrice(row.amount)}</span>
                   </li>
                 ))}
               </ul>
@@ -291,8 +291,10 @@ function LotView({ lot }: { lot: ListingDetail }) {
                   });
                 }}
               >
-                <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} className={fieldClass} placeholder="Что не так с лотом" />
-                <EmojiBar onPick={(emoji) => setReason((value) => value + emoji)} />
+                <div className="flex items-end gap-2">
+                  <EmojiBar up onPick={(emoji) => setReason((value) => value + emoji)} />
+                  <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} className={`${fieldClass} min-w-0 flex-1 py-2`} placeholder="Что не так с лотом" />
+                </div>
                 <Button type="submit" variant="line" disabled={busy}>
                   отправить
                 </Button>

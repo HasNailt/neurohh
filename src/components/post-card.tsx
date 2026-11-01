@@ -36,7 +36,7 @@ export function PostCard({
   }
 
   return (
-    <article className={post.authorPremium ? "space-y-3 border border-[#e6c36a] bg-card p-4" : "space-y-3 border border-ink/20 bg-card p-4"}>
+    <article className={post.authorPremium ? "space-y-4 border border-[#e6c36a] bg-card p-5 sm:p-6" : "space-y-4 border border-ink/20 bg-card p-5 sm:p-6"}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-mono text-xs text-muted">
           <Nick handle={post.authorHandle} premium={post.authorPremium} />
@@ -80,9 +80,9 @@ export function PostCard({
       </div>
       <p className="whitespace-pre-wrap">{post.body}</p>
       {post.images.length > 0 ? (
-        <div className="flex flex-nowrap gap-2 overflow-x-auto">
+        <div className="flex flex-wrap items-start gap-3">
           {post.images.map((image) => (
-            <img key={image.id} src={image.src} alt="" className="h-36 w-36 shrink-0 object-cover" />
+            <img key={image.id} src={image.src} alt="" className="h-auto max-h-[28rem] w-auto max-w-full object-contain" />
           ))}
         </div>
       ) : null}
@@ -102,15 +102,15 @@ export function PostCard({
           </li>
         ))}
       </ul>
-      <EmojiBar onPick={(emoji) => setBody((value) => value + emoji)} />
       <form
-        className="flex gap-2"
+        className="flex items-center gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           send(replyTo);
         }}
       >
-        <input value={body} onChange={(e) => setBody(e.target.value)} placeholder={replyTo ? "Ответ" : "Комментарий"} className={fieldClass} />
+        <EmojiBar up onPick={(emoji) => setBody((value) => value + emoji)} />
+        <input value={body} onChange={(e) => setBody(e.target.value)} placeholder={replyTo ? "Ответ" : "Комментарий"} className={`${fieldClass} min-w-0 flex-1`} />
         <Button type="submit" variant="line" disabled={busy}>
           ок
         </Button>

@@ -188,7 +188,7 @@ function ChatsPage() {
             >
               <div className="flex items-center gap-2">
                 <EmojiBar up onPick={(emoji) => setDraft((value) => value + emoji)} />
-                <input value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={2000} className={fieldClass} placeholder="Сообщение" />
+                <input value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={2000} className={`${fieldClass} min-w-0 flex-1`} placeholder="Сообщение" />
                 <Button type="submit" variant="wine" disabled={busy}>
                   Ок
                 </Button>

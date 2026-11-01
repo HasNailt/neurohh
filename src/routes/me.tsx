@@ -188,9 +188,9 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
       </label>
       <label className="block text-sm">
         О себе
-        <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={4} maxLength={400} className={`${fieldClass} mt-1 py-2`} />
-        <div className="mt-2">
-          <EmojiBar onPick={(emoji) => setBio((value) => value + emoji)} />
+        <div className="mt-1 flex items-end gap-2">
+          <EmojiBar up onPick={(emoji) => setBio((value) => value + emoji)} />
+          <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={4} maxLength={400} className={`${fieldClass} min-w-0 flex-1 py-2`} />
         </div>
       </label>
       <fieldset className="space-y-2">

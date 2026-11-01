@@ -61,22 +61,24 @@ function FeedPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6">
       <div>
         <Kicker>following</Kicker>
         <h1 className="mt-2 font-display text-5xl leading-none">лента</h1>
         <p className="mt-2 text-sm text-muted">Новые лоты и посты людей, на которых вы подписаны, и ваши собственные.</p>
       </div>
       <form onSubmit={(e) => void onSubmit(e)} className="space-y-3 border border-ink/20 bg-card p-4">
-        <EmojiBar onPick={(emoji) => setBody((value) => value + emoji)} />
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          rows={4}
-          maxLength={2000}
-          placeholder="Новость или заметка, не лот"
-          className={`${fieldClass} py-2`}
-        />
+        <div className="flex items-end gap-2">
+          <EmojiBar up onPick={(emoji) => setBody((value) => value + emoji)} />
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={4}
+            maxLength={2000}
+            placeholder="Новость или заметка, не лот"
+            className={`${fieldClass} min-w-0 flex-1 py-2`}
+          />
+        </div>
         <input
           type="file"
           accept="image/png,image/jpeg,image/webp,image/gif"

@@ -132,9 +132,9 @@ function SellForm() {
       </label>
       <label className="block text-sm">
         Коротко на карточке
-        <textarea value={blurb} onChange={(e) => setBlurb(e.target.value)} maxLength={blurbCap} rows={3} className={`${fieldClass} mt-1 py-2`} />
-        <div className="mt-2">
-          <EmojiBar onPick={(emoji) => setBlurb((value) => value + emoji)} />
+        <div className="mt-1 flex items-end gap-2">
+          <EmojiBar up onPick={(emoji) => setBlurb((value) => value + emoji)} />
+          <textarea value={blurb} onChange={(e) => setBlurb(e.target.value)} maxLength={blurbCap} rows={3} className={`${fieldClass} min-w-0 flex-1 py-2`} />
         </div>
         <span className="mt-1 block font-mono text-xs text-muted">{blurb.length}/{blurbCap}</span>
       </label>
