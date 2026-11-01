@@ -99,6 +99,7 @@ function ChatsPage() {
                       </span>
                       <span className="block truncate text-sm text-muted">
                         @{deal.youAre === "seller" ? deal.buyerHandle : deal.sellerHandle} · {formatPrice(deal.amount)}
+                        {(deal.youAre === "seller" ? deal.buyerPremium : deal.sellerPremium) ? " · ★" : ""}
                       </span>
                     </span>
                     <span
@@ -128,7 +129,10 @@ function ChatsPage() {
                   search={{ with: thread.otherHandle }}
                   className="block px-3 py-3 hover:bg-soft/60"
                 >
-                  <p className="font-medium">@{thread.otherHandle}</p>
+                  <p className="font-medium">
+                    {thread.otherPremium ? <span className="text-foam">★ </span> : null}
+                    <span className={thread.otherPremium ? "text-[#e6c36a]" : undefined}>@{thread.otherHandle}</span>
+                  </p>
                   <p className="truncate text-sm text-muted">{thread.lastBody || "без сообщений"}</p>
                 </Link>
               </li>
@@ -145,7 +149,8 @@ function ChatsPage() {
               <p className="font-mono text-[10px] tracking-widest text-muted uppercase">личный чат</p>
               <h2 className="font-display text-3xl leading-none">
                 <Link to="/u/$handle" params={{ handle: open.otherHandle }} className="hover:underline">
-                  @{open.otherHandle}
+                  {open.otherPremium ? <span className="text-foam">★ </span> : null}
+                  <span className={open.otherPremium ? "text-[#e6c36a]" : undefined}>@{open.otherHandle}</span>
                 </Link>
               </h2>
             </div>
@@ -154,7 +159,8 @@ function ChatsPage() {
               {open.messages.map((message) => (
                 <div key={message.id} className={message.mine ? "ml-auto max-w-[80%]" : "max-w-[80%]"}>
                   <p className="mb-1 font-mono text-[10px] text-muted">
-                    @{message.handle} · <span suppressHydrationWarning>{formatWhen(message.createdAt)}</span>
+                    {message.premium ? <span className="text-foam">★ </span> : null}
+                    <span className={message.premium ? "text-[#e6c36a]" : undefined}>@{message.handle}</span> · <span suppressHydrationWarning>{formatWhen(message.createdAt)}</span>
                   </p>
                   <p className={message.mine ? "whitespace-pre-wrap bg-wine px-3 py-2 text-foam" : "whitespace-pre-wrap border border-ink/25 px-3 py-2"}>
                     {message.body}

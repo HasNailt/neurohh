@@ -29,7 +29,7 @@ export function ListingCardView({
   return (
     <article className="min-w-0">
       <Link to="/lot/$id" params={{ id: item.id }} className="block">
-        <Frame>
+        <Frame gold={item.sellerPremium}>
           <div className="poster relative overflow-hidden bg-soft">
             {item.previewId || item.previewSrc ? (
               <PreviewImg
@@ -48,9 +48,13 @@ export function ListingCardView({
                 <span className={dense ? "font-display text-4xl leading-none text-foam" : "font-display text-7xl leading-none text-foam"}>{letter}</span>
               </div>
             )}
-            <div className="absolute top-2 left-2 border border-ink/20 bg-paper/85 px-1.5 py-0.5 font-mono text-[10px]">
-              {item.kind === "auction" ? "AUC" : "FIX"}
-              {item.pinned ? " · PIN" : ""}
+            <div className="absolute top-2 left-2 flex gap-1">
+              <div className="border border-ink/20 bg-paper/85 px-1.5 py-0.5 font-mono text-[10px]">
+                {item.kind === "auction" ? "AUC" : "FIX"}
+                {item.pinned ? " · PIN" : ""}
+              </div>
+              {item.sellerPremium ? <div className="border border-[#e6c36a] bg-[#1a1408]/85 px-1.5 py-0.5 font-mono text-[10px] text-[#e6c36a]">★</div> : null}
+              {item.boosted ? <div className="bg-[#e6c36a] px-1.5 py-0.5 font-mono text-[10px] text-[#1a1408]">BOOST</div> : null}
             </div>
             {item.kind === "auction" && item.endsAt && item.status === "active" ? (
               <div className="absolute top-2 right-2 bg-wine px-1.5 py-0.5 font-mono text-[10px] text-foam">
@@ -59,7 +63,10 @@ export function ListingCardView({
             ) : null}
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-paper via-paper/95 to-transparent px-2 pt-10 pb-2 text-ink">
               <p className={dense ? "truncate font-display text-sm leading-none" : "truncate font-display text-xl leading-none"}>{item.title}</p>
-              <p className="mt-1 truncate font-mono text-[11px] text-muted">@{item.sellerHandle}</p>
+              <p className="mt-1 truncate font-mono text-[11px]">
+                {item.sellerPremium ? <span className="text-foam">★ </span> : null}
+                <span className={item.sellerPremium ? "text-[#e6c36a]" : "text-muted"}>@{item.sellerHandle}</span>
+              </p>
               {showPrice ? (
                 <p className={dense ? "mt-1 font-display text-base tabular-nums leading-none" : "mt-1 font-display text-lg tabular-nums leading-none"}>
                   {formatPrice(price)}

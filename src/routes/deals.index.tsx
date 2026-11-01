@@ -80,7 +80,18 @@ function DealsPage() {
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-display text-xl">{deal.title}</p>
                       <p className="font-mono text-xs text-muted">
-                        {formatDealNo(deal.publicNo)} · {deal.youAre === "seller" ? `покупатель @${deal.buyerHandle}` : `продавец @${deal.sellerHandle}`}
+                        {formatDealNo(deal.publicNo)} ·{" "}
+                        {deal.youAre === "seller" ? (
+                          <>
+                            покупатель {deal.buyerPremium ? "★ " : ""}
+                            <span className={deal.buyerPremium ? "text-[#e6c36a]" : undefined}>@{deal.buyerHandle}</span>
+                          </>
+                        ) : (
+                          <>
+                            продавец {deal.sellerPremium ? "★ " : ""}
+                            <span className={deal.sellerPremium ? "text-[#e6c36a]" : undefined}>@{deal.sellerHandle}</span>
+                          </>
+                        )}
                       </p>
                     </div>
                     <div className="text-right">

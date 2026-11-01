@@ -84,6 +84,11 @@ function InvitePanel({
 }) {
   const [note, setNote] = useState("");
   const [maxUses, setMaxUses] = useState("1");
+  const [q, setQ] = useState("");
+  const needle = q.trim().toLocaleLowerCase("ru");
+  const invites = needle
+    ? data.invites.filter((invite) => `${invite.code} ${invite.note}`.toLocaleLowerCase("ru").includes(needle))
+    : data.invites;
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -127,8 +132,9 @@ function InvitePanel({
         </Button>
       </form>
       {data.invites.length === 0 ? <p className="text-sm text-muted">Кодов пока нет.</p> : null}
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск кода или заметки" className={fieldClass} />
       <ul className="divide-y divide-ink/10 border-y border-ink/15">
-        {data.invites.map((invite) => (
+        {invites.map((invite) => (
           <li key={invite.id} className="flex flex-wrap items-center gap-3 py-2">
             <button
               type="button"
@@ -192,6 +198,19 @@ function AdminPage() {
   }
 
   const admin = data.viewerRole === "admin";
+  const [dealQ, setDealQ] = useState("");
+  const [lotQ, setLotQ] = useState("");
+  const [peopleQ, setPeopleQ] = useState("");
+  const dealNeedle = dealQ.trim().toLocaleLowerCase("ru");
+  const lotNeedle = lotQ.trim().toLocaleLowerCase("ru");
+  const peopleNeedle = peopleQ.trim().toLocaleLowerCase("ru");
+  const deals = data.deals.filter((deal) =>
+    !dealNeedle || `${deal.publicNo} ${deal.title} ${deal.sellerHandle} ${deal.buyerHandle}`.toLocaleLowerCase("ru").includes(dealNeedle),
+  );
+  const lots = data.listings.filter((lot) => !lotNeedle || `${lot.title} ${lot.handle}`.toLocaleLowerCase("ru").includes(lotNeedle));
+  const people = data.users.filter((person) =>
+    !peopleNeedle || `${person.handle} ${person.displayName} ${person.role}`.toLocaleLowerCase("ru").includes(peopleNeedle),
+  );
 
   return (
     <div className="space-y-8">
@@ -224,9 +243,10 @@ function AdminPage() {
         ))}
       </dl>
       <Fold title="Сделки">
-        {data.deals.length === 0 ? <p className="text-muted">Сделок пока нет.</p> : null}
+        <input value={dealQ} onChange={(e) => setDealQ(e.target.value)} placeholder="Номер, название или ник" className={fieldClass} />
+        {deals.length === 0 ? <p className="text-muted">Сделок пока нет.</p> : null}
         <ul className="divide-y divide-ink/10 border-y border-ink/15">
-          {data.deals.map((deal) => (
+          {deals.map((deal) => (
             <li key={deal.id} className="flex flex-wrap items-center gap-3 py-2">
               <Link to="/admin/deal/$no" params={{ no: String(deal.publicNo) }} className="font-mono text-sm hover:underline">
                 #{deal.publicNo}
@@ -270,8 +290,9 @@ function AdminPage() {
         </ul>
       </section>
       <Fold title="Свежие лоты">
+        <input value={lotQ} onChange={(e) => setLotQ(e.target.value)} placeholder="Название или ник" className={fieldClass} />
         <ul className="divide-y divide-ink/10 border-y border-ink/15">
-          {data.listings.map((lot) => (
+          {lots.map((lot) => (
             <li key={lot.id} className="flex flex-wrap items-center gap-3 py-2">
               <Link to="/lot/$id" params={{ id: lot.id }} className="min-w-0 flex-1 truncate hover:underline">
                 {lot.title}
@@ -286,9 +307,10 @@ function AdminPage() {
         </ul>
       </Fold>
       <Fold title="Люди">
-        <p className="text-sm text-muted">Последние 80 профилей. Смена роли доступна только администратору и не для самого себя.</p>
+        <p className="text-sm text-muted">Последние 200 профилей. Смена роли и Premium — только у администратора.</p>
+        <input value={peopleQ} onChange={(e) => setPeopleQ(e.target.value)} placeholder="Ник, имя или роль" className={fieldClass} />
         <ul className="divide-y divide-ink/10 border-y border-ink/15">
-          {data.users.map((person) => {
+          {people.map((person) => {
             const self = person.userId === user.id;
             const canBan = !self && (admin || person.role === "user");
             return (
@@ -346,7 +368,26 @@ function AdminPage() {
                     })}
                   </span>
                 ) : null}
-                {person.banned ? <span className="border border-wine px-2 py-1 font-mono text-xs text-foam">ban</span> : null}
+                {person.premium ? (
+                  <span className="border border-[#e6c36a] px-2 py-1 font-mono text-xs text-[#e6c36a]">
+                    {person.premiumForever ? "Premium без срока" : "Premium"}
+                  </span>
+                ) : null}
+                {admin ? (
+                  <span className="flex flex-wrap gap-1">
+                    <Button type="button" variant="line" onClick={() => void act({ action: "grant-premium-month", userId: person.userId })}>
+                      На месяц
+                    </Button>
+                    <Button type="button" variant="line" onClick={() => void act({ action: "grant-premium-forever", userId: person.userId })}>
+                      Без срока
+                    </Button>
+                    {person.premium ? (
+                      <Button type="button" variant="ghost" onClick={() => void act({ action: "revoke-premium", userId: person.userId })}>
+                        Снять Premium
+                      </Button>
+                    ) : null}
+                  </span>
+                ) : null}
                 {canBan ? (
                   <Button
                     type="button"

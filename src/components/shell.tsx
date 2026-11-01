@@ -1,11 +1,12 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Bell, Plus, Search } from "lucide-react";
+import { Bell, Plus, Search, X } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { toast } from "sonner";
 import { authEnabled, signOut } from "@/lib/auth/client";
 import { hasGateSessionMarker } from "@/lib/auth/gate-session-marker";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { getMe } from "@/lib/market/server";
-import { isStaff, type Me } from "@/lib/market/shared";
+import { getMe, listNotifications, markNotificationsRead } from "@/lib/market/server";
+import { errText, formatWhen, isStaff, type Me, type Notice } from "@/lib/market/shared";
 
 const subscribeToNothing = () => () => {};
 const noGateSessionOnServer = () => false;
@@ -104,7 +105,7 @@ function AccountMenu({ me }: { me: Me | null }) {
         <div role="menu" className="absolute top-full right-0 z-50 mt-2 w-52 border border-ink/30 bg-paper shadow-lg">
           {me?.handle ? (
             <Link to="/u/$handle" params={{ handle: me.handle }} role="menuitem" className={itemClass}>
-              @{me.handle}
+              {me.premium ? "★ " : ""}@{me.handle}
             </Link>
           ) : (
             <p className="truncate border-b border-ink/15 px-3 py-2 font-mono text-[10px] tracking-widest text-muted uppercase">{label}</p>
@@ -140,6 +141,107 @@ function AccountMenu({ me }: { me: Me | null }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function SignalsButton({ unread, onRead }: { unread: number; onRead: () => void }) {
+  const { user } = useCurrentUserState();
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<Notice[] | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    if (user) {
+      void listNotifications()
+        .then(setItems)
+        .catch((err) => toast.error(errText(err)));
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, user]);
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={unread > 0 ? `Сигналы, ${unread}` : "Сигналы"}
+        aria-expanded={open}
+        onClick={() => setOpen(true)}
+        className="relative grid size-11 place-items-center border border-ink/25"
+      >
+        <Bell className="size-4" />
+        {unread > 0 ? (
+          <span className="absolute -top-1 -right-1 grid min-w-5 place-items-center bg-wine px-1 font-mono text-xs text-foam">
+            {unread > 9 ? "9+" : unread}
+          </span>
+        ) : null}
+      </button>
+      {open ? (
+        <div className="fixed inset-0 z-[70]">
+          <button type="button" aria-label="Закрыть сигналы" className="absolute inset-0 bg-paper/70" onClick={() => setOpen(false)} />
+          <aside className="drawer-in absolute inset-y-0 right-0 flex w-full max-w-md flex-col border-l border-ink/30 bg-paper shadow-2xl">
+            <div className="flex items-center justify-between gap-3 border-b border-ink/20 px-4 py-3">
+              <h2 className="font-display text-3xl leading-none">Сигналы</h2>
+              <button type="button" aria-label="Закрыть" onClick={() => setOpen(false)} className="grid size-11 place-items-center border border-ink/25">
+                <X className="size-4" />
+              </button>
+            </div>
+            {!user ? (
+              <p className="p-4 text-sm text-muted">
+                Войдите, чтобы видеть сигналы.{" "}
+                <Link to="/login" className="text-ink underline" onClick={() => setOpen(false)}>
+                  Войти
+                </Link>
+              </p>
+            ) : (
+              <>
+                <div className="flex justify-end px-4 py-2">
+                  <button
+                    type="button"
+                    className="min-h-9 border border-ink/25 px-3 font-mono text-xs"
+                    onClick={() => {
+                      void markNotificationsRead()
+                        .then(() => {
+                          onRead();
+                          return listNotifications();
+                        })
+                        .then(setItems)
+                        .catch((err) => toast.error(errText(err)));
+                    }}
+                  >
+                    Прочитать все
+                  </button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  {items == null ? (
+                    <div className="m-4 h-24 animate-pulse bg-soft" />
+                  ) : items.length === 0 ? (
+                    <p className="px-4 text-sm text-muted">Тихо. Ставки, конец аукциона, сообщения и комментарии появятся здесь.</p>
+                  ) : (
+                    <ul className="divide-y divide-ink/10">
+                      {items.map((item) => (
+                        <li key={item.id} className={item.read ? "" : "border-l-2 border-l-wine bg-wine/15"}>
+                          <a href={item.href} className="block px-4 py-3" onClick={() => setOpen(false)}>
+                            <p className="font-medium">{item.title}</p>
+                            <p className="text-sm text-muted">{item.body}</p>
+                            <p className="mt-1 font-mono text-xs text-muted" suppressHydrationWarning>
+                              {formatWhen(item.createdAt)}
+                            </p>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </>
+            )}
+          </aside>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -190,18 +292,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
           <SearchForm className="hidden min-w-0 flex-1 md:block" />
           <nav className="ml-auto flex items-center gap-2">
-            <Link
-              to="/notifications"
-              aria-label={me?.unread ? `Уведомления, ${me.unread}` : "Уведомления"}
-              className="relative grid size-11 place-items-center border border-ink/25"
-            >
-              <Bell className="size-4" />
-              {me && me.unread > 0 ? (
-                <span className="absolute -top-1 -right-1 grid min-w-5 place-items-center bg-wine px-1 font-mono text-xs text-foam">
-                  {me.unread > 9 ? "9+" : me.unread}
-                </span>
-              ) : null}
-            </Link>
+            <SignalsButton
+              unread={me?.unread ?? 0}
+              onRead={() => setMe((current) => (current ? { ...current, unread: 0 } : current))}
+            />
             <Link to="/feed" className="inline-flex min-h-11 items-center border border-ink/25 px-3 font-medium">
               Лента
             </Link>
@@ -232,10 +326,16 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="mx-auto flex w-full max-w-[100rem] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 font-mono text-xs text-muted">
           <span>ADOPTAI // OFF-SITE PAY</span>
           {me && isStaff(me.role) ? (
-            <Link to="/admin" className="hover:text-ink">Модерация</Link>
+            <Link to="/admin" className="hover:text-ink">
+              Модерация
+            </Link>
           ) : null}
-          <Link to="/rules" className="hover:text-ink">Правила</Link>
-          <Link to="/terms" className="hover:text-ink">Условия</Link>
+          <Link to="/rules" className="hover:text-ink">
+            Правила
+          </Link>
+          <Link to="/terms" className="hover:text-ink">
+            Условия
+          </Link>
         </div>
       </footer>
     </div>

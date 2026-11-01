@@ -6,13 +6,14 @@ import { dealStatusLabel, listingStatusLabel } from "@/lib/market/shared";
 export const fieldClass =
   "min-h-11 w-full border border-ink/25 bg-card px-3 text-ink outline-none placeholder:text-muted focus:border-wine";
 
-export function Frame({ children, className }: { children: ReactNode; className?: string }) {
+export function Frame({ children, className, gold = false }: { children: ReactNode; className?: string; gold?: boolean }) {
+  const edge = gold ? "border-[#e6c36a]" : "border-wine";
   return (
-    <div className={cn("relative border border-ink/20", className)}>
-      <span className="pointer-events-none absolute -top-px -left-px h-2.5 w-2.5 border-t border-l border-wine" />
-      <span className="pointer-events-none absolute -top-px -right-px h-2.5 w-2.5 border-t border-r border-wine" />
-      <span className="pointer-events-none absolute -bottom-px -left-px h-2.5 w-2.5 border-b border-l border-wine" />
-      <span className="pointer-events-none absolute -right-px -bottom-px h-2.5 w-2.5 border-r border-b border-wine" />
+    <div className={cn("relative border", gold ? "border-[#e6c36a]" : "border-ink/20", className)}>
+      <span className={cn("pointer-events-none absolute -top-px -left-px h-2.5 w-2.5 border-t border-l", edge)} />
+      <span className={cn("pointer-events-none absolute -top-px -right-px h-2.5 w-2.5 border-t border-r", edge)} />
+      <span className={cn("pointer-events-none absolute -bottom-px -left-px h-2.5 w-2.5 border-b border-l", edge)} />
+      <span className={cn("pointer-events-none absolute -right-px -bottom-px h-2.5 w-2.5 border-r border-b", edge)} />
       {children}
     </div>
   );

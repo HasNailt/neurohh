@@ -1,3 +1,5 @@
+import type { AccentId, AvatarFrame, BannerOverlay, ThemeId } from "@/lib/market/themes";
+
 export const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -5,8 +7,13 @@ export const PREVIEW_MAX = 4 * 1024 * 1024;
 export const FILE_MAX = 4 * 1024 * 1024;
 export const MAX_DIM = 4000;
 export const MAX_PREVIEWS = 4;
+export const PREMIUM_PREVIEWS = 8;
 export const MAX_FILES = 6;
 export const BLURB_MAX = 400;
+export const PREMIUM_BLURB_MAX = 1200;
+export const ACTIVE_LOT_LIMIT = 5;
+export const PREMIUM_ACTIVE_LOT_LIMIT = 15;
+export const PIN_LIMIT = 3;
 export const CHAT_IMAGE_MAX = 3 * 1024 * 1024;
 export const CHAT_IMAGE_DIM = 3000;
 export const CHAT_IMAGE_COUNT = 10;
@@ -35,6 +42,13 @@ export type ArtistStatus = "open" | "busy" | "closed" | "away";
 export type BadgeId = "verified" | "top";
 export type SocialLink = { label: string; url: string };
 export type ProfileImageKind = "avatar" | "banner" | "background";
+
+export type Look = {
+  theme: ThemeId;
+  accent: AccentId;
+  avatarFrame: AvatarFrame;
+  bannerOverlay: BannerOverlay;
+};
 
 export function asRole(value: unknown): Role {
   return value === "admin" || value === "moderator" || value === "user" ? value : "user";
@@ -78,30 +92,89 @@ export function asStatus(value: unknown): ArtistStatus {
 
 export function statusLabel(status: ArtistStatus): string {
   if (status === "busy") return "занят";
-  if (status === "closed") return "не беру заказы";
-  if (status === "away") return "пауза";
+  if (status === "closed") return "закрыт к заказам";
+  if (status === "away") return "не на связи";
   return "открыт к заказам";
 }
 
-export function badgeLabel(id: BadgeId): string {
-  return id === "verified" ? "Проверенный" : "Топ-продавец";
+export function badgeLabel(badge: BadgeId): string {
+  return badge === "verified" ? "Проверенный" : "Топ-продавец";
 }
 
-export function isNewAccount(createdAt: string): boolean {
-  const at = new Date(createdAt).getTime();
-  if (Number.isNaN(at)) return false;
-  return Date.now() - at < NEW_USER_MS;
+export function listingStatusLabel(status: ListingStatus): string {
+  if (status === "active") return "идёт";
+  if (status === "sold") return "продан";
+  if (status === "ended") return "завершён";
+  if (status === "removed") return "снят";
+  return "черновик";
+}
+
+export function dealStatusLabel(status: DealStatus): string {
+  if (status === "completed") return "закрыта";
+  if (status === "confirmed") return "подтверждено";
+  if (status === "files_released") return "файлы выданы";
+  return "открыта";
+}
+
+export function formatPrice(n: number): string {
+  return `${Math.round(n).toLocaleString("ru-RU")} ₽`;
+}
+
+export function formatWhen(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+export function formatLeft(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (!Number.isFinite(ms) || ms <= 0) return "00:00";
+  const total = Math.floor(ms / 1000);
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (days > 0) return `${days}д ${pad(hours)}:${pad(minutes)}`;
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}
+
+export function cleanHandle(raw: string): string | null {
+  const handle = raw.trim().toLocaleLowerCase("ru");
+  if (!/^[\p{L}\p{N}_]{3,20}$/u.test(handle)) return null;
+  return handle;
+}
+
+export function slugHandle(raw: string): string | null {
+  const slug = raw
+    .trim()
+    .toLocaleLowerCase("ru")
+    .replace(/[^\p{L}\p{N}_]+/gu, "")
+    .slice(0, 20);
+  return slug.length >= 3 ? slug : null;
+}
+
+export function likeContains(q: string): string {
+  return `%${q.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
+export function parsePrice(value: unknown): number | null {
+  const raw = typeof value === "number" ? value : typeof value === "string" ? Number(value.replace(/\s/g, "")) : NaN;
+  if (!Number.isInteger(raw) || raw < 1 || raw > 100_000_000) return null;
+  return raw;
+}
+
+export function tagParts(raw: string): { slug: string; label: string } | null {
+  const label = raw.replace(/\s+/g, " ").trim().slice(0, 24);
+  if (!/^[\p{L}\p{N} _-]{2,24}$/u.test(label)) return null;
+  return { slug: label.toLocaleLowerCase("ru"), label };
 }
 
 export function asBadges(value: unknown): BadgeId[] {
   const raw = Array.isArray(value)
     ? value
     : typeof value === "string"
-      ? value
-          .replace(/[{}"]/g, "")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean)
+      ? value.replace(/[{}"]/g, "").split(",").map((item) => item.trim()).filter(Boolean)
       : [];
   const out: BadgeId[] = [];
   for (const item of raw) {
@@ -111,29 +184,41 @@ export function asBadges(value: unknown): BadgeId[] {
 }
 
 export function asLinks(value: unknown): SocialLink[] {
-  let raw: unknown = value;
-  if (typeof value === "string") {
+  let raw = value;
+  if (typeof raw === "string") {
     try {
-      raw = JSON.parse(value) as unknown;
+      raw = JSON.parse(raw) as unknown;
     } catch {
-      raw = [];
+      return [];
     }
   }
   if (!Array.isArray(raw)) return [];
   const out: SocialLink[] = [];
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
-    const label = "label" in item && typeof item.label === "string" ? item.label : "";
-    const url = "url" in item && typeof item.url === "string" ? item.url : "";
-    if (!label || !/^https?:\/\//i.test(url)) continue;
-    out.push({ label, url });
-    if (out.length === 5) break;
+    const rec = item as Record<string, unknown>;
+    if (typeof rec.label !== "string" || typeof rec.url !== "string") continue;
+    if (!rec.label || !rec.url) continue;
+    out.push({ label: rec.label, url: rec.url });
   }
   return out;
 }
 
 export function profileImageUrl(handle: string, kind: ProfileImageKind): string {
   return `/api/profile-image/${encodeURIComponent(handle)}?kind=${kind}`;
+}
+
+export function isNewAccount(createdAt: string, now = Date.now()): boolean {
+  const time = new Date(createdAt).getTime();
+  return Number.isFinite(time) && now - time >= 0 && now - time < NEW_USER_MS;
+}
+
+export function errText(err: unknown): string {
+  if (err && typeof err === "object" && "message" in err && typeof err.message === "string" && err.message) {
+    return err.message;
+  }
+  if (typeof err === "string" && err) return err;
+  return "Что-то пошло не так";
 }
 
 export type ListingCard = {
@@ -147,6 +232,8 @@ export type ListingCard = {
   likeCount: number;
   liked: boolean;
   pinned: boolean;
+  boosted: boolean;
+  sellerPremium: boolean;
   endsAt: string | null;
   status: ListingStatus;
   sellerId: string;
@@ -167,7 +254,7 @@ export type FeedQuery = {
 
 export type FeedResult = { items: ListingCard[]; total: number; hasMore: boolean };
 
-export type BidRow = { id: string; amount: number; handle: string; createdAt: string };
+export type BidRow = { id: string; amount: number; handle: string; premium: boolean; createdAt: string };
 
 export type MediaMeta = { id: string; filename: string; mime: string; sizeBytes: number };
 
@@ -195,7 +282,10 @@ export type Profile = {
   status: ArtistStatus;
   links: SocialLink[];
   badges: BadgeId[];
-};
+  premium: boolean;
+  premiumUntil: string | null;
+  premiumForever: boolean;
+} & Look;
 
 export type Me = Profile & {
   unread: number;
@@ -210,6 +300,7 @@ export type ProfileComment = {
   createdAt: string;
   authorHandle: string;
   authorName: string;
+  authorPremium: boolean;
 };
 
 export type PublicProfile = {
@@ -226,11 +317,12 @@ export type PublicProfile = {
   hasAvatar: boolean;
   hasBanner: boolean;
   hasBackground: boolean;
+  premium: boolean;
   lots: ListingCard[];
   lotTotal: number;
   posts: AuthorPost[];
   followers: number;
-};
+} & Look;
 
 export type PostComment = {
   id: string;
@@ -239,6 +331,7 @@ export type PostComment = {
   createdAt: string;
   authorHandle: string;
   authorName: string;
+  authorPremium: boolean;
 };
 
 export type PostImage = { id: string; src: string };
@@ -247,9 +340,11 @@ export type AuthorPost = {
   id: string;
   body: string;
   createdAt: string;
+  pinned: boolean;
   authorHandle: string;
   authorName: string;
   authorIsNew: boolean;
+  authorPremium: boolean;
   images: PostImage[];
   comments: PostComment[];
 };
@@ -261,6 +356,7 @@ export type FeedEntry =
 export type PersonHit = {
   handle: string;
   displayName: string;
+  premium: boolean;
 };
 
 export type DealSummary = {
@@ -273,6 +369,8 @@ export type DealSummary = {
   status: DealStatus;
   sellerHandle: string;
   buyerHandle: string;
+  sellerPremium: boolean;
+  buyerPremium: boolean;
   youAre: "seller" | "buyer";
   createdAt: string;
 };
@@ -293,6 +391,7 @@ export type ChatMessage = {
   body: string;
   createdAt: string;
   system: boolean;
+  premium: boolean;
   images: ChatImage[];
 };
 
@@ -305,8 +404,8 @@ export type DealDetail = {
   amount: number;
   status: DealStatus;
   youAre: "seller" | "buyer";
-  seller: { id: string; handle: string; name: string };
-  buyer: { id: string; handle: string; name: string };
+  seller: { id: string; handle: string; name: string; premium: boolean };
+  buyer: { id: string; handle: string; name: string; premium: boolean };
   sellerConfirmed: boolean;
   buyerConfirmed: boolean;
   privateDescription: string | null;
@@ -320,8 +419,8 @@ export type StaffDeal = {
   title: string;
   amount: number;
   status: DealStatus;
-  seller: { handle: string; name: string };
-  buyer: { handle: string; name: string };
+  seller: { handle: string; name: string; premium: boolean };
+  buyer: { handle: string; name: string; premium: boolean };
   messages: ChatMessage[];
 };
 
@@ -341,12 +440,14 @@ export type DirectMessage = {
   body: string;
   createdAt: string;
   mine: boolean;
+  premium: boolean;
 };
 
 export type ThreadPreview = {
   id: string;
   otherHandle: string;
   otherName: string;
+  otherPremium: boolean;
   lastBody: string | null;
   updatedAt: string;
 };
@@ -362,7 +463,10 @@ export type AdminAction =
   | { action: "set-badges"; userId: string; badges: BadgeId[] }
   | { action: "set-require-invite"; enabled: boolean }
   | { action: "create-invite"; maxUses: number; note: string }
-  | { action: "revoke-invite"; inviteId: string };
+  | { action: "revoke-invite"; inviteId: string }
+  | { action: "grant-premium-month"; userId: string }
+  | { action: "grant-premium-forever"; userId: string }
+  | { action: "revoke-premium"; userId: string };
 
 export type InviteRow = {
   id: string;
@@ -404,6 +508,9 @@ export type AdminData = {
     role: Role;
     providers: string[];
     badges: BadgeId[];
+    premium: boolean;
+    premiumForever: boolean;
+    premiumUntil: string | null;
   }[];
 };
 
@@ -414,99 +521,6 @@ export function parseFeedQuery(input: unknown): FeedQuery {
   const pageRaw = Number(s.page);
   const page = Number.isInteger(pageRaw) && pageRaw > 0 && pageRaw < 100 ? pageRaw : 1;
   const q = typeof s.q === "string" ? s.q.trim().slice(0, 80) : "";
-  const tag =
-    typeof s.tag === "string" ? s.tag.trim().toLocaleLowerCase("ru").slice(0, 24) : "";
+  const tag = typeof s.tag === "string" ? s.tag.trim().toLocaleLowerCase("ru").slice(0, 24) : "";
   return { q, tag, kind, sort, page };
-}
-
-export function tagParts(raw: string): { slug: string; label: string } | null {
-  const label = raw.trim().replace(/\s+/g, " ");
-  const slug = label.toLocaleLowerCase("ru");
-  if (slug.length < 2 || slug.length > 24) return null;
-  if (!/^[\p{L}\p{N} ]+$/u.test(label)) return null;
-  return { slug, label };
-}
-
-export function cleanHandle(raw: string): string | null {
-  const h = raw.trim().toLocaleLowerCase("ru");
-  if (!/^[\p{L}\p{N}_]{3,20}$/u.test(h)) return null;
-  return h;
-}
-
-/** Auto nick from a display name or email: drops spaces and punctuation. */
-export function slugHandle(raw: string): string | null {
-  const h = raw.trim().toLocaleLowerCase("ru").replace(/[^\p{L}\p{N}_]+/gu, "").slice(0, 20);
-  if (h.length < 3) return null;
-  return h;
-}
-
-export function parsePrice(n: unknown): number | null {
-  const x = typeof n === "number" ? n : typeof n === "string" && n.trim() ? Number(n) : NaN;
-  if (!Number.isInteger(x) || x < 1 || x > 1e8) return null;
-  return x;
-}
-
-export function formatPrice(n: number): string {
-  return `${new Intl.NumberFormat("ru-RU").format(n)}\u00a0₽`;
-}
-
-export function formatLeft(iso: string): string {
-  const ms = new Date(iso).getTime() - Date.now();
-  if (ms <= 0) return "00:00:00";
-  const s = Math.floor(ms / 1000);
-  const d = Math.floor(s / 86400);
-  const h = Math.floor((s % 86400) / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  const pad = (v: number) => String(v).padStart(2, "0");
-  if (d > 0) return `${d}д ${pad(h)}:${pad(m)}:${pad(sec)}`;
-  return `${pad(h)}:${pad(m)}:${pad(sec)}`;
-}
-
-export function formatWhen(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(d);
-}
-
-export function formatBytes(n: number): string {
-  if (n < 1024) return `${n} Б`;
-  if (n < 1048576) return `${Math.round(n / 102.4) / 10} КБ`;
-  return `${Math.round(n / 104857.6) / 10} МБ`;
-}
-
-export function dealStatusLabel(status: DealStatus): string {
-  return status === "completed" ? "Закрыто" : "Открыто";
-}
-
-export function listingStatusLabel(status: ListingStatus): string {
-  switch (status) {
-    case "active":
-      return "Активен";
-    case "sold":
-      return "Продан";
-    case "ended":
-      return "Завершён";
-    case "removed":
-      return "Снят";
-    case "draft":
-      return "Черновик";
-  }
-}
-
-export function likeContains(s: string): string {
-  return `%${s.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
-}
-
-export function errText(e: unknown): string {
-  if (e instanceof Error && e.message) {
-    if (e.message === "Unauthorized") return "Нужно войти";
-    return e.message;
-  }
-  return "Что-то пошло не так";
 }

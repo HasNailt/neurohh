@@ -3,7 +3,9 @@ import { getSql, type Sql } from "@/lib/db";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { optionalAuth } from "@/lib/market/optional-auth";
 import { decodedImageSize, isRaster, psdSize, sniffMagic } from "@/lib/market/images";
+import { asAccent, asFrame, asOverlay, asTheme, premiumActive } from "@/lib/market/themes";
 import {
+  ACTIVE_LOT_LIMIT,
   BLURB_MAX,
   CHAT_IMAGE_COUNT,
   CHAT_IMAGE_DIM,
@@ -14,6 +16,10 @@ import {
   MAX_PREVIEWS,
   GRID_PAGE,
   PAGE_SIZE,
+  PIN_LIMIT,
+  PREMIUM_ACTIVE_LOT_LIMIT,
+  PREMIUM_BLURB_MAX,
+  PREMIUM_PREVIEWS,
   PREVIEW_MAX,
   PROFILE_LOT_PAGE,
   SNIPE_OPTIONS,
@@ -106,9 +112,19 @@ type ProfileRow = {
   status: string;
   links: unknown;
   badges: unknown;
+  premium_forever: boolean;
+  premium_until: unknown;
+  theme: string;
+  accent: string;
+  avatar_frame: string;
+  banner_overlay: string;
 };
 
+const PROFILE_SELECT = `user_id, handle, display_name, bio, role, banned, status, links, badges, premium_forever, premium_until, theme, accent, avatar_frame, banner_overlay`;
+
 function mapProfile(row: ProfileRow): Profile {
+  const until = row.premium_until == null ? null : iso(row.premium_until);
+  const forever = Boolean(row.premium_forever);
   return {
     userId: row.user_id,
     handle: row.handle,
@@ -119,14 +135,18 @@ function mapProfile(row: ProfileRow): Profile {
     status: asStatus(row.status),
     links: asLinks(row.links),
     badges: asBadges(row.badges),
+    premium: premiumActive(forever, until),
+    premiumUntil: until,
+    premiumForever: forever,
+    theme: asTheme(row.theme),
+    accent: asAccent(row.accent),
+    avatarFrame: asFrame(row.avatar_frame),
+    bannerOverlay: asOverlay(row.banner_overlay),
   };
 }
 
 async function ensureProfile(sql: Sql, userId: string): Promise<Profile> {
-  const found = await sql<ProfileRow>`
-    select user_id, handle, display_name, bio, role, banned, status, links, badges
-    from profiles where user_id = ${userId}
-  `;
+  const found = await sql.query<ProfileRow>(`select ${PROFILE_SELECT} from profiles where user_id = $1`, [userId]);
   if (found[0]) return mapProfile(found[0]);
 
   const users = await sql<{ name: string; email: string }>`
@@ -152,18 +172,12 @@ async function ensureProfile(sql: Sql, userId: string): Promise<Profile> {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (!/duplicate|unique/i.test(msg)) throw e;
-      const again = await sql<ProfileRow>`
-        select user_id, handle, display_name, bio, role, banned, status, links, badges
-        from profiles where user_id = ${userId}
-      `;
+      const again = await sql.query<ProfileRow>(`select ${PROFILE_SELECT} from profiles where user_id = $1`, [userId]);
       if (again[0]) return mapProfile(again[0]);
     }
   }
 
-  const ready = await sql<ProfileRow>`
-    select user_id, handle, display_name, bio, role, banned, status, links, badges
-    from profiles where user_id = ${userId}
-  `;
+  const ready = await sql.query<ProfileRow>(`select ${PROFILE_SELECT} from profiles where user_id = $1`, [userId]);
   if (!ready[0]) fail("Не удалось создать профиль");
   return mapProfile(ready[0]);
 }
@@ -298,7 +312,9 @@ const CARD_SQL = `
     from listing_tags lt
     join tags t on t.id = lt.tag_id
     where lt.listing_id = l.id
-  ), '[]'::json) as tags
+  ), '[]'::json) as tags,
+  (l.boosted_until is not null and l.boosted_until > now()) as boosted,
+  (coalesce(p.premium_forever, false) or (p.premium_until is not null and p.premium_until > now())) as seller_premium
 `;
 
 type CardRow = {
@@ -320,6 +336,8 @@ type CardRow = {
   tags: unknown;
   like_count: number;
   pinned: boolean;
+  boosted: boolean;
+  seller_premium: boolean;
 };
 
 function inlineImage(value: unknown): string | null {
@@ -344,6 +362,8 @@ function mapCard(row: CardRow): ListingCard {
     likeCount: num(row.like_count),
     liked: false,
     pinned: Boolean(row.pinned),
+    boosted: Boolean(row.boosted),
+    sellerPremium: Boolean(row.seller_premium),
     endsAt: isoOrNull(row.ends_at),
     status: row.status,
     sellerId: row.seller_id,
@@ -396,12 +416,15 @@ export const listListings = createServerFn({ method: "GET" })
     const like = data.q ? likeContains(data.q) : "%";
     const pageSize = data.kind === "auction" || data.kind === "fixed" ? GRID_PAGE : PAGE_SIZE;
     const offset = (data.page - 1) * pageSize;
+    const boostRank = "(l.boosted_until is not null and l.boosted_until > now()) desc";
+    const premiumRank =
+      "(coalesce(p.premium_forever, false) or (p.premium_until is not null and p.premium_until > now())) desc";
     const order =
       data.sort === "ending"
-        ? "order by l.ends_at asc nulls last, l.created_at desc"
+        ? `order by l.ends_at asc nulls last, ${premiumRank}, l.created_at desc`
         : data.sort === "price"
-          ? "order by coalesce(l.current_bid, l.price) asc, l.created_at desc"
-          : "order by l.created_at desc";
+          ? `order by coalesce(l.current_bid, l.price) asc, ${premiumRank}, l.created_at desc`
+          : `order by ${boostRank}, ${premiumRank}, l.created_at desc`;
     const where = `
       from listings l
       left join profiles p on p.user_id = l.seller_id
@@ -445,13 +468,15 @@ export const searchPeople = createServerFn({ method: "GET" })
     if (q.length < 1) return [];
     const sql = await getSql();
     const like = likeContains(q);
-    const rows = await sql<{ handle: string; display_name: string }>`
-      select handle, display_name from profiles
+    const rows = await sql<{ handle: string; display_name: string; premium: boolean }>`
+      select handle, display_name,
+        (coalesce(premium_forever, false) or (premium_until is not null and premium_until > now())) as premium
+      from profiles
       where handle ilike ${like} escape '\\' or display_name ilike ${like} escape '\\'
-      order by handle asc
+      order by premium desc, handle asc
       limit 24
     `;
-    return rows.map((row) => ({ handle: row.handle, displayName: row.display_name }));
+    return rows.map((row) => ({ handle: row.handle, displayName: row.display_name, premium: Boolean(row.premium) }));
   });
 
 export const suggestTags = createServerFn({ method: "GET" })
@@ -511,8 +536,9 @@ export const getListing = createServerFn({ method: "GET" })
       where listing_id = ${id} and kind = 'preview'
       order by created_at asc
     `;
-    const bids = await sql<{ id: string; amount: number; handle: string; created_at: unknown }>`
-      select b.id, b.amount, p.handle, b.created_at
+    const bids = await sql<{ id: string; amount: number; handle: string; premium: boolean; created_at: unknown }>`
+      select b.id, b.amount, p.handle, b.created_at,
+        (coalesce(p.premium_forever, false) or (p.premium_until is not null and p.premium_until > now())) as premium
       from bids b
       join profiles p on p.user_id = b.bidder_id
       where b.listing_id = ${id}
@@ -545,8 +571,10 @@ export const getListing = createServerFn({ method: "GET" })
         created_at: unknown;
         author_handle: string;
         author_name: string;
+        author_premium: boolean;
       }>`
-        select c.id, c.body, c.created_at, a.handle as author_handle, a.display_name as author_name
+        select c.id, c.body, c.created_at, a.handle as author_handle, a.display_name as author_name,
+          (coalesce(a.premium_forever, false) or (a.premium_until is not null and a.premium_until > now())) as author_premium
         from listing_comments c
         join profiles a on a.user_id = c.author_id
         where c.listing_id = ${id}
@@ -558,6 +586,7 @@ export const getListing = createServerFn({ method: "GET" })
       id: b.id,
       amount: num(b.amount),
       handle: b.handle,
+      premium: Boolean(b.premium),
       createdAt: iso(b.created_at),
     }));
     return {
@@ -582,6 +611,7 @@ export const getListing = createServerFn({ method: "GET" })
           createdAt: iso(c.created_at),
           authorHandle: c.author_handle,
           authorName: c.author_name,
+          authorPremium: Boolean(c.author_premium),
         }),
       ),
       currentBidderId: row.current_bidder_id,
@@ -618,7 +648,7 @@ function parseCreate(input: unknown): CreateBody {
   if (!input || typeof input !== "object") fail("Пустая форма");
   const o = input as Record<string, unknown>;
   const title = cleanText(typeof o.title === "string" ? o.title : "", 80);
-  const blurb = cleanText(typeof o.blurb === "string" ? o.blurb : "", BLURB_MAX);
+  const blurb = cleanText(typeof o.blurb === "string" ? o.blurb : "", PREMIUM_BLURB_MAX);
   const privateDescription = cleanText(
     typeof o.privateDescription === "string" ? o.privateDescription : "",
     8000,
@@ -663,6 +693,9 @@ export const createListing = createServerFn({ method: "POST" })
     const sql = await getSql();
     const profile = await ensureProfile(sql, context.userId);
     assertLive(profile);
+    if (!profile.premium && data.blurb.length > BLURB_MAX) {
+      fail(`Описание длиннее ${BLURB_MAX} символов. С Premium — до ${PREMIUM_BLURB_MAX}.`);
+    }
     const id = crypto.randomUUID();
     const hours = data.kind === "auction" ? data.durationHours : 0;
     await sql`
@@ -696,6 +729,7 @@ export const publishListing = createServerFn({ method: "POST" })
   })
   .handler(async ({ data: id, context }) => {
     const sql = await getSql();
+    const profile = await ensureProfile(sql, context.userId);
     const owned = await sql<{ status: string; bid_count: number }>`
       select status, bid_count from listings where id = ${id} and seller_id = ${context.userId}
     `;
@@ -711,6 +745,14 @@ export const publishListing = createServerFn({ method: "POST" })
       fail("Нужна обложка");
     }
     if (row.status === "draft") {
+      const limit = profile.premium ? PREMIUM_ACTIVE_LOT_LIMIT : ACTIVE_LOT_LIMIT;
+      const active = await sql<{ n: number }>`
+        select count(*)::int as n from listings
+        where seller_id = ${context.userId} and status = 'active'
+      `;
+      if (num(active[0]?.n) >= limit) {
+        fail(profile.premium ? `Уже ${limit} активных лотов` : `Одновременно можно ${limit} активных лотов. С Premium — ${PREMIUM_ACTIVE_LOT_LIMIT}.`);
+      }
       await sql`
         update listings set status = 'active', updated_at = now()
         where id = ${id} and seller_id = ${context.userId} and status = 'draft'
@@ -782,8 +824,8 @@ export const uploadMedia = createServerFn({ method: "POST" })
     const counts = await sql<{ n: number }>`
       select count(*)::int as n from media where listing_id = ${data.listingId} and kind = ${data.kind}
     `;
-    const cap = data.kind === "preview" ? MAX_PREVIEWS : MAX_FILES;
-    if (num(counts[0]?.n) >= cap) fail(data.kind === "preview" ? "Уже 4 превью" : "Уже 6 файлов");
+    const cap = data.kind === "preview" ? (profile.premium ? PREMIUM_PREVIEWS : MAX_PREVIEWS) : MAX_FILES;
+    if (num(counts[0]?.n) >= cap) fail(data.kind === "preview" ? `Уже ${cap} превью` : "Уже 6 файлов");
 
     const buf = Buffer.from(data.b64, "base64");
     const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
@@ -877,7 +919,7 @@ function parseCopy(input: unknown): CopyBody {
   const o = input as Record<string, unknown>;
   if (typeof o.id !== "string" || !UUID_RE.test(o.id)) fail("Некорректный лот");
   const title = cleanText(typeof o.title === "string" ? o.title : "", 80);
-  const blurb = cleanText(typeof o.blurb === "string" ? o.blurb : "", BLURB_MAX);
+  const blurb = cleanText(typeof o.blurb === "string" ? o.blurb : "", PREMIUM_BLURB_MAX);
   if (title.length < 3) fail("Название — хотя бы 3 символа");
   const tags = Array.isArray(o.tags) ? o.tags.filter((t): t is string => typeof t === "string").slice(0, 8) : [];
   return { id: o.id, title, blurb, tags };
@@ -888,6 +930,10 @@ export const updateListingCopy = createServerFn({ method: "POST" })
   .validator(parseCopy)
   .handler(async ({ data, context }) => {
     const sql = await getSql();
+    const profile = await ensureProfile(sql, context.userId);
+    if (!profile.premium && data.blurb.length > BLURB_MAX) {
+      fail(`Описание длиннее ${BLURB_MAX} символов. С Premium — до ${PREMIUM_BLURB_MAX}.`);
+    }
     const updated = await sql`
       update listings
       set title = ${data.title},
@@ -1253,8 +1299,15 @@ export const getPublicProfile = createServerFn({ method: "GET" })
       badges: unknown;
       created_at: unknown;
       user_id: string;
+      premium_forever: boolean;
+      premium_until: unknown;
+      theme: string;
+      accent: string;
+      avatar_frame: string;
+      banner_overlay: string;
     }>`
-      select user_id, display_name, bio, role, status, links, badges, created_at
+      select user_id, display_name, bio, role, status, links, badges, created_at,
+        premium_forever, premium_until, theme, accent, avatar_frame, banner_overlay
       from profiles where handle = ${data.handle}
     `;
     if (!rows[0]) return null;
@@ -1286,6 +1339,9 @@ export const getPublicProfile = createServerFn({ method: "GET" })
     ]);
     const kinds = new Set(images.map((r) => r.kind));
     const createdAt = iso(rows[0].created_at);
+    const forever = Boolean(rows[0].premium_forever);
+    const until = rows[0].premium_until == null ? null : iso(rows[0].premium_until);
+    const premium = premiumActive(forever, until);
     return {
       handle: data.handle,
       displayName: rows[0].display_name,
@@ -1300,6 +1356,11 @@ export const getPublicProfile = createServerFn({ method: "GET" })
       hasAvatar: kinds.has("avatar"),
       hasBanner: kinds.has("banner"),
       hasBackground: kinds.has("background"),
+      premium,
+      theme: premium ? asTheme(rows[0].theme) : "classic",
+      accent: premium ? asAccent(rows[0].accent) : "wine",
+      avatarFrame: premium ? asFrame(rows[0].avatar_frame) : "thin",
+      bannerOverlay: premium ? asOverlay(rows[0].banner_overlay) : "gradient",
       lots: items.map(mapCard),
       lotTotal: num(totalRow[0]?.n),
       posts,
@@ -1328,10 +1389,14 @@ export const listDeals = createServerFn({ method: "GET" })
       seller_id: string;
       seller_handle: string;
       buyer_handle: string;
+      seller_premium: boolean;
+      buyer_premium: boolean;
       created_at: unknown;
     }>`
       select d.id, d.public_no, d.listing_id, l.title, d.amount, d.status, d.seller_id,
              d.created_at, sp.handle as seller_handle, bp.handle as buyer_handle,
+             (coalesce(sp.premium_forever, false) or (sp.premium_until is not null and sp.premium_until > now())) as seller_premium,
+             (coalesce(bp.premium_forever, false) or (bp.premium_until is not null and bp.premium_until > now())) as buyer_premium,
              (
                select m.id from media m
                where m.listing_id = l.id and m.kind = 'preview'
@@ -1354,6 +1419,8 @@ export const listDeals = createServerFn({ method: "GET" })
       status: r.status,
       sellerHandle: r.seller_handle,
       buyerHandle: r.buyer_handle,
+      sellerPremium: Boolean(r.seller_premium),
+      buyerPremium: Boolean(r.buyer_premium),
       youAre: youAre(r.seller_id, context.userId),
       createdAt: iso(r.created_at),
     }));
@@ -1365,6 +1432,7 @@ type RawMessage = {
   body: string;
   created_at: unknown;
   handle: string | null;
+  premium: boolean;
 };
 
 async function hydrateMessages(sql: Sql, rows: RawMessage[]): Promise<ChatMessage[]> {
@@ -1405,6 +1473,7 @@ async function hydrateMessages(sql: Sql, rows: RawMessage[]): Promise<ChatMessag
     body: m.body,
     createdAt: iso(m.created_at),
     system: m.sender_id === "system",
+    premium: Boolean(m.premium),
     images: images.get(m.id) ?? [],
   }));
 }
@@ -1423,6 +1492,8 @@ async function loadDeal(sql: Sql, id: string, uid: string): Promise<DealDetail |
     seller_name: string;
     buyer_handle: string;
     buyer_name: string;
+    seller_premium: boolean;
+    buyer_premium: boolean;
     seller_confirmed_at: unknown;
     buyer_confirmed_at: unknown;
     private_description: string;
@@ -1432,6 +1503,8 @@ async function loadDeal(sql: Sql, id: string, uid: string): Promise<DealDetail |
            d.seller_id, d.buyer_id,
            sp.handle as seller_handle, sp.display_name as seller_name,
            bp.handle as buyer_handle, bp.display_name as buyer_name,
+           (coalesce(sp.premium_forever, false) or (sp.premium_until is not null and sp.premium_until > now())) as seller_premium,
+           (coalesce(bp.premium_forever, false) or (bp.premium_until is not null and bp.premium_until > now())) as buyer_premium,
            d.seller_confirmed_at, d.buyer_confirmed_at, l.private_description,
            (
              select m.id from media m
@@ -1456,8 +1529,10 @@ async function loadDeal(sql: Sql, id: string, uid: string): Promise<DealDetail |
     body: string;
     created_at: unknown;
     handle: string | null;
+    premium: boolean;
   }>`
-    select m.id, m.sender_id, m.body, m.created_at, p.handle
+    select m.id, m.sender_id, m.body, m.created_at, p.handle,
+      (coalesce(p.premium_forever, false) or (p.premium_until is not null and p.premium_until > now())) as premium
     from messages m
     left join profiles p on p.user_id = m.sender_id
     where m.deal_id = ${id}
@@ -1477,8 +1552,8 @@ async function loadDeal(sql: Sql, id: string, uid: string): Promise<DealDetail |
     amount: num(d.amount),
     status: d.status,
     youAre: side,
-    seller: { id: d.seller_id, handle: d.seller_handle, name: d.seller_name },
-    buyer: { id: d.buyer_id, handle: d.buyer_handle, name: d.buyer_name },
+    seller: { id: d.seller_id, handle: d.seller_handle, name: d.seller_name, premium: Boolean(d.seller_premium) },
+    buyer: { id: d.buyer_id, handle: d.buyer_handle, name: d.buyer_name, premium: Boolean(d.buyer_premium) },
     sellerConfirmed: d.seller_confirmed_at != null,
     buyerConfirmed: d.buyer_confirmed_at != null,
     privateDescription: showSecret ? d.private_description : null,
@@ -1520,10 +1595,14 @@ export const getStaffDeal = createServerFn({ method: "GET" })
       seller_name: string;
       buyer_handle: string;
       buyer_name: string;
+      seller_premium: boolean;
+      buyer_premium: boolean;
     }>`
       select d.id, d.public_no, l.title, d.amount, d.status,
              sp.handle as seller_handle, sp.display_name as seller_name,
-             bp.handle as buyer_handle, bp.display_name as buyer_name
+             bp.handle as buyer_handle, bp.display_name as buyer_name,
+             (coalesce(sp.premium_forever, false) or (sp.premium_until is not null and sp.premium_until > now())) as seller_premium,
+             (coalesce(bp.premium_forever, false) or (bp.premium_until is not null and bp.premium_until > now())) as buyer_premium
       from deals d
       join listings l on l.id = d.listing_id
       join profiles sp on sp.user_id = d.seller_id
@@ -1538,8 +1617,10 @@ export const getStaffDeal = createServerFn({ method: "GET" })
       body: string;
       created_at: unknown;
       handle: string | null;
+      premium: boolean;
     }>`
-      select m.id, m.sender_id, m.body, m.created_at, p.handle
+      select m.id, m.sender_id, m.body, m.created_at, p.handle,
+      (coalesce(p.premium_forever, false) or (p.premium_until is not null and p.premium_until > now())) as premium
       from messages m
       left join profiles p on p.user_id = m.sender_id
       where m.deal_id = ${d.id}
@@ -1552,8 +1633,8 @@ export const getStaffDeal = createServerFn({ method: "GET" })
       title: d.title,
       amount: num(d.amount),
       status: d.status,
-      seller: { handle: d.seller_handle, name: d.seller_name },
-      buyer: { handle: d.buyer_handle, name: d.buyer_name },
+      seller: { handle: d.seller_handle, name: d.seller_name, premium: Boolean(d.seller_premium) },
+      buyer: { handle: d.buyer_handle, name: d.buyer_name, premium: Boolean(d.buyer_premium) },
       messages: await hydrateMessages(sql, messages),
     };
   });
@@ -1949,7 +2030,7 @@ export const adminOverview = createServerFn({ method: "GET" })
       from listings l
       left join profiles p on p.user_id = l.seller_id
       order by l.created_at desc
-      limit 20
+      limit 120
     `;
     const people = await sql<{
       user_id: string;
@@ -1958,11 +2039,13 @@ export const adminOverview = createServerFn({ method: "GET" })
       banned: boolean;
       role: string;
       badges: unknown;
+      premium_forever: boolean;
+      premium_until: unknown;
     }>`
-      select user_id, handle, display_name, banned, role, badges
+      select user_id, handle, display_name, banned, role, badges, premium_forever, premium_until
       from profiles
       order by created_at desc
-      limit 80
+      limit 200
     `;
     const recentDeals = await sql<{
       id: string;
@@ -1978,12 +2061,12 @@ export const adminOverview = createServerFn({ method: "GET" })
       join profiles sp on sp.user_id = d.seller_id
       join profiles bp on bp.user_id = d.buyer_id
       order by d.public_no desc
-      limit 30
+      limit 200
     `;
     const accounts = await sql<{ user_id: string; provider_id: string }>`
       select "userId" as user_id, "providerId" as provider_id
       from account
-      where "userId" in (select user_id from profiles order by created_at desc limit 80)
+      where "userId" in (select user_id from profiles order by created_at desc limit 200)
     `;
     const settings = await sql<{ value: string }>`
       select value from site_settings where key = 'require_invite'
@@ -2002,7 +2085,7 @@ export const adminOverview = createServerFn({ method: "GET" })
             select id, code, note, max_uses, uses, revoked, created_at
             from invite_codes
             order by created_at desc
-            limit 40
+            limit 200
           `
         : [];
     return {
@@ -2048,6 +2131,9 @@ export const adminOverview = createServerFn({ method: "GET" })
         role: asRole(p.role),
         providers: accounts.filter((a) => a.user_id === p.user_id).map((a) => a.provider_id),
         badges: asBadges(p.badges),
+        premiumForever: Boolean(p.premium_forever),
+        premiumUntil: p.premium_until == null ? null : iso(p.premium_until),
+        premium: premiumActive(Boolean(p.premium_forever), p.premium_until == null ? null : iso(p.premium_until)),
       })),
     };
   });
@@ -2093,6 +2179,12 @@ export const adminModerate = createServerFn({ method: "POST" })
     }
     if (o.action === "revoke-invite" && typeof o.inviteId === "string" && UUID_RE.test(o.inviteId)) {
       return { action: "revoke-invite" as const, inviteId: o.inviteId };
+    }
+    if (
+      (o.action === "grant-premium-month" || o.action === "grant-premium-forever" || o.action === "revoke-premium") &&
+      typeof o.userId === "string"
+    ) {
+      return { action: o.action, userId: o.userId };
     }
     fail("Некорректное действие");
   })
@@ -2174,6 +2266,24 @@ export const adminModerate = createServerFn({ method: "POST" })
       } else {
         await sql`update invite_codes set revoked = true where id = ${data.inviteId}`;
       }
+    } else if (data.action === "grant-premium-month" || data.action === "grant-premium-forever" || data.action === "revoke-premium") {
+      if (actor.role !== "admin") fail("Premium выдаёт только администратор");
+      if (data.action === "grant-premium-month") {
+        await sql`
+          update profiles
+          set premium_forever = false,
+              premium_until = greatest(coalesce(premium_until, now()), now()) + interval '1 month'
+          where user_id = ${data.userId}
+        `;
+      } else if (data.action === "grant-premium-forever") {
+        await sql`
+          update profiles set premium_forever = true, premium_until = null where user_id = ${data.userId}
+        `;
+      } else {
+        await sql`
+          update profiles set premium_forever = false, premium_until = null where user_id = ${data.userId}
+        `;
+      }
     }
     return { ok: true };
   });
@@ -2185,18 +2295,12 @@ export const listRecommendations = createServerFn({ method: "GET" }).handler(asy
     `select ${CARD_SQL}
      from listings l
      left join profiles p on p.user_id = l.seller_id
-     where l.status = 'active' and l.kind = 'auction' and l.bid_count >= 2
-     order by l.bid_count desc, l.created_at desc`,
+     where l.status = 'active' and l.kind = 'auction'
+       and (l.bid_count >= 1 or (l.boosted_until is not null and l.boosted_until > now()))
+     order by (l.boosted_until is not null and l.boosted_until > now()) desc, l.bid_count desc, l.created_at desc
+     limit ${TOP_LIMIT}`,
   );
-  const single = await sql.query<CardRow>(
-    `select ${CARD_SQL}
-     from listings l
-     left join profiles p on p.user_id = l.seller_id
-     where l.status = 'active' and l.kind = 'auction' and l.bid_count = 1
-     order by l.created_at desc
-     limit 12`,
-  );
-  return [...hot, ...single].map(mapCard).slice(0, TOP_LIMIT);
+  return hot.map(mapCard);
 });
 
 export const listMine = createServerFn({ method: "GET" })
@@ -2228,11 +2332,13 @@ export const setPinned = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const sql = await getSql();
     if (data.pinned) {
+      const profile = await ensureProfile(sql, context.userId);
+      if (!profile.premium) fail("Закреп на профиле доступен с Premium");
       const n = await sql<{ n: number }>`
         select count(*)::int as n from listings
         where seller_id = ${context.userId} and pinned and id <> ${data.id} and status <> 'removed'
       `;
-      if (num(n[0]?.n) >= 6) fail("Можно закрепить не больше шести работ");
+      if (num(n[0]?.n) >= PIN_LIMIT) fail(`Можно закрепить не больше ${PIN_LIMIT} лотов`);
     }
     const updated = await sql`
       update listings set pinned = ${data.pinned}, updated_at = now()
@@ -2240,6 +2346,86 @@ export const setPinned = createServerFn({ method: "POST" })
       returning id
     `;
     if (!updated[0]) fail("Этот лот нельзя закрепить");
+    return { ok: true };
+  });
+
+export const boostListing = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    if (!input || typeof input !== "object") fail("Пусто");
+    const o = input as Record<string, unknown>;
+    if (typeof o.id !== "string" || !UUID_RE.test(o.id)) fail("Некорректный лот");
+    const hours = Number(o.hours);
+    if (hours !== 24 && hours !== 48 && hours !== 72) fail("Буст на 24, 48 или 72 часа");
+    return { id: o.id, hours };
+  })
+  .handler(async ({ data, context }) => {
+    const sql = await getSql();
+    const profile = await ensureProfile(sql, context.userId);
+    if (!profile.premium) fail("Буст лотов доступен с Premium");
+    assertLive(profile);
+    const updated = await sql<{ boosted_until: unknown }>`
+      update listings
+      set boosted_until = now() + (${data.hours} * interval '1 hour'), updated_at = now()
+      where id = ${data.id} and seller_id = ${context.userId} and status = 'active'
+      returning boosted_until
+    `;
+    if (!updated[0]) fail("Буст только у активного лота");
+    return { until: iso(updated[0].boosted_until) };
+  });
+
+export const setPostPinned = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    if (!input || typeof input !== "object") fail("Пусто");
+    const o = input as Record<string, unknown>;
+    if (typeof o.id !== "string" || !UUID_RE.test(o.id)) fail("Некорректный пост");
+    if (typeof o.pinned !== "boolean") fail("Некорректный флаг");
+    return { id: o.id, pinned: o.pinned };
+  })
+  .handler(async ({ data, context }) => {
+    const sql = await getSql();
+    const profile = await ensureProfile(sql, context.userId);
+    if (data.pinned && !profile.premium) fail("Закреп постов доступен с Premium");
+    if (data.pinned) {
+      const n = await sql<{ n: number }>`
+        select count(*)::int as n from posts where author_id = ${context.userId} and pinned and id <> ${data.id}
+      `;
+      if (num(n[0]?.n) >= PIN_LIMIT) fail(`Можно закрепить не больше ${PIN_LIMIT} постов`);
+    }
+    const updated = await sql`
+      update posts set pinned = ${data.pinned}
+      where id = ${data.id} and author_id = ${context.userId}
+      returning id
+    `;
+    if (!updated[0]) fail("Этот пост нельзя закрепить");
+    return { ok: true };
+  });
+
+export const updateProfileLook = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    if (!input || typeof input !== "object") fail("Пустая форма");
+    const o = input as Record<string, unknown>;
+    return {
+      theme: asTheme(o.theme),
+      accent: asAccent(o.accent),
+      avatarFrame: asFrame(o.avatarFrame),
+      bannerOverlay: asOverlay(o.bannerOverlay),
+    };
+  })
+  .handler(async ({ data, context }) => {
+    const sql = await getSql();
+    const profile = await ensureProfile(sql, context.userId);
+    if (!profile.premium) fail("Оформление профиля доступно с Premium");
+    await sql`
+      update profiles
+      set theme = ${data.theme},
+          accent = ${data.accent},
+          avatar_frame = ${data.avatarFrame},
+          banner_overlay = ${data.bannerOverlay}
+      where user_id = ${context.userId}
+    `;
     return { ok: true };
   });
 
@@ -2343,20 +2529,26 @@ export const uploadProfileImage = createServerFn({ method: "POST" })
     if (o.kind !== "avatar" && o.kind !== "banner" && o.kind !== "background") fail("Неизвестный кадр");
     if (typeof o.b64 !== "string") fail("Файл не прочитан");
     const b64 = o.b64.replace(/^data:[^,]*,/, "").replace(/\s/g, "");
-    if (b64.length > 2_200_000) fail("Файл больше лимита");
+    if (b64.length > 4_500_000) fail("Файл больше лимита");
     const kind: ProfileImageKind = o.kind;
     return { kind, b64 };
   })
   .handler(async ({ data, context }) => {
     const sql = await getSql();
-    await ensureProfile(sql, context.userId);
+    const profile = await ensureProfile(sql, context.userId);
     const buf = Buffer.from(data.b64, "base64");
-    if (buf.length > IMAGE_MAX[data.kind]) {
-      fail(data.kind === "avatar" ? "Аватар больше 500 КБ" : "Картинка больше 1.2 МБ");
-    }
     const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
     const magic = sniffMagic(bytes);
     if (!magic || !isRaster(magic)) fail("Нужны PNG, JPG, WEBP или GIF");
+    if (magic === "image/gif" && !profile.premium) fail("GIF в аватарке, шапке и фоне доступен с Premium");
+    const max = profile.premium
+      ? data.kind === "avatar"
+        ? 1_500_000
+        : 3_000_000
+      : IMAGE_MAX[data.kind];
+    if (buf.length > max) {
+      fail(profile.premium ? "Картинка больше лимита Premium" : data.kind === "avatar" ? "Аватар больше 500 КБ" : "Картинка больше 1.2 МБ");
+    }
     const size = decodedImageSize(bytes);
     if (!size) fail("Не удалось прочитать изображение");
     const cap = data.kind === "avatar" ? 2000 : MAX_DIM;
@@ -2391,12 +2583,17 @@ export const listThreads = createServerFn({ method: "GET" })
       id: string;
       other_handle: string;
       other_name: string;
+      other_premium: boolean;
       last_body: string | null;
       updated_at: unknown;
     }>`
       select t.id,
         case when t.low_id = ${context.userId} then hi.handle else lo.handle end as other_handle,
         case when t.low_id = ${context.userId} then hi.display_name else lo.display_name end as other_name,
+        case when t.low_id = ${context.userId}
+          then (coalesce(hi.premium_forever, false) or (hi.premium_until is not null and hi.premium_until > now()))
+          else (coalesce(lo.premium_forever, false) or (lo.premium_until is not null and lo.premium_until > now()))
+        end as other_premium,
         (
           select m.body from dm_messages m where m.thread_id = t.id order by m.created_at desc limit 1
         ) as last_body,
@@ -2416,6 +2613,7 @@ export const listThreads = createServerFn({ method: "GET" })
       id: r.id,
       otherHandle: r.other_handle,
       otherName: r.other_name,
+      otherPremium: Boolean(r.other_premium),
       lastBody: r.last_body,
       updatedAt: iso(r.updated_at),
     }));
@@ -2428,10 +2626,15 @@ async function loadThread(sql: Sql, threadId: string, userId: string): Promise<T
     high_id: string;
     other_handle: string;
     other_name: string;
+    other_premium: boolean;
   }>`
     select t.id, t.low_id, t.high_id,
       case when t.low_id = ${userId} then hi.handle else lo.handle end as other_handle,
-      case when t.low_id = ${userId} then hi.display_name else lo.display_name end as other_name
+      case when t.low_id = ${userId} then hi.display_name else lo.display_name end as other_name,
+      case when t.low_id = ${userId}
+        then (coalesce(hi.premium_forever, false) or (hi.premium_until is not null and hi.premium_until > now()))
+        else (coalesce(lo.premium_forever, false) or (lo.premium_until is not null and lo.premium_until > now()))
+      end as other_premium
     from dm_threads t
     join profiles lo on lo.user_id = t.low_id
     join profiles hi on hi.user_id = t.high_id
@@ -2443,10 +2646,12 @@ async function loadThread(sql: Sql, threadId: string, userId: string): Promise<T
     id: string;
     sender_id: string;
     handle: string;
+    premium: boolean;
     body: string;
     created_at: unknown;
   }>`
-    select m.id, m.sender_id, p.handle, m.body, m.created_at
+    select m.id, m.sender_id, p.handle, m.body, m.created_at,
+      (coalesce(p.premium_forever, false) or (p.premium_until is not null and p.premium_until > now())) as premium
     from dm_messages m
     join profiles p on p.user_id = m.sender_id
     where m.thread_id = ${threadId}
@@ -2458,6 +2663,7 @@ async function loadThread(sql: Sql, threadId: string, userId: string): Promise<T
     id: thread.id,
     otherHandle: thread.other_handle,
     otherName: thread.other_name,
+    otherPremium: Boolean(thread.other_premium),
     lastBody: last?.body ?? null,
     updatedAt: last ? iso(last.created_at) : new Date().toISOString(),
     messages: messages.map((m) => ({
@@ -2466,6 +2672,7 @@ async function loadThread(sql: Sql, threadId: string, userId: string): Promise<T
       body: m.body,
       createdAt: iso(m.created_at),
       mine: m.sender_id === userId,
+      premium: Boolean(m.premium),
     })),
   };
 }
@@ -2492,13 +2699,16 @@ export const openThread = createServerFn({ method: "POST" })
       select id from dm_threads where low_id = ${low} and high_id = ${high}
     `;
     if (!existing[0]) {
-      const person = await sql<{ handle: string; display_name: string }>`
-        select handle, display_name from profiles where user_id = ${other[0].user_id}
+      const person = await sql<{ handle: string; display_name: string; premium: boolean }>`
+        select handle, display_name,
+          (coalesce(premium_forever, false) or (premium_until is not null and premium_until > now())) as premium
+        from profiles where user_id = ${other[0].user_id}
       `;
       return {
         id: "",
         otherHandle: person[0]?.handle ?? handle,
         otherName: person[0]?.display_name ?? handle,
+        otherPremium: Boolean(person[0]?.premium),
         lastBody: null,
         updatedAt: new Date().toISOString(),
         messages: [],
@@ -2577,12 +2787,16 @@ async function loadAuthorPosts(sql: Sql, authorId: string): Promise<AuthorPost[]
     handle: string;
     display_name: string;
     author_created: unknown;
+    pinned: boolean;
+    author_premium: boolean;
   }>`
-    select p.id, p.body, p.created_at, a.handle, a.display_name, a.created_at as author_created
+    select p.id, p.body, p.created_at, coalesce(p.pinned, false) as pinned,
+      a.handle, a.display_name, a.created_at as author_created,
+      (coalesce(a.premium_forever, false) or (a.premium_until is not null and a.premium_until > now())) as author_premium
     from posts p
     join profiles a on a.user_id = p.author_id
     where p.author_id = ${authorId}
-    order by p.created_at desc
+    order by p.pinned desc, p.created_at desc
     limit 40
   `;
   return hydratePosts(sql, rows);
@@ -2597,6 +2811,8 @@ async function hydratePosts(
     handle: string;
     display_name: string;
     author_created: unknown;
+    pinned?: boolean;
+    author_premium?: boolean;
   }[],
 ): Promise<AuthorPost[]> {
   if (rows.length === 0) return [];
@@ -2615,8 +2831,10 @@ async function hydratePosts(
       created_at: unknown;
       handle: string;
       display_name: string;
+      author_premium: boolean;
     }>`
-      select c.id, c.post_id, c.parent_id, c.body, c.created_at, a.handle, a.display_name
+      select c.id, c.post_id, c.parent_id, c.body, c.created_at, a.handle, a.display_name,
+        (coalesce(a.premium_forever, false) or (a.premium_until is not null and a.premium_until > now())) as author_premium
       from post_comments c
       join profiles a on a.user_id = c.author_id
       where c.post_id = any(${ids}::text[])
@@ -2633,6 +2851,8 @@ async function hydratePosts(
       authorHandle: row.handle,
       authorName: row.display_name,
       authorIsNew: isNewAccount(createdAt),
+      authorPremium: Boolean(row.author_premium),
+      pinned: Boolean(row.pinned),
       images: images
         .filter((image) => image.post_id === row.id && image.card_b64.length > 32 && image.card_b64.length < 300_000)
         .map((image) => ({ id: image.id, src: `data:image/jpeg;base64,${image.card_b64}` })),
@@ -2645,6 +2865,7 @@ async function hydratePosts(
           createdAt: iso(comment.created_at),
           authorHandle: comment.handle,
           authorName: comment.display_name,
+          authorPremium: Boolean(comment.author_premium),
         })),
     };
   });
@@ -2741,8 +2962,11 @@ export const listFeed = createServerFn({ method: "GET" })
         handle: string;
         display_name: string;
         author_created: unknown;
+        pinned: boolean;
+        author_premium: boolean;
       }>`
-        select p.id, p.body, p.created_at, a.handle, a.display_name, a.created_at as author_created
+        select p.id, p.body, p.created_at, coalesce(p.pinned, false) as pinned, a.handle, a.display_name, a.created_at as author_created,
+          (coalesce(a.premium_forever, false) or (a.premium_until is not null and a.premium_until > now())) as author_premium
         from posts p
         join profiles a on a.user_id = p.author_id
         where p.author_id = any(${ids}::text[])
@@ -2760,7 +2984,12 @@ export const listFeed = createServerFn({ method: "GET" })
       })),
       ...posts.map((post) => ({ kind: "post" as const, at: post.createdAt, post })),
     ];
-    entries.sort((a, b) => (a.at < b.at ? 1 : -1));
+    entries.sort((a, b) => {
+      const boostA = a.kind === "lot" && a.lot.boosted ? 1 : 0;
+      const boostB = b.kind === "lot" && b.lot.boosted ? 1 : 0;
+      if (boostA !== boostB) return boostB - boostA;
+      return a.at < b.at ? 1 : -1;
+    });
     return entries.slice(0, 40);
   });
 

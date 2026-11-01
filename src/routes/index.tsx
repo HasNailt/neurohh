@@ -60,7 +60,10 @@ function Home() {
                 {people.map((person) => (
                   <li key={person.handle}>
                     <Link to="/u/$handle" params={{ handle: person.handle }} className="block border border-ink/20 bg-card px-3 py-3">
-                      <p className="font-display text-2xl leading-none">@{person.handle}</p>
+                      <p className="font-display text-2xl leading-none">
+                        {person.premium ? <span className="text-foam">★ </span> : null}
+                        <span className={person.premium ? "text-[#e6c36a]" : undefined}>@{person.handle}</span>
+                      </p>
                       <p className="mt-1 text-sm text-muted">{person.displayName}</p>
                     </Link>
                   </li>

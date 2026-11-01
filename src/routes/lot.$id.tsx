@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { PreviewImg } from "@/components/preview-img";
 import { Button, fieldClass, Frame, Kicker, StatusChip } from "@/components/ui-bits";
 import { EmojiBar } from "@/components/emoji-bar";
+import { Nick } from "@/components/nick";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
   addListingComment,
@@ -85,9 +86,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
           <h1 className="mt-2 font-display text-5xl leading-none">{lot.title}</h1>
           <p className="mt-3 whitespace-pre-wrap text-ink/90">{lot.blurb || "Без короткого описания."}</p>
           <p className="mt-3 font-mono text-xs text-muted">
-            <Link to="/u/$handle" params={{ handle: lot.sellerHandle }} className="hover:text-ink">
-              @{lot.sellerHandle}
-            </Link>
+            <Nick handle={lot.sellerHandle} premium={lot.sellerPremium} />
             {" · "}
             {formatWhen(lot.createdAt)}
             {lot.kind === "auction" ? ` · ${snipeLabel(lot.antiSnipeMinutes)}` : ""}
@@ -117,9 +116,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
             {lot.comments.map((item) => (
               <li key={item.id} className="border border-ink/15 bg-card px-3 py-2">
                 <p className="font-mono text-xs text-muted">
-                  <Link to="/u/$handle" params={{ handle: item.authorHandle }} className="hover:text-ink">
-                    @{item.authorHandle}
-                  </Link>
+                  <Nick handle={item.authorHandle} premium={item.authorPremium} />
                   {" · "}
                   {formatWhen(item.createdAt)}
                 </p>
@@ -266,7 +263,8 @@ function LotView({ lot }: { lot: ListingDetail }) {
                 {lot.bids.map((row) => (
                   <li key={row.id} className="flex justify-between gap-2">
                     <Link to="/u/$handle" params={{ handle: row.handle }} className="hover:text-ink">
-                      @{row.handle}
+                      {row.premium ? <span className="text-foam">★ </span> : null}
+                      <span className={row.premium ? "text-[#e6c36a]" : undefined}>@{row.handle}</span>
                     </Link>
                     <span className="tabular-nums">{formatPrice(row.amount)}</span>
                   </li>

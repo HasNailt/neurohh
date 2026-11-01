@@ -1,9 +1,9 @@
-import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Button, fieldClass } from "@/components/ui-bits";
+import { Nick, PremiumBadge } from "@/components/nick";
 import { EmojiBar } from "@/components/emoji-bar";
-import { addPostComment, deletePost } from "@/lib/market/server";
+import { Button, fieldClass } from "@/components/ui-bits";
+import { addPostComment, deletePost, setPostPinned } from "@/lib/market/server";
 import { errText, formatWhen, type AuthorPost, type PostComment } from "@/lib/market/shared";
 
 export function PostCard({
@@ -36,29 +36,46 @@ export function PostCard({
   }
 
   return (
-    <article className="space-y-3 border border-ink/20 bg-card p-4">
+    <article className={post.authorPremium ? "space-y-3 border border-[#e6c36a] bg-card p-4" : "space-y-3 border border-ink/20 bg-card p-4"}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-mono text-xs text-muted">
-          <Link to="/u/$handle" params={{ handle: post.authorHandle }} className="hover:text-ink">
-            @{post.authorHandle}
-          </Link>
+          <Nick handle={post.authorHandle} premium={post.authorPremium} />
+          {post.authorPremium ? (
+            <span className="ml-2">
+              <PremiumBadge />
+            </span>
+          ) : null}
           {post.authorIsNew ? <span className="ml-2 border border-ink/30 px-2 py-0.5">Новый пользователь</span> : null}
+          {post.pinned ? <span className="ml-2 border border-[#e6c36a] px-2 py-0.5 text-[#e6c36a]">PIN</span> : null}
           {" · "}
           <span suppressHydrationWarning>{formatWhen(post.createdAt)}</span>
         </p>
         {mine ? (
-          <button
-            type="button"
-            className="font-mono text-xs text-muted hover:text-ink"
-            onClick={() => {
-              if (!window.confirm("Удалить пост? Он исчезнет вместе с картинками и комментариями.")) return;
-              void deletePost({ data: post.id })
-                .then(onChange)
-                .catch((err) => toast.error(errText(err)));
-            }}
-          >
-            Удалить
-          </button>
+          <span className="flex gap-3">
+            <button
+              type="button"
+              className="font-mono text-xs text-muted hover:text-ink"
+              onClick={() => {
+                void setPostPinned({ data: { id: post.id, pinned: !post.pinned } })
+                  .then(onChange)
+                  .catch((err) => toast.error(errText(err)));
+              }}
+            >
+              {post.pinned ? "Открепить" : "Закрепить"}
+            </button>
+            <button
+              type="button"
+              className="font-mono text-xs text-muted hover:text-ink"
+              onClick={() => {
+                if (!window.confirm("Удалить пост? Он исчезнет вместе с картинками и комментариями.")) return;
+                void deletePost({ data: post.id })
+                  .then(onChange)
+                  .catch((err) => toast.error(errText(err)));
+              }}
+            >
+              Удалить
+            </button>
+          </span>
         ) : null}
       </div>
       <p className="whitespace-pre-wrap">{post.body}</p>
@@ -93,13 +110,7 @@ export function PostCard({
           send(replyTo);
         }}
       >
-        <input
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder={replyTo ? "Ответ" : "Комментарий"}
-          className={fieldClass}
-          maxLength={500}
-        />
+        <input value={body} onChange={(e) => setBody(e.target.value)} placeholder={replyTo ? "Ответ" : "Комментарий"} className={fieldClass} />
         <Button type="submit" variant="line" disabled={busy}>
           ок
         </Button>
@@ -112,16 +123,14 @@ function CommentLine({ comment, onReply }: { comment: PostComment; onReply: () =
   return (
     <div>
       <p className="font-mono text-xs text-muted">
-        <Link to="/u/$handle" params={{ handle: comment.authorHandle }} className="hover:text-ink">
-          @{comment.authorHandle}
-        </Link>
+        <Nick handle={comment.authorHandle} premium={comment.authorPremium} />
         {" · "}
         <span suppressHydrationWarning>{formatWhen(comment.createdAt)}</span>
+        <button type="button" className="ml-2 underline" onClick={onReply}>
+          ответить
+        </button>
       </p>
-      <p className="mt-1 whitespace-pre-wrap">{comment.body}</p>
-      <button type="button" className="mt-1 font-mono text-xs text-muted hover:text-ink" onClick={onReply}>
-        Ответить
-      </button>
+      <p className="whitespace-pre-wrap">{comment.body}</p>
     </div>
   );
 }

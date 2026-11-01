@@ -1,9 +1,11 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { toast } from "sonner";
 import { ListingCardView } from "@/components/listing-card";
+import { Nick, PremiumBadge } from "@/components/nick";
 import { PostCard } from "@/components/post-card";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
+import { ACCENTS, THEMES, type AvatarFrame, type BannerOverlay } from "@/lib/market/themes";
 import { getMe, getPublicProfile, listProfileLots, toggleFollow } from "@/lib/market/server";
 import {
   badgeLabel,
@@ -81,57 +83,69 @@ function ProfilePage() {
       .catch((err) => toast.error(errText(err)));
   }
 
+  const theme = THEMES[profile.theme];
+  const accent = ACCENTS[profile.accent].color;
+  const scope: CSSProperties = {
+    color: theme.ink,
+    background: theme.bg,
+    ["--p-bg" as string]: theme.bg,
+    ["--p-ink" as string]: theme.ink,
+    ["--p-muted" as string]: theme.muted,
+    ["--p-card" as string]: theme.card,
+    ["--p-accent" as string]: accent,
+    ["--p-line" as string]: theme.line,
+    ["--p-foam" as string]: theme.foam,
+  };
+  const bannerStyle = bannerLayer(profile.bannerOverlay, banner, theme.bg);
+
   return (
-    <div className="space-y-8">
+    <div className="profile-scope -mx-4 space-y-8 px-4 py-6 sm:-mx-0 sm:px-4" style={scope}>
       <section
-        className="relative z-0 overflow-hidden border border-ink/20"
+        className="theme-card relative z-0 overflow-hidden border"
         style={
           bg
             ? { backgroundImage: `url(${bg})`, backgroundSize: "cover", backgroundPosition: "center" }
-            : undefined
+            : { background: theme.card }
         }
       >
-        <div className={bg ? "bg-paper/80" : "bg-card"}>
-          <div
-            className="relative h-36 border-b border-ink/15 sm:h-48"
-            style={
-              banner
-                ? { backgroundImage: `linear-gradient(to top, rgba(19,18,17,0.55), transparent 45%), url(${banner})`, backgroundSize: "cover", backgroundPosition: "center" }
-                : undefined
-            }
-          >
-            {banner ? null : <div className="absolute inset-0 bg-[linear-gradient(135deg,#6B1E3A_0%,#131211_55%,#1a1917_100%)]" />}
-            <span className="pointer-events-none absolute top-3 left-3 h-3 w-3 border-t border-l border-foam/70" />
-            <span className="pointer-events-none absolute top-3 right-3 h-3 w-3 border-t border-r border-foam/70" />
-            <p className="absolute bottom-3 left-36 font-mono text-[10px] tracking-[0.22em] text-foam/80 uppercase sm:left-44">
+        <div style={bg ? { background: `${theme.bg}cc` } : undefined}>
+          <div className="relative h-36 border-b sm:h-48" style={{ borderColor: theme.line, ...bannerStyle }}>
+            {banner ? null : <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${accent} 0%, ${theme.bg} 55%, ${theme.card} 100%)` }} />}
+            <span className="pointer-events-none absolute top-3 left-3 h-3 w-3 border-t border-l" style={{ borderColor: theme.foam }} />
+            <span className="pointer-events-none absolute top-3 right-3 h-3 w-3 border-t border-r" style={{ borderColor: theme.foam }} />
+            <p className="absolute bottom-3 left-36 font-mono text-[10px] tracking-[0.22em] uppercase sm:left-44" style={{ color: theme.foam }}>
               // {profile.handle}
             </p>
           </div>
           <div className="relative px-4 pt-0 pb-5 sm:px-6">
             <div className="-mt-10 flex flex-wrap items-end justify-between gap-4">
               <div className="flex items-end gap-4">
-                <div className="relative grid size-24 place-items-center overflow-hidden border border-wine bg-wine-deep sm:size-28">
+                <div
+                  className={`relative grid size-24 place-items-center overflow-hidden sm:size-28 ${avatarFrameClass(profile.avatarFrame)}`}
+                  style={{ borderColor: profile.avatarFrame === "gold" ? "#e6c36a" : accent, background: theme.card }}
+                >
                   {profile.hasAvatar ? (
                     <img src={profileImageUrl(profile.handle, "avatar")} alt="" className="h-full w-full object-cover" />
                   ) : null}
-                  <span className="pointer-events-none absolute -top-px -left-px h-2.5 w-2.5 border-t border-l border-foam" />
-                  <span className="pointer-events-none absolute -right-px -bottom-px h-2.5 w-2.5 border-r border-b border-foam" />
                 </div>
                 <div className="pb-1">
                   <h1 className="font-display text-4xl leading-none sm:text-5xl">{profile.displayName}</h1>
-                  <p className="mt-1 font-mono text-sm text-muted">@{profile.handle}</p>
+                  <p className="mt-1 font-mono text-sm">
+                    <Nick handle={profile.handle} premium={profile.premium} />
+                  </p>
                 </div>
               </div>
               <ProfileActions profile={profile} onFollow={() => void router.invalidate()} />
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              <span className="border border-wine/80 bg-wine px-2 py-1 font-mono text-xs text-foam">{statusLabel(profile.status)}</span>
-              <span className="border border-wine/80 bg-wine px-2 py-1 font-mono text-xs text-foam">
+              <span className="theme-chip border px-2 py-1 font-mono text-xs">{statusLabel(profile.status)}</span>
+              <span className="theme-chip border px-2 py-1 font-mono text-xs">
                 {profile.followers} {followerWord(profile.followers)}
               </span>
-              {profile.isNew ? <span className="border border-ink/30 px-2 py-1 font-mono text-xs">Новый пользователь</span> : null}
+              {profile.premium ? <PremiumBadge /> : null}
+              {profile.isNew ? <span className="border px-2 py-1 font-mono text-xs" style={{ borderColor: theme.line }}>Новый пользователь</span> : null}
               {profile.badges.map((badge) => (
-                <span key={badge} className="border border-ink/30 px-2 py-1 font-mono text-xs">
+                <span key={badge} className="border px-2 py-1 font-mono text-xs" style={{ borderColor: theme.line }}>
                   {badgeLabel(badge)}
                 </span>
               ))}
@@ -164,17 +178,51 @@ function ProfilePage() {
           </div>
         </div>
       </section>
+      {(profile.lots.some((item) => item.pinned) || profile.posts.some((post) => post.pinned)) && page === 1 ? (
+        <section className="space-y-3">
+          <p className="font-mono text-xs tracking-widest uppercase" style={{ color: "var(--p-muted)" }}>
+            закреплено
+          </p>
+          {profile.lots.some((item) => item.pinned) ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              {profile.lots
+                .filter((item) => item.pinned)
+                .slice(0, 3)
+                .map((item) => (
+                  <ListingCardView key={item.id} item={item} showPrice={false} dense />
+                ))}
+            </div>
+          ) : null}
+          {profile.posts.some((post) => post.pinned) ? (
+            <div className="mx-auto max-w-2xl space-y-3">
+              {profile.posts
+                .filter((post) => post.pinned)
+                .slice(0, 3)
+                .map((post) => (
+                  <PostCard
+                    key={post.id}
+                    post={post}
+                    mine={me?.handle === profile.handle}
+                    onChange={() => void router.invalidate()}
+                  />
+                ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
       <div className="flex gap-2">
         <button
           type="button"
-          className={tab === "lots" ? "min-h-11 border border-wine bg-wine px-4 text-foam" : "min-h-11 border border-ink/25 px-4"}
+          className={tab === "lots" ? "theme-chip min-h-11 border px-4" : "min-h-11 border px-4"}
+          style={tab === "lots" ? undefined : { borderColor: "var(--p-line)", color: "var(--p-ink)" }}
           onClick={() => setTab("lots")}
         >
           Лоты
         </button>
         <button
           type="button"
-          className={tab === "posts" ? "min-h-11 border border-wine bg-wine px-4 text-foam" : "min-h-11 border border-ink/25 px-4"}
+          className={tab === "posts" ? "theme-chip min-h-11 border px-4" : "min-h-11 border px-4"}
+          style={tab === "posts" ? undefined : { borderColor: "var(--p-line)", color: "var(--p-ink)" }}
           onClick={() => setTab("posts")}
         >
           Посты
@@ -279,4 +327,23 @@ function ProfileActions({ profile, onFollow }: { profile: PublicProfile; onFollo
       </Link>
     </div>
   );
+}
+
+function avatarFrameClass(frame: AvatarFrame): string {
+  if (frame === "circle" || frame === "gold") return "rounded-full border-2";
+  if (frame === "rounded") return "rounded-2xl border";
+  if (frame === "none") return "";
+  return "border";
+}
+
+function bannerLayer(overlay: BannerOverlay, banner: string, bg: string): CSSProperties {
+  if (!banner) return {};
+  const image = `url(${banner})`;
+  const cover = { backgroundSize: "cover", backgroundPosition: "center" } as const;
+  if (overlay === "none") return { backgroundImage: image, ...cover };
+  if (overlay === "darken") return { backgroundImage: `linear-gradient(rgba(0,0,0,.5), rgba(0,0,0,.5)), ${image}`, ...cover };
+  if (overlay === "vignette") {
+    return { backgroundImage: `radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,.62)), ${image}`, ...cover };
+  }
+  return { backgroundImage: `linear-gradient(to top, ${bg}, transparent 55%), ${image}`, ...cover };
 }

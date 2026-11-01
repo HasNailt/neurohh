@@ -7,7 +7,7 @@ import { PreviewImg } from "@/components/preview-img";
 import { Button, fieldClass, Frame, Kicker } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { getListing, listMine, setPinned, updateListingCopy, deleteListing } from "@/lib/market/server";
+import { boostListing, getListing, getMe, listMine, setPinned, updateListingCopy, deleteListing } from "@/lib/market/server";
 import { errText, formatPrice, listingStatusLabel, type ListingCard } from "@/lib/market/shared";
 
 export const Route = createFileRoute("/studio")({
@@ -19,6 +19,7 @@ function StudioPage() {
   const { user, isPending } = useCurrentUserState();
   const [items, setItems] = useState<ListingCard[] | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
+  const [premium, setPremium] = useState(false);
 
   function reload() {
     void listMine()
@@ -29,6 +30,7 @@ function StudioPage() {
   useEffect(() => {
     if (!user) return;
     reload();
+    void getMe().then((me) => setPremium(me.premium)).catch(() => undefined);
   }, [user]);
 
   if (isPending) return <div className="h-48 animate-pulse bg-soft" />;
@@ -49,8 +51,8 @@ function StudioPage() {
         </Link>
       </div>
       {items == null ? <div className="h-40 animate-pulse bg-soft" /> : null}
-      <Shelf title="Аукционы" items={auctions} onEdit={setEditId} onPin={reload} />
-      <Shelf title="Фикс" items={fixed} onEdit={setEditId} onPin={reload} />
+      <Shelf title="Аукционы" items={auctions} premium={premium} onEdit={setEditId} onPin={reload} />
+      <Shelf title="Фикс" items={fixed} premium={premium} onEdit={setEditId} onPin={reload} />
       {editId ? (
         <EditSheet
           id={editId}
@@ -68,11 +70,13 @@ function StudioPage() {
 function Shelf({
   title,
   items,
+  premium,
   onEdit,
   onPin,
 }: {
   title: string;
   items: ListingCard[];
+  premium: boolean;
   onEdit: (id: string) => void;
   onPin: () => void;
 }) {
@@ -102,6 +106,7 @@ function Shelf({
                     </Link>
                     <p className="font-mono text-xs text-muted">
                       {listingStatusLabel(item.status)} · {formatPrice(item.currentBid ?? item.price)}
+                      {item.boosted ? " · буст" : ""}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -139,6 +144,27 @@ function Shelf({
                         <Button type="button" variant="line" onClick={() => onEdit(item.id)}>
                           Править
                         </Button>
+                        {premium ? (
+                          <span className="flex flex-wrap gap-1">
+                            {[24, 48, 72].map((hours) => (
+                              <button
+                                key={hours}
+                                type="button"
+                                className="min-h-9 border border-[#e6c36a] px-2 font-mono text-xs text-[#e6c36a]"
+                                onClick={() => {
+                                  void boostListing({ data: { id: item.id, hours } })
+                                    .then(() => {
+                                      toast.success(`Буст на ${hours} ч`);
+                                      onPin();
+                                    })
+                                    .catch((err) => toast.error(errText(err)));
+                                }}
+                              >
+                                {hours}ч
+                              </button>
+                            ))}
+                          </span>
+                        ) : null}
                       </>
                     ) : item.pinned ? (
                       <span className="font-mono text-xs">на профиле</span>
@@ -224,8 +250,8 @@ function EditSheet({ id, onClose, onSaved }: { id: string; onClose: () => void; 
           </label>
           <label className="block text-sm">
             Коротко
-            <textarea value={blurb} onChange={(e) => setBlurb(e.target.value)} rows={4} maxLength={400} className={`${fieldClass} mt-1 py-2`} />
-            <span className="mt-1 block font-mono text-xs text-muted">{blurb.length}/400</span>
+            <textarea value={blurb} onChange={(e) => setBlurb(e.target.value)} rows={4} maxLength={1200} className={`${fieldClass} mt-1 py-2`} />
+            <span className="mt-1 block font-mono text-xs text-muted">{blurb.length}/1200 · без Premium лимит 400</span>
             <div className="mt-2">
               <EmojiBar onPick={(emoji) => setBlurb((value) => value + emoji)} />
             </div>

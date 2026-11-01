@@ -5,7 +5,8 @@ import { Button, fieldClass, Kicker } from "@/components/ui-bits";
 import { EmojiBar } from "@/components/emoji-bar";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { clearProfileImage, getMe, updateProfile, uploadProfileImage } from "@/lib/market/server";
+import { clearProfileImage, getMe, updateProfile, updateProfileLook, uploadProfileImage } from "@/lib/market/server";
+import { ACCENTS, ACCENT_IDS, FRAME_IDS, FRAME_LABELS, OVERLAY_IDS, OVERLAY_LABELS, THEME_IDS, THEMES } from "@/lib/market/themes";
 import {
   badgeLabel,
   errText,
@@ -78,8 +79,9 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
   }
 
   return (
+    <div className="mx-auto grid max-w-xl gap-4">
     <form
-      className="mx-auto grid max-w-xl gap-4"
+      className="grid gap-4"
       onSubmit={(e) => {
         e.preventDefault();
         setBusy(true);
@@ -106,6 +108,7 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
         <Kicker>you</Kicker>
         <h1 className="mt-2 font-display text-5xl leading-none">профиль.</h1>
         <p className="mt-2 font-mono text-xs text-muted">роль: {roleLabel(me.role)}</p>
+        {me.premium ? <p className="mt-2 font-mono text-xs text-[#e6c36a]">★ Premium{me.premiumForever ? " · без срока" : me.premiumUntil ? ` · до ${me.premiumUntil.slice(0, 10)}` : ""}</p> : null}
         {me.badges.length > 0 ? (
           <p className="mt-2 font-mono text-xs text-muted">{me.badges.map(badgeLabel).join(" · ")}</p>
         ) : (
@@ -116,7 +119,7 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
         </Link>
       </div>
       <ImageSlot
-        label="Аватар, до 500 КБ"
+        label={me.premium ? "Аватар, GIF до 1.5 МБ" : "Аватар, до 500 КБ"}
         kind="avatar"
         has={me.hasAvatar}
         handle={me.handle}
@@ -136,7 +139,7 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
         }}
       />
       <ImageSlot
-        label="Баннер шапки, до 1.2 МБ"
+        label={me.premium ? "Баннер, GIF до 3 МБ" : "Баннер шапки, до 1.2 МБ"}
         kind="banner"
         has={me.hasBanner}
         handle={me.handle}
@@ -153,7 +156,7 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
         }}
       />
       <ImageSlot
-        label="Фон профиля, отдельно от баннера, до 1.2 МБ"
+        label={me.premium ? "Фон, GIF до 3 МБ" : "Фон профиля, отдельно от баннера, до 1.2 МБ"}
         kind="background"
         has={me.hasBackground}
         handle={me.handle}
@@ -230,6 +233,83 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
       </fieldset>
       <Button type="submit" variant="wine" disabled={busy}>
         Сохранить
+      </Button>
+    </form>
+    {me.premium ? <LookForm me={me} onSaved={onSaved} /> : <p className="text-sm text-muted">Темы профиля, цвет акцента, рамка аватарки и GIF — только с Premium.</p>}
+    </div>
+  );
+}
+
+function LookForm({ me, onSaved }: { me: Me; onSaved: (next: Me) => void }) {
+  const [theme, setTheme] = useState(me.theme);
+  const [accent, setAccent] = useState(me.accent);
+  const [avatarFrame, setAvatarFrame] = useState(me.avatarFrame);
+  const [bannerOverlay, setBannerOverlay] = useState(me.bannerOverlay);
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="grid gap-4 border border-[#e6c36a]/50 bg-card p-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        setBusy(true);
+        void updateProfileLook({ data: { theme, accent, avatarFrame, bannerOverlay } })
+          .then(() => getMe())
+          .then((next) => {
+            onSaved(next);
+            toast.success("Оформление сохранено");
+          })
+          .catch((err) => toast.error(errText(err)))
+          .finally(() => setBusy(false));
+      }}
+    >
+      <p className="font-display text-2xl">Оформление профиля</p>
+      <label className="block text-sm">
+        Тема
+        <select value={theme} onChange={(e) => setTheme(e.target.value as typeof theme)} className={`${fieldClass} mt-1`}>
+          {THEME_IDS.map((id) => (
+            <option key={id} value={id}>
+              {THEMES[id].label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div>
+        <p className="text-sm">Акцент</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {ACCENT_IDS.map((id) => (
+            <button
+              key={id}
+              type="button"
+              aria-label={ACCENTS[id].label}
+              onClick={() => setAccent(id)}
+              className={accent === id ? "size-9 border-2 border-foam" : "size-9 border border-ink/30"}
+              style={{ background: ACCENTS[id].color }}
+            />
+          ))}
+        </div>
+      </div>
+      <label className="block text-sm">
+        Рамка аватарки
+        <select value={avatarFrame} onChange={(e) => setAvatarFrame(e.target.value as typeof avatarFrame)} className={`${fieldClass} mt-1`}>
+          {FRAME_IDS.map((id) => (
+            <option key={id} value={id}>
+              {FRAME_LABELS[id]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="block text-sm">
+        Оверлей баннера
+        <select value={bannerOverlay} onChange={(e) => setBannerOverlay(e.target.value as typeof bannerOverlay)} className={`${fieldClass} mt-1`}>
+          {OVERLAY_IDS.map((id) => (
+            <option key={id} value={id}>
+              {OVERLAY_LABELS[id]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <Button type="submit" variant="line" disabled={busy}>
+        Сохранить оформление
       </Button>
     </form>
   );

@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { TagField } from "@/components/tag-field";
 import { EmojiBar } from "@/components/emoji-bar";
@@ -7,8 +7,8 @@ import { Button, fieldClass, Kicker } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { checkPreviewFile, pushFile } from "@/lib/market/client-upload";
-import { createListing, discardListing, publishListing } from "@/lib/market/server";
-import { DURATIONS, MAX_PREVIEWS, errText } from "@/lib/market/shared";
+import { createListing, discardListing, getMe, publishListing } from "@/lib/market/server";
+import { DURATIONS, MAX_PREVIEWS, PREMIUM_BLURB_MAX, PREMIUM_PREVIEWS, errText } from "@/lib/market/shared";
 
 export const Route = createFileRoute("/sell")({
   head: () => ({ meta: [{ title: "Новый лот — AdoptAI" }] }),
@@ -36,9 +36,16 @@ function SellForm() {
   const [fileError, setFileError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  const [premium, setPremium] = useState(false);
+  const previewCap = premium ? PREMIUM_PREVIEWS : MAX_PREVIEWS;
+  const blurbCap = premium ? PREMIUM_BLURB_MAX : 400;
+
+  useEffect(() => {
+    void getMe().then((me) => setPremium(me.premium)).catch(() => undefined);
+  }, []);
 
   async function onPickFiles(list: FileList | null, input: HTMLInputElement) {
-    const files = Array.from(list ?? []).slice(0, MAX_PREVIEWS);
+    const files = Array.from(list ?? []).slice(0, previewCap);
     if (files.length === 0) {
       setPreviews([]);
       setFileError(null);
@@ -108,7 +115,7 @@ function SellForm() {
       </div>
       <div className="border border-ink/30 bg-card p-4">
         <p className="font-display text-2xl leading-none">Картинки</p>
-        <p className="mt-2 text-sm text-muted">До 4 файлов, каждый до 4 МБ, до 4000×4000. PNG, JPG, WEBP или GIF.</p>
+        <p className="mt-2 text-sm text-muted">До {previewCap} файлов, каждый до 4 МБ, до 4000×4000. PNG, JPG, WEBP или GIF.{premium ? "" : " С Premium — до 8."}</p>
         <input
           type="file"
           accept="image/png,image/jpeg,image/webp,image/gif"
@@ -125,11 +132,11 @@ function SellForm() {
       </label>
       <label className="block text-sm">
         Коротко на карточке
-        <textarea value={blurb} onChange={(e) => setBlurb(e.target.value)} maxLength={400} rows={3} className={`${fieldClass} mt-1 py-2`} />
+        <textarea value={blurb} onChange={(e) => setBlurb(e.target.value)} maxLength={blurbCap} rows={3} className={`${fieldClass} mt-1 py-2`} />
         <div className="mt-2">
           <EmojiBar onPick={(emoji) => setBlurb((value) => value + emoji)} />
         </div>
-        <span className="mt-1 block font-mono text-xs text-muted">{blurb.length}/400</span>
+        <span className="mt-1 block font-mono text-xs text-muted">{blurb.length}/{blurbCap}</span>
       </label>
       <div className="flex gap-2">
         <button type="button" onClick={() => setKind("auction")} className={kind === "auction" ? "min-h-11 border border-wine bg-wine px-4 text-foam" : "min-h-11 border border-ink/25 px-4"}>

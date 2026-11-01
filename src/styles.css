@@ -64,6 +64,31 @@
   aspect-ratio: 3 / 4;
 }
 
+@keyframes drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.profile-scope .theme-card {
+  background: var(--p-card);
+  color: var(--p-ink);
+  border-color: var(--p-line);
+}
+
+.profile-scope .theme-muted {
+  color: var(--p-muted);
+}
+
+.profile-scope .theme-chip {
+  border-color: var(--p-accent);
+  background: var(--p-accent);
+  color: var(--p-foam);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
