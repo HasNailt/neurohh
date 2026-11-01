@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
-import { requestPasswordReset } from "@/lib/auth/password-reset.server";
+import { requestPasswordReset } from "@/lib/auth/password-reset";
 
 export const Route = createFileRoute("/forgot")({
   head: () => ({ meta: [{ title: "Сброс пароля — AdoptAI" }] }),

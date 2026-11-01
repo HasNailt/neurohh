@@ -13,11 +13,11 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as ChatsRouteImport } from './routes/chats'
 import { Route as FeedRouteImport } from './routes/feed'
-import { Route as LoginRouteImport } from './routes/login'
 import { Route as ForgotRouteImport } from './routes/forgot'
-import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as MeRouteImport } from './routes/me'
 import { Route as NotificationsRouteImport } from './routes/notifications'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as RulesRouteImport } from './routes/rules'
 import { Route as SellRouteImport } from './routes/sell'
 import { Route as StudioRouteImport } from './routes/studio'
@@ -52,19 +52,14 @@ const FeedRoute = FeedRouteImport.update({
   path: '/feed',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ForgotRoute = ForgotRouteImport.update({
   id: '/forgot',
   path: '/forgot',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ResetPasswordRoute = ResetPasswordRouteImport.update({
-  id: '/reset-password',
-  path: '/reset-password',
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MeRoute = MeRouteImport.update({
@@ -75,6 +70,11 @@ const MeRoute = MeRouteImport.update({
 const NotificationsRoute = NotificationsRouteImport.update({
   id: '/notifications',
   path: '/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RulesRoute = RulesRouteImport.update({
@@ -148,11 +148,11 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRouteWithChildren
   '/chats': typeof ChatsRoute
   '/feed': typeof FeedRoute
-  '/login': typeof LoginRoute
   '/forgot': typeof ForgotRoute
-  '/reset-password': typeof ResetPasswordRoute
+  '/login': typeof LoginRoute
   '/me': typeof MeRoute
   '/notifications': typeof NotificationsRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/rules': typeof RulesRoute
   '/sell': typeof SellRoute
   '/studio': typeof StudioRoute
@@ -172,11 +172,11 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminRouteWithChildren
   '/chats': typeof ChatsRoute
   '/feed': typeof FeedRoute
-  '/login': typeof LoginRoute
   '/forgot': typeof ForgotRoute
-  '/reset-password': typeof ResetPasswordRoute
+  '/login': typeof LoginRoute
   '/me': typeof MeRoute
   '/notifications': typeof NotificationsRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/rules': typeof RulesRoute
   '/sell': typeof SellRoute
   '/studio': typeof StudioRoute
@@ -197,11 +197,11 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteWithChildren
   '/chats': typeof ChatsRoute
   '/feed': typeof FeedRoute
-  '/login': typeof LoginRoute
   '/forgot': typeof ForgotRoute
-  '/reset-password': typeof ResetPasswordRoute
+  '/login': typeof LoginRoute
   '/me': typeof MeRoute
   '/notifications': typeof NotificationsRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/rules': typeof RulesRoute
   '/sell': typeof SellRoute
   '/studio': typeof StudioRoute
@@ -223,11 +223,11 @@ export interface FileRouteTypes {
     | '/admin'
     | '/chats'
     | '/feed'
-    | '/login'
     | '/forgot'
-    | '/reset-password'
+    | '/login'
     | '/me'
     | '/notifications'
+    | '/reset-password'
     | '/rules'
     | '/sell'
     | '/studio'
@@ -247,11 +247,11 @@ export interface FileRouteTypes {
     | '/admin'
     | '/chats'
     | '/feed'
-    | '/login'
     | '/forgot'
-    | '/reset-password'
+    | '/login'
     | '/me'
     | '/notifications'
+    | '/reset-password'
     | '/rules'
     | '/sell'
     | '/studio'
@@ -271,11 +271,11 @@ export interface FileRouteTypes {
     | '/admin'
     | '/chats'
     | '/feed'
-    | '/login'
     | '/forgot'
-    | '/reset-password'
+    | '/login'
     | '/me'
     | '/notifications'
+    | '/reset-password'
     | '/rules'
     | '/sell'
     | '/studio'
@@ -296,11 +296,11 @@ export interface RootRouteChildren {
   AdminRoute: typeof AdminRouteWithChildren
   ChatsRoute: typeof ChatsRoute
   FeedRoute: typeof FeedRoute
-  LoginRoute: typeof LoginRoute
   ForgotRoute: typeof ForgotRoute
-  ResetPasswordRoute: typeof ResetPasswordRoute
+  LoginRoute: typeof LoginRoute
   MeRoute: typeof MeRoute
   NotificationsRoute: typeof NotificationsRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
   RulesRoute: typeof RulesRoute
   SellRoute: typeof SellRoute
   StudioRoute: typeof StudioRoute
@@ -345,13 +345,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FeedRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/forgot': {
       id: '/forgot'
       path: '/forgot'
@@ -359,11 +352,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ForgotRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/reset-password': {
-      id: '/reset-password'
-      path: '/reset-password'
-      fullPath: '/reset-password'
-      preLoaderRoute: typeof ResetPasswordRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/me': {
@@ -378,6 +371,13 @@ declare module '@tanstack/react-router' {
       path: '/notifications'
       fullPath: '/notifications'
       preLoaderRoute: typeof NotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/rules': {
@@ -489,11 +489,11 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRoute: AdminRouteWithChildren,
   ChatsRoute: ChatsRoute,
   FeedRoute: FeedRoute,
-  LoginRoute: LoginRoute,
   ForgotRoute: ForgotRoute,
-  ResetPasswordRoute: ResetPasswordRoute,
+  LoginRoute: LoginRoute,
   MeRoute: MeRoute,
   NotificationsRoute: NotificationsRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
   RulesRoute: RulesRoute,
   SellRoute: SellRoute,
   StudioRoute: StudioRoute,

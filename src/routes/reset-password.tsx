@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
-import { resetPassword } from "@/lib/auth/password-reset.server";
+import { resetPassword } from "@/lib/auth/password-reset";
 
 export const Route = createFileRoute("/reset-password")({
   validateSearch: (search: Record<string, unknown>) => ({
