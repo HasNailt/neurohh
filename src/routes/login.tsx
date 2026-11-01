@@ -186,6 +186,13 @@ function LoginPage() {
                 className={`${fieldClass} mt-1`}
               />
             </label>
+            {mode === "in" ? (
+              <div className="text-right">
+                <Link to="/forgot" className="font-mono text-xs text-muted hover:text-ink">
+                  Забыли пароль?
+                </Link>
+              </div>
+            ) : null}
             {error ? <p className="text-sm">{error}</p> : null}
             <Button type="submit" variant="wine" disabled={busy} className="w-full">
               {busy ? "Секунду…" : mode === "up" ? "Создать аккаунт" : "Войти по email"}

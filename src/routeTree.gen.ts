@@ -14,6 +14,8 @@ import { Route as AdminRouteImport } from './routes/admin'
 import { Route as ChatsRouteImport } from './routes/chats'
 import { Route as FeedRouteImport } from './routes/feed'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as ForgotRouteImport } from './routes/forgot'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as MeRouteImport } from './routes/me'
 import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as RulesRouteImport } from './routes/rules'
@@ -53,6 +55,16 @@ const FeedRoute = FeedRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForgotRoute = ForgotRouteImport.update({
+  id: '/forgot',
+  path: '/forgot',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MeRoute = MeRouteImport.update({
@@ -137,6 +149,8 @@ export interface FileRoutesByFullPath {
   '/chats': typeof ChatsRoute
   '/feed': typeof FeedRoute
   '/login': typeof LoginRoute
+  '/forgot': typeof ForgotRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/me': typeof MeRoute
   '/notifications': typeof NotificationsRoute
   '/rules': typeof RulesRoute
@@ -159,6 +173,8 @@ export interface FileRoutesByTo {
   '/chats': typeof ChatsRoute
   '/feed': typeof FeedRoute
   '/login': typeof LoginRoute
+  '/forgot': typeof ForgotRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/me': typeof MeRoute
   '/notifications': typeof NotificationsRoute
   '/rules': typeof RulesRoute
@@ -182,6 +198,8 @@ export interface FileRoutesById {
   '/chats': typeof ChatsRoute
   '/feed': typeof FeedRoute
   '/login': typeof LoginRoute
+  '/forgot': typeof ForgotRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/me': typeof MeRoute
   '/notifications': typeof NotificationsRoute
   '/rules': typeof RulesRoute
@@ -206,6 +224,8 @@ export interface FileRouteTypes {
     | '/chats'
     | '/feed'
     | '/login'
+    | '/forgot'
+    | '/reset-password'
     | '/me'
     | '/notifications'
     | '/rules'
@@ -228,6 +248,8 @@ export interface FileRouteTypes {
     | '/chats'
     | '/feed'
     | '/login'
+    | '/forgot'
+    | '/reset-password'
     | '/me'
     | '/notifications'
     | '/rules'
@@ -250,6 +272,8 @@ export interface FileRouteTypes {
     | '/chats'
     | '/feed'
     | '/login'
+    | '/forgot'
+    | '/reset-password'
     | '/me'
     | '/notifications'
     | '/rules'
@@ -273,6 +297,8 @@ export interface RootRouteChildren {
   ChatsRoute: typeof ChatsRoute
   FeedRoute: typeof FeedRoute
   LoginRoute: typeof LoginRoute
+  ForgotRoute: typeof ForgotRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
   MeRoute: typeof MeRoute
   NotificationsRoute: typeof NotificationsRoute
   RulesRoute: typeof RulesRoute
@@ -324,6 +350,20 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/forgot': {
+      id: '/forgot'
+      path: '/forgot'
+      fullPath: '/forgot'
+      preLoaderRoute: typeof ForgotRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/me': {
@@ -450,6 +490,8 @@ const rootRouteChildren: RootRouteChildren = {
   ChatsRoute: ChatsRoute,
   FeedRoute: FeedRoute,
   LoginRoute: LoginRoute,
+  ForgotRoute: ForgotRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
   MeRoute: MeRoute,
   NotificationsRoute: NotificationsRoute,
   RulesRoute: RulesRoute,
