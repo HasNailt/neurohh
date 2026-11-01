@@ -14,7 +14,9 @@ import {
   MAX_PREVIEWS,
   PAGE_SIZE,
   PREVIEW_MAX,
+  PROFILE_LOT_PAGE,
   SNIPE_OPTIONS,
+  TOP_LIMIT,
   UUID_RE,
   cleanHandle,
   slugHandle,
@@ -24,16 +26,19 @@ import {
   tagParts,
   asRole,
   isStaff,
+  isNewAccount,
   asBadges,
   asLinks,
   asStatus,
   type AdminData,
+  type AuthorPost,
   type BidRow,
   type ChatImage,
   type ChatMessage,
   type DealDetail,
   type DealStatus,
   type DealSummary,
+  type FeedEntry,
   type FeedResult,
   type ListingCard,
   type ListingDetail,
@@ -896,7 +901,26 @@ export const cancelListing = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-/** Owner can remove any of their lots, including sold and just-created ones. */
+/** Erase a lot and everything attached to it: pictures, bids, chat, deal. */
+async function purgeListing(sql: Sql, id: string) {
+  const deals = await sql<{ id: string }>`select id from deals where listing_id = ${id}`;
+  const dealIds = deals.map((deal) => deal.id);
+  if (dealIds.length > 0) {
+    const hrefs = dealIds.map((dealId) => `/deals/${dealId}`);
+    await sql`delete from notifications where href = any(${hrefs}::text[])`;
+    await sql`
+      delete from message_images
+      where message_id in (select id from messages where deal_id = any(${dealIds}::text[]))
+    `;
+    await sql`delete from messages where deal_id = any(${dealIds}::text[])`;
+    await sql`delete from deals where listing_id = ${id}`;
+  }
+  await sql`delete from reports where listing_id = ${id}`;
+  await sql`delete from notifications where href = ${`/lot/${id}`}`;
+  await sql`delete from listings where id = ${id}`;
+}
+
+/** Owner can erase any of their lots. Images, bids and the deal go with it. */
 export const deleteListing = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((id: unknown) => {
@@ -905,13 +929,11 @@ export const deleteListing = createServerFn({ method: "POST" })
   })
   .handler(async ({ data: id, context }) => {
     const sql = await getSql();
-    const updated = await sql`
-      update listings
-      set status = 'removed', pinned = false, updated_at = now()
-      where id = ${id} and seller_id = ${context.userId} and status <> 'removed'
-      returning id
+    const owned = await sql<{ id: string }>`
+      select id from listings where id = ${id} and seller_id = ${context.userId}
     `;
-    if (!updated[0]) fail("Этот лот уже удалён");
+    if (!owned[0]) fail("Этот лот уже удалён");
+    await purgeListing(sql, id);
     return { ok: true };
   });
 
@@ -1189,12 +1211,17 @@ export const updateProfile = createServerFn({ method: "POST" })
   });
 
 export const getPublicProfile = createServerFn({ method: "GET" })
-  .validator((handle: unknown) => {
-    const h = typeof handle === "string" ? handle.trim().toLocaleLowerCase("ru") : "";
-    if (!cleanHandle(h)) fail("Некорректный профиль");
-    return h;
+  .middleware([optionalAuth])
+  .validator((input: unknown) => {
+    const raw = typeof input === "string" ? { handle: input, page: 1 } : input;
+    if (!raw || typeof raw !== "object") fail("Некорректный профиль");
+    const o = raw as Record<string, unknown>;
+    const handle = typeof o.handle === "string" ? o.handle.trim().toLocaleLowerCase("ru") : "";
+    if (!cleanHandle(handle)) fail("Некорректный профиль");
+    const page = Number(o.page);
+    return { handle, page: Number.isInteger(page) && page > 0 && page < 500 ? page : 1 };
   })
-  .handler(async ({ data: handle }): Promise<PublicProfile | null> => {
+  .handler(async ({ data, context }): Promise<PublicProfile | null> => {
     const sql = await getSql();
     await settle(sql);
     const rows = await sql<{
@@ -1208,62 +1235,53 @@ export const getPublicProfile = createServerFn({ method: "GET" })
       user_id: string;
     }>`
       select user_id, display_name, bio, role, status, links, badges, created_at
-      from profiles where handle = ${handle}
+      from profiles where handle = ${data.handle}
     `;
     if (!rows[0]) return null;
-    const items = await sql.query<CardRow>(
-      `select ${CARD_SQL}
-       from listings l
-       left join profiles p on p.user_id = l.seller_id
-       where l.seller_id = $1 and l.status in ('active', 'sold', 'ended')
-       order by l.pinned desc, l.created_at desc
-       limit 60`,
-      [rows[0].user_id],
-    );
-    const cards = items.map(mapCard);
-    const images = await sql<{ kind: string }>`
-      select kind from profile_images where user_id = ${rows[0].user_id}
-    `;
+    const userId = rows[0].user_id;
+    const offset = (data.page - 1) * PROFILE_LOT_PAGE;
+    const [items, totalRow, images, posts, followRow] = await Promise.all([
+      sql.query<CardRow>(
+        `select ${CARD_SQL}
+         from listings l
+         left join profiles p on p.user_id = l.seller_id
+         where l.seller_id = $1 and l.status in ('active', 'sold', 'ended')
+         order by l.pinned desc, l.created_at desc
+         limit $2 offset $3`,
+        [userId, PROFILE_LOT_PAGE, offset],
+      ),
+      sql<{ n: number }>`
+        select count(*)::int as n from listings
+        where seller_id = ${userId} and status in ('active', 'sold', 'ended')
+      `,
+      sql<{ kind: string }>`select kind from profile_images where user_id = ${userId}`,
+      loadAuthorPosts(sql, userId),
+      context.userId
+        ? sql<{ ok: number }>`
+            select 1 as ok from follows
+            where follower_id = ${context.userId} and following_id = ${userId}
+          `
+        : Promise.resolve([] as { ok: number }[]),
+    ]);
     const kinds = new Set(images.map((r) => r.kind));
-    const comments = await sql<{
-      id: string;
-      body: string;
-      created_at: unknown;
-      author_handle: string;
-      author_name: string;
-    }>`
-      select c.id, c.body, c.created_at, a.handle as author_handle, a.display_name as author_name
-      from profile_comments c
-      join profiles a on a.user_id = c.author_id
-      where c.profile_id = ${rows[0].user_id}
-      order by c.created_at desc
-      limit 40
-    `;
-    const pinned = cards.filter((c) => c.pinned);
+    const createdAt = iso(rows[0].created_at);
     return {
-      handle,
+      handle: data.handle,
       displayName: rows[0].display_name,
       bio: rows[0].bio,
       role: asRole(rows[0].role),
       status: asStatus(rows[0].status),
       links: asLinks(rows[0].links),
       badges: asBadges(rows[0].badges),
-      createdAt: iso(rows[0].created_at),
+      createdAt,
+      isNew: isNewAccount(createdAt),
+      following: followRow.length > 0,
       hasAvatar: kinds.has("avatar"),
       hasBanner: kinds.has("banner"),
       hasBackground: kinds.has("background"),
-      pinned,
-      active: cards.filter((c) => c.status === "active" && !c.pinned),
-      done: cards.filter((c) => c.status !== "active" && !c.pinned),
-      comments: comments.map(
-        (c): ProfileComment => ({
-          id: c.id,
-          body: c.body,
-          createdAt: iso(c.created_at),
-          authorHandle: c.author_handle,
-          authorName: c.author_name,
-        }),
-      ),
+      lots: items.map(mapCard),
+      lotTotal: num(totalRow[0]?.n),
+      posts,
     };
   });
 
@@ -2060,14 +2078,9 @@ export const adminModerate = createServerFn({ method: "POST" })
     const sql = await getSql();
     const actor = await requireStaff(sql, context.userId);
     if (data.action === "remove-listing") {
-      await sql`
-        update listings set status = 'removed', updated_at = now()
-        where id = ${data.listingId} and status <> 'sold'
-      `;
-      await sql`
-        update reports set status = 'actioned'
-        where listing_id = ${data.listingId} and status = 'open'
-      `;
+      const listingId = data.listingId;
+      if (!listingId) fail("Некорректный лот");
+      await purgeListing(sql, listingId);
     } else if (data.action === "dismiss-report") {
       await sql`update reports set status = 'dismissed' where id = ${data.reportId}`;
     } else if (data.action === "action-report") {
@@ -2075,12 +2088,7 @@ export const adminModerate = createServerFn({ method: "POST" })
         select listing_id from reports where id = ${data.reportId}
       `;
       await sql`update reports set status = 'actioned' where id = ${data.reportId}`;
-      if (report[0]?.listing_id) {
-        await sql`
-          update listings set status = 'removed', updated_at = now()
-          where id = ${report[0].listing_id} and status <> 'sold'
-        `;
-      }
+      if (report[0]?.listing_id) await purgeListing(sql, report[0].listing_id);
     } else if (data.action === "ban") {
       if (data.userId === context.userId) fail("Нельзя ограничить себя");
       const target = await sql<{ role: string }>`
@@ -2166,7 +2174,7 @@ export const listRecommendations = createServerFn({ method: "GET" }).handler(asy
      order by l.created_at desc
      limit 12`,
   );
-  return [...hot, ...single].map(mapCard);
+  return [...hot, ...single].map(mapCard).slice(0, TOP_LIMIT);
 });
 
 export const listMine = createServerFn({ method: "GET" })
@@ -2510,4 +2518,281 @@ export const sendDirect = createServerFn({ method: "POST" })
     await notify(sql, other, "dm", "Новое сообщение", `${me.handle}: ${data.body.slice(0, 140)}`, "/chats");
     return { ok: true };
   });
+
+async function loadAuthorPosts(sql: Sql, authorId: string): Promise<AuthorPost[]> {
+  const rows = await sql<{
+    id: string;
+    body: string;
+    created_at: unknown;
+    handle: string;
+    display_name: string;
+    author_created: unknown;
+  }>`
+    select p.id, p.body, p.created_at, a.handle, a.display_name, a.created_at as author_created
+    from posts p
+    join profiles a on a.user_id = p.author_id
+    where p.author_id = ${authorId}
+    order by p.created_at desc
+    limit 40
+  `;
+  return hydratePosts(sql, rows);
+}
+
+async function hydratePosts(
+  sql: Sql,
+  rows: {
+    id: string;
+    body: string;
+    created_at: unknown;
+    handle: string;
+    display_name: string;
+    author_created: unknown;
+  }[],
+): Promise<AuthorPost[]> {
+  if (rows.length === 0) return [];
+  const ids = rows.map((row) => row.id);
+  const [images, comments] = await Promise.all([
+    sql<{ id: string; post_id: string; card_b64: string }>`
+      select id, post_id, card_b64 from post_images
+      where post_id = any(${ids}::text[])
+      order by sort asc
+    `,
+    sql<{
+      id: string;
+      post_id: string;
+      parent_id: string | null;
+      body: string;
+      created_at: unknown;
+      handle: string;
+      display_name: string;
+    }>`
+      select c.id, c.post_id, c.parent_id, c.body, c.created_at, a.handle, a.display_name
+      from post_comments c
+      join profiles a on a.user_id = c.author_id
+      where c.post_id = any(${ids}::text[])
+      order by c.created_at asc
+      limit 400
+    `,
+  ]);
+  return rows.map((row) => {
+    const createdAt = iso(row.author_created);
+    return {
+      id: row.id,
+      body: row.body,
+      createdAt: iso(row.created_at),
+      authorHandle: row.handle,
+      authorName: row.display_name,
+      authorIsNew: isNewAccount(createdAt),
+      images: images
+        .filter((image) => image.post_id === row.id && image.card_b64.length > 32 && image.card_b64.length < 300_000)
+        .map((image) => ({ id: image.id, src: `data:image/jpeg;base64,${image.card_b64}` })),
+      comments: comments
+        .filter((comment) => comment.post_id === row.id)
+        .map((comment) => ({
+          id: comment.id,
+          parentId: comment.parent_id,
+          body: comment.body,
+          createdAt: iso(comment.created_at),
+          authorHandle: comment.handle,
+          authorName: comment.display_name,
+        })),
+    };
+  });
+}
+
+export const listProfileLots = createServerFn({ method: "GET" })
+  .validator((input: unknown) => {
+    if (!input || typeof input !== "object") fail("Некорректный профиль");
+    const o = input as Record<string, unknown>;
+    const handle = typeof o.handle === "string" ? o.handle.trim().toLocaleLowerCase("ru") : "";
+    if (!cleanHandle(handle)) fail("Некорректный профиль");
+    const page = Number(o.page);
+    return { handle, page: Number.isInteger(page) && page > 0 && page < 500 ? page : 1 };
+  })
+  .handler(async ({ data }): Promise<{ items: ListingCard[]; total: number }> => {
+    const sql = await getSql();
+    const profile = await sql<{ user_id: string }>`select user_id from profiles where handle = ${data.handle}`;
+    if (!profile[0]) return { items: [], total: 0 };
+    const offset = (data.page - 1) * PROFILE_LOT_PAGE;
+    const [items, totalRow] = await Promise.all([
+      sql.query<CardRow>(
+        `select ${CARD_SQL}
+         from listings l
+         left join profiles p on p.user_id = l.seller_id
+         where l.seller_id = $1 and l.status in ('active', 'sold', 'ended')
+         order by l.pinned desc, l.created_at desc
+         limit $2 offset $3`,
+        [profile[0].user_id, PROFILE_LOT_PAGE, offset],
+      ),
+      sql<{ n: number }>`
+        select count(*)::int as n from listings
+        where seller_id = ${profile[0].user_id} and status in ('active', 'sold', 'ended')
+      `,
+    ]);
+    return { items: items.map(mapCard), total: num(totalRow[0]?.n) };
+  });
+
+export const toggleFollow = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((handle: unknown) => {
+    const h = typeof handle === "string" ? handle.trim().toLocaleLowerCase("ru") : "";
+    if (!cleanHandle(h)) fail("Некорректный профиль");
+    return h;
+  })
+  .handler(async ({ data: handle, context }) => {
+    const sql = await getSql();
+    const me = await ensureProfile(sql, context.userId);
+    assertLive(me);
+    const target = await sql<{ user_id: string }>`select user_id from profiles where handle = ${handle}`;
+    if (!target[0]) fail("Профиль не найден");
+    if (target[0].user_id === context.userId) fail("На себя подписаться нельзя");
+    const existing = await sql`
+      select follower_id from follows
+      where follower_id = ${context.userId} and following_id = ${target[0].user_id}
+    `;
+    if (existing[0]) {
+      await sql`
+        delete from follows
+        where follower_id = ${context.userId} and following_id = ${target[0].user_id}
+      `;
+      return { following: false };
+    }
+    await sql`
+      insert into follows (follower_id, following_id)
+      values (${context.userId}, ${target[0].user_id})
+    `;
+    return { following: true };
+  });
+
+export const listFeed = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<FeedEntry[]> => {
+    const sql = await getSql();
+    await settle(sql);
+    await ensureProfile(sql, context.userId);
+    const followed = await sql<{ following_id: string }>`
+      select following_id from follows where follower_id = ${context.userId}
+    `;
+    const ids = [context.userId, ...followed.map((row) => row.following_id)];
+    const [lots, postRows] = await Promise.all([
+      sql.query<CardRow & { listed_at: unknown; seller_created: unknown }>(
+        `select ${CARD_SQL}, l.created_at as listed_at, p.created_at as seller_created
+         from listings l
+         left join profiles p on p.user_id = l.seller_id
+         where l.seller_id = any($1::text[]) and l.status = 'active'
+         order by l.created_at desc
+         limit 30`,
+        [ids],
+      ),
+      sql<{
+        id: string;
+        body: string;
+        created_at: unknown;
+        handle: string;
+        display_name: string;
+        author_created: unknown;
+      }>`
+        select p.id, p.body, p.created_at, a.handle, a.display_name, a.created_at as author_created
+        from posts p
+        join profiles a on a.user_id = p.author_id
+        where p.author_id = any(${ids}::text[])
+        order by p.created_at desc
+        limit 30
+      `,
+    ]);
+    const posts = await hydratePosts(sql, postRows);
+    const entries: FeedEntry[] = [
+      ...lots.map((row) => ({
+        kind: "lot" as const,
+        at: iso(row.listed_at),
+        lot: mapCard(row),
+        authorIsNew: isNewAccount(iso(row.seller_created)),
+      })),
+      ...posts.map((post) => ({ kind: "post" as const, at: post.createdAt, post })),
+    ];
+    entries.sort((a, b) => (a.at < b.at ? 1 : -1));
+    return entries.slice(0, 40);
+  });
+
+export const createPost = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    if (!input || typeof input !== "object") fail("Пустой пост");
+    const o = input as Record<string, unknown>;
+    const body = cleanText(typeof o.body === "string" ? o.body : "", 2000);
+    if (body.length < 1) fail("Напишите текст поста");
+    const images = Array.isArray(o.images) ? o.images.filter((item): item is string => typeof item === "string") : [];
+    if (images.length > 4) fail("Не больше 4 картинок");
+    return { body, images: images.map((item) => item.replace(/^data:[^,]*,/, "").replace(/\s/g, "")) };
+  })
+  .handler(async ({ data, context }) => {
+    const sql = await getSql();
+    const me = await ensureProfile(sql, context.userId);
+    assertLive(me);
+    const ready: Buffer[] = [];
+    for (const raw of data.images) {
+      if (raw.length < 32 || raw.length > 280_000) fail("Картинка поста слишком большая");
+      const buf = Buffer.from(raw, "base64");
+      if (buf.length < 32 || buf[0] !== 0xff || buf[1] !== 0xd8) fail("Картинка поста должна быть JPEG");
+      ready.push(buf);
+    }
+    const id = crypto.randomUUID();
+    await sql`insert into posts (id, author_id, body) values (${id}, ${context.userId}, ${data.body})`;
+    for (let sort = 0; sort < ready.length; sort += 1) {
+      await sql`
+        insert into post_images (id, post_id, card_b64, sort)
+        values (${crypto.randomUUID()}, ${id}, ${ready[sort]!.toString("base64")}, ${sort})
+      `;
+    }
+    return { id };
+  });
+
+export const addPostComment = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    if (!input || typeof input !== "object") fail("Пустой комментарий");
+    const o = input as Record<string, unknown>;
+    if (typeof o.postId !== "string" || !UUID_RE.test(o.postId)) fail("Некорректный пост");
+    const parentId = typeof o.parentId === "string" && UUID_RE.test(o.parentId) ? o.parentId : null;
+    const body = cleanText(typeof o.body === "string" ? o.body : "", 500);
+    if (body.length < 1) fail("Напишите комментарий");
+    return { postId: o.postId, parentId, body };
+  })
+  .handler(async ({ data, context }) => {
+    const sql = await getSql();
+    const me = await ensureProfile(sql, context.userId);
+    assertLive(me);
+    const post = await sql<{ id: string }>`select id from posts where id = ${data.postId}`;
+    if (!post[0]) fail("Пост не найден");
+    let parentId = data.parentId;
+    if (parentId) {
+      const parent = await sql<{ id: string; parent_id: string | null; post_id: string }>`
+        select id, parent_id, post_id from post_comments where id = ${parentId}
+      `;
+      if (!parent[0] || parent[0].post_id !== data.postId) fail("Некого ответить");
+      parentId = parent[0].parent_id ?? parent[0].id;
+    }
+    await sql`
+      insert into post_comments (id, post_id, author_id, parent_id, body)
+      values (${crypto.randomUUID()}, ${data.postId}, ${context.userId}, ${parentId}, ${data.body})
+    `;
+    return { ok: true };
+  });
+
+export const deletePost = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((id: unknown) => {
+    if (typeof id !== "string" || !UUID_RE.test(id)) fail("Некорректный пост");
+    return id;
+  })
+  .handler(async ({ data: id, context }) => {
+    const sql = await getSql();
+    const me = await ensureProfile(sql, context.userId);
+    const row = await sql<{ author_id: string }>`select author_id from posts where id = ${id}`;
+    if (!row[0]) fail("Пост уже удалён");
+    if (row[0].author_id !== context.userId && !isStaff(me.role)) fail("Нельзя удалить этот пост");
+    await sql`delete from posts where id = ${id}`;
+    return { ok: true };
+  });
+
 

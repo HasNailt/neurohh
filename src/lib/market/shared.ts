@@ -11,6 +11,9 @@ export const CHAT_IMAGE_MAX = 3 * 1024 * 1024;
 export const CHAT_IMAGE_DIM = 3000;
 export const CHAT_IMAGE_COUNT = 10;
 export const PAGE_SIZE = 12;
+export const TOP_LIMIT = 30;
+export const PROFILE_LOT_PAGE = 60;
+export const NEW_USER_MS = 30 * 24 * 60 * 60 * 1000;
 
 export const DURATIONS = [
   { hours: 1, label: "1 час" },
@@ -81,6 +84,12 @@ export function statusLabel(status: ArtistStatus): string {
 
 export function badgeLabel(id: BadgeId): string {
   return id === "verified" ? "Проверенный" : "Топ-продавец";
+}
+
+export function isNewAccount(createdAt: string): boolean {
+  const at = new Date(createdAt).getTime();
+  if (Number.isNaN(at)) return false;
+  return Date.now() - at < NEW_USER_MS;
 }
 
 export function asBadges(value: unknown): BadgeId[] {
@@ -211,14 +220,41 @@ export type PublicProfile = {
   links: SocialLink[];
   badges: BadgeId[];
   createdAt: string;
+  isNew: boolean;
+  following: boolean;
   hasAvatar: boolean;
   hasBanner: boolean;
   hasBackground: boolean;
-  pinned: ListingCard[];
-  active: ListingCard[];
-  done: ListingCard[];
-  comments: ProfileComment[];
+  lots: ListingCard[];
+  lotTotal: number;
+  posts: AuthorPost[];
 };
+
+export type PostComment = {
+  id: string;
+  parentId: string | null;
+  body: string;
+  createdAt: string;
+  authorHandle: string;
+  authorName: string;
+};
+
+export type PostImage = { id: string; src: string };
+
+export type AuthorPost = {
+  id: string;
+  body: string;
+  createdAt: string;
+  authorHandle: string;
+  authorName: string;
+  authorIsNew: boolean;
+  images: PostImage[];
+  comments: PostComment[];
+};
+
+export type FeedEntry =
+  | { kind: "lot"; at: string; lot: ListingCard; authorIsNew: boolean }
+  | { kind: "post"; at: string; post: AuthorPost };
 
 export type DealSummary = {
   id: string;

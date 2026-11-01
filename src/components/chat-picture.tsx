@@ -6,7 +6,7 @@ import type { ChatImage } from "@/lib/market/shared";
 export function ChatPictures({ images }: { images: ChatImage[] }) {
   if (images.length === 0) return null;
   return (
-    <div className="mt-2 grid gap-2">
+    <div className="mt-2 flex flex-nowrap gap-2 overflow-x-auto">
       {images.map((image) => (
         <ChatPicture key={image.id} image={image} />
       ))}
@@ -43,14 +43,19 @@ function ChatPicture({ image }: { image: ChatImage }) {
     };
   }, [image.id]);
 
-  if (failed) return <p className="font-mono text-xs text-muted">{image.filename} не открылась</p>;
-  if (!url) return <p className="font-mono text-xs text-muted">картинка…</p>;
+  function save() {
+    if (!url) return;
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = image.filename || "image";
+    link.click();
+  }
+
+  if (failed) return <span className="font-mono text-xs text-muted">нет файла</span>;
+  if (!url) return <span className="inline-block h-24 w-24 shrink-0 animate-pulse bg-soft" />;
   return (
-    <figure className="space-y-1">
-      <img src={url} alt="" className="max-h-72 max-w-full border border-ink/20" />
-      <a href={url} download={image.filename} className="inline-flex min-h-9 items-center font-mono text-xs underline">
-        Скачать {image.filename}
-      </a>
-    </figure>
+    <button type="button" onClick={save} title="Скачать" className="shrink-0">
+      <img src={url} alt="" className="h-24 w-24 border border-ink/20 object-cover" />
+    </button>
   );
 }

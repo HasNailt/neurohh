@@ -39,9 +39,9 @@ function Home() {
           {recommended.length === 0 ? (
             <p className="border border-dashed border-ink/30 px-4 py-10 text-center text-muted">Лотов пока нет.</p>
           ) : (
-            <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
               {recommended.map((item) => (
-                <ListingCardView key={item.id} item={item} />
+                <ListingCardView key={item.id} item={item} dense />
               ))}
             </div>
           )}

@@ -15,7 +15,15 @@ function LiveLeft({ endsAt }: { endsAt: string }) {
   return <span className="tabular-nums">{text}</span>;
 }
 
-export function ListingCardView({ item, showPrice = true }: { item: ListingCard; showPrice?: boolean }) {
+export function ListingCardView({
+  item,
+  showPrice = true,
+  dense = false,
+}: {
+  item: ListingCard;
+  showPrice?: boolean;
+  dense?: boolean;
+}) {
   const price = item.kind === "auction" ? (item.currentBid ?? item.price) : item.price;
   const letter = (item.title.trim()[0] || "A").toLocaleUpperCase("ru");
   return (
@@ -31,13 +39,13 @@ export function ListingCardView({ item, showPrice = true }: { item: ListingCard;
                 className="h-full w-full object-cover"
                 fallback={
                   <div className="grid h-full place-items-center bg-wine-deep">
-                    <span className="font-display text-7xl leading-none text-foam">{letter}</span>
+                    <span className={dense ? "font-display text-4xl leading-none text-foam" : "font-display text-7xl leading-none text-foam"}>{letter}</span>
                   </div>
                 }
               />
             ) : (
               <div className="grid h-full place-items-center bg-wine-deep">
-                <span className="font-display text-7xl leading-none text-foam">{letter}</span>
+                <span className={dense ? "font-display text-4xl leading-none text-foam" : "font-display text-7xl leading-none text-foam"}>{letter}</span>
               </div>
             )}
             <div className="absolute top-3 left-3 border border-ink/20 bg-paper/85 px-2 py-1 font-mono text-xs">
@@ -51,7 +59,7 @@ export function ListingCardView({ item, showPrice = true }: { item: ListingCard;
             ) : null}
             {showPrice ? (
               <div className="absolute inset-x-0 bottom-0 border-t border-ink/15 bg-paper/85 px-3 py-2 text-ink">
-                <p className="font-display text-xl tabular-nums">{formatPrice(price)}</p>
+                <p className={dense ? "font-display text-lg tabular-nums" : "font-display text-xl tabular-nums"}>{formatPrice(price)}</p>
                 {item.kind === "auction" && item.bidCount > 0 ? (
                   <p className="font-mono text-xs opacity-80">{item.bidCount} став.</p>
                 ) : null}
@@ -61,7 +69,7 @@ export function ListingCardView({ item, showPrice = true }: { item: ListingCard;
         </Frame>
       </Link>
       <div className="min-w-0">
-        <h2 className="font-display text-2xl leading-none">
+        <h2 className={dense ? "truncate font-display text-base leading-none" : "font-display text-2xl leading-none"}>
           <Link to="/lot/$id" params={{ id: item.id }} className="hover:underline">
             {item.title}
           </Link>
@@ -72,7 +80,7 @@ export function ListingCardView({ item, showPrice = true }: { item: ListingCard;
           </Link>
           {item.status !== "active" ? ` · ${item.status === "sold" ? "продан" : "закрыт"}` : ""}
         </p>
-        {item.tags.length > 0 ? (
+        {item.tags.length > 0 && !dense ? (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {item.tags.map((tag) => (
               <Link

@@ -4,8 +4,8 @@ import { toast } from "sonner";
 import { Button, fieldClass, Frame, Kicker } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { getThread, listThreads, openThread, sendDirect } from "@/lib/market/server";
-import { errText, formatWhen, type ThreadDetail, type ThreadPreview } from "@/lib/market/shared";
+import { getThread, listDeals, listThreads, openThread, sendDirect } from "@/lib/market/server";
+import { errText, formatDealNo, formatPrice, formatWhen, type DealSummary, type ThreadDetail, type ThreadPreview } from "@/lib/market/shared";
 
 type ChatSearch = { with: string };
 
@@ -21,6 +21,8 @@ function ChatsPage() {
   const { user, isPending } = useCurrentUserState();
   const { with: withHandle } = Route.useSearch();
   const [threads, setThreads] = useState<ThreadPreview[] | null>(null);
+  const [deals, setDeals] = useState<DealSummary[] | null>(null);
+  const [box, setBox] = useState<"direct" | "deals">("direct");
   const [open, setOpen] = useState<ThreadDetail | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -28,6 +30,9 @@ function ChatsPage() {
   function reloadList() {
     void listThreads()
       .then(setThreads)
+      .catch((err) => toast.error(errText(err)));
+    void listDeals()
+      .then(setDeals)
       .catch((err) => toast.error(errText(err)));
   }
 
@@ -62,7 +67,44 @@ function ChatsPage() {
           <Kicker>inbox</Kicker>
           <h1 className="mt-1 font-display text-4xl leading-none">чаты.</h1>
         </div>
-        {threads == null ? (
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className={box === "direct" ? "min-h-11 border border-wine bg-wine px-3 text-foam" : "min-h-11 border border-ink/25 px-3"}
+            onClick={() => setBox("direct")}
+          >
+            Личные
+          </button>
+          <button
+            type="button"
+            className={box === "deals" ? "min-h-11 border border-wine bg-wine px-3 text-foam" : "min-h-11 border border-ink/25 px-3"}
+            onClick={() => setBox("deals")}
+          >
+            Сделки
+          </button>
+        </div>
+        {box === "deals" ? (
+          deals == null ? (
+            <div className="h-24 animate-pulse bg-soft" />
+          ) : deals.length === 0 ? (
+            <p className="text-sm text-muted">Сделок пока нет.</p>
+          ) : (
+            <ul className="divide-y divide-ink/10 border-y border-ink/15">
+              {deals.map((deal) => (
+                <li key={deal.id}>
+                  <Link to="/deals/$id" params={{ id: deal.id }} className="block py-3 hover:bg-soft/60">
+                    <p className="font-medium">
+                      {formatDealNo(deal.publicNo)} {deal.title}
+                    </p>
+                    <p className="truncate text-sm text-muted">
+                      @{deal.youAre === "seller" ? deal.buyerHandle : deal.sellerHandle} · {formatPrice(deal.amount)}
+                    </p>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )
+        ) : threads == null ? (
           <div className="h-24 animate-pulse bg-soft" />
         ) : threads.length === 0 ? (
           <p className="text-sm text-muted">Пока тихо. Кнопка «Чат» есть в чужом профиле — сделка для этого не нужна.</p>
@@ -82,9 +124,6 @@ function ChatsPage() {
             ))}
           </ul>
         )}
-        <p className="text-xs text-muted">
-          Переписка по покупке остаётся в <Link to="/deals" className="underline">сделках</Link>.
-        </p>
       </section>
       <section>
         {!withHandle || !open ? (

@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ChatPictures } from "@/components/chat-picture";
-import { Button, Frame, Kicker, fieldClass } from "@/components/ui-bits";
+import { Button, fieldClass } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { checkChatImage, pushChatImage } from "@/lib/market/client-upload";
@@ -73,31 +73,21 @@ function DealPage() {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
-      <div className="space-y-4">
-        <div>
-          <Kicker>сделка {formatDealNo(deal.publicNo)}</Kicker>
-          <h1 className="mt-2 font-display text-4xl leading-none">
-            <Link to="/lot/$id" params={{ id: deal.listingId }} className="hover:underline">
-              {deal.title}
-            </Link>
-          </h1>
-          <p className="mt-2 text-muted">
-            {deal.youAre === "seller" ? "Покупатель" : "Продавец"}{" "}
-            <Link to="/u/$handle" params={{ handle: other.handle }} className="text-ink underline">
-              @{other.handle}
-            </Link>
-            . Номер {formatDealNo(deal.publicNo)} виден вам и модерации — по нему разбирают спор.
-          </p>
-        </div>
-        <Frame>
+    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+      <div className="space-y-3">
+        <h1 className="font-display text-4xl leading-none">
+          <Link to="/lot/$id" params={{ id: deal.listingId }} className="hover:underline">
+            {deal.title}
+          </Link>
+        </h1>
+        <div className="flex h-[70vh] min-h-96 flex-col border border-ink/20 bg-card">
           <div
             ref={scroller}
             onScroll={(e) => {
               const el = e.currentTarget;
               stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
             }}
-            className="h-96 space-y-3 overflow-y-auto bg-card p-4"
+            className="flex-1 space-y-3 overflow-y-auto p-4"
           >
             {deal.messages.map((message) =>
               message.system ? (
@@ -105,22 +95,21 @@ function DealPage() {
                   {message.body}
                 </p>
               ) : (
-                <div key={message.id} className={message.senderId === user.id ? "ml-8" : "mr-8"}>
-                  <p className="font-mono text-xs text-muted">
+                <div key={message.id} className={message.senderId === user.id ? "ml-auto max-w-[80%]" : "max-w-[80%]"}>
+                  <p className="mb-1 font-mono text-[10px] tracking-wide text-muted uppercase">
                     @{message.handle} · <span suppressHydrationWarning>{formatWhen(message.createdAt)}</span>
                   </p>
-                  <p className={message.senderId === user.id ? "bg-wine px-3 py-2 text-foam" : "border border-ink/25 px-3 py-2"}>
-                    {message.body ? <span className="whitespace-pre-wrap">{message.body}</span> : null}
+                  <div className={message.senderId === user.id ? "bg-wine px-3 py-2 text-foam" : "border border-ink/20 bg-paper px-3 py-2"}>
+                    {message.body ? <p className="whitespace-pre-wrap">{message.body}</p> : null}
                     <ChatPictures images={message.images} />
-                  </p>
+                  </div>
                 </div>
               ),
             )}
           </div>
-        </Frame>
-        <form
-          className="space-y-2"
-          onSubmit={(e) => {
+          <form
+            className="space-y-2 border-t border-ink/15 p-3"
+            onSubmit={(e) => {
             e.preventDefault();
             const body = draft.trim();
             const files = pics.slice(0, CHAT_IMAGE_COUNT);
@@ -195,15 +184,22 @@ function DealPage() {
             </Button>
           </div>
         </form>
+        </div>
       </div>
-      <aside className="space-y-4">
-        <Frame>
-          <div className="space-y-3 bg-card p-4">
-            <p className="font-display text-3xl tabular-nums">{formatPrice(deal.amount)}</p>
-            <p className="text-sm text-muted">
-              Оплата проходит вне площадки. Здесь переписка по сделке {formatDealNo(deal.publicNo)}.
+      <aside className="lg:sticky lg:top-4">
+        <div className="space-y-4 border border-ink/20 bg-card p-4">
+          <div>
+            <p className="font-mono text-[10px] tracking-[0.18em] text-muted uppercase">
+              {deal.youAre === "seller" ? "покупатель" : "продавец"}
             </p>
-            <div className="grid grid-cols-2 border border-ink/25">
+            <Link to="/u/$handle" params={{ handle: other.handle }} className="mt-1 block font-display text-3xl leading-none hover:underline">
+              @{other.handle}
+            </Link>
+            <p className="text-sm text-muted">{other.name}</p>
+          </div>
+          <p className="font-display text-3xl tabular-nums">{formatPrice(deal.amount)}</p>
+          <p className="font-mono text-xs text-muted">{formatDealNo(deal.publicNo)}</p>
+          <div className="grid grid-cols-2 border border-ink/25">
               <button
                 type="button"
                 disabled={busy || deal.status !== "completed"}
@@ -230,7 +226,6 @@ function DealPage() {
               </button>
             </div>
           </div>
-        </Frame>
       </aside>
     </div>
   );

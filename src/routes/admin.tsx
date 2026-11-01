@@ -1,5 +1,5 @@
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
@@ -55,6 +55,24 @@ function DealSearch() {
   );
 }
 
+function Fold({ title, children }: { title: string; children: ReactNode }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <section className="border border-ink/20 bg-card">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+      >
+        <h2 className="font-display text-2xl">{title}</h2>
+        <span className="font-mono text-xs text-muted">{open ? "свернуть" : "развернуть"}</span>
+      </button>
+      {open ? <div className="space-y-3 border-t border-ink/15 px-4 py-4">{children}</div> : null}
+    </section>
+  );
+}
+
 const ROLES: Role[] = ["user", "moderator", "admin"];
 
 function InvitePanel({
@@ -67,16 +85,13 @@ function InvitePanel({
   const [note, setNote] = useState("");
   const [maxUses, setMaxUses] = useState("1");
   return (
-    <section className="space-y-3 border border-ink/20 bg-card p-4">
+    <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="font-display text-2xl">Инвайт-коды</h2>
-          <p className="mt-1 max-w-prose text-sm text-muted">
+        <p className="max-w-prose text-sm text-muted">
             {data.requireInvite
               ? "Сейчас новый аккаунт создаётся только с кодом. Уже существующие входы код не спрашивают."
               : "Сейчас регистрироваться можно без кода. Переключатель включает обязательность в любой момент."}
-          </p>
-        </div>
+        </p>
         <Button
           type="button"
           variant={data.requireInvite ? "wine" : "line"}
@@ -189,7 +204,11 @@ function AdminPage() {
             : "Вы модератор: жалобы, снятие лотов, ограничение участников и чтение переписки по номеру сделки. Роли и инвайты меняет только администратор."}
         </p>
       </div>
-      {admin ? <InvitePanel data={data} act={act} /> : null}
+      {admin ? (
+        <Fold title="Инвайт-коды">
+          <InvitePanel data={data} act={act} />
+        </Fold>
+      ) : null}
       <DealSearch />
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
@@ -204,8 +223,7 @@ function AdminPage() {
           </div>
         ))}
       </dl>
-      <section className="space-y-3">
-        <h2 className="font-display text-2xl">Сделки</h2>
+      <Fold title="Сделки">
         {data.deals.length === 0 ? <p className="text-muted">Сделок пока нет.</p> : null}
         <ul className="divide-y divide-ink/10 border-y border-ink/15">
           {data.deals.map((deal) => (
@@ -221,7 +239,7 @@ function AdminPage() {
             </li>
           ))}
         </ul>
-      </section>
+      </Fold>
       <section className="space-y-3">
         <h2 className="font-display text-2xl">Жалобы</h2>
         {data.reports.length === 0 ? <p className="text-muted">Открытых нет.</p> : null}
@@ -251,8 +269,7 @@ function AdminPage() {
           ))}
         </ul>
       </section>
-      <section className="space-y-3">
-        <h2 className="font-display text-2xl">Свежие лоты</h2>
+      <Fold title="Свежие лоты">
         <ul className="divide-y divide-ink/10 border-y border-ink/15">
           {data.listings.map((lot) => (
             <li key={lot.id} className="flex flex-wrap items-center gap-3 py-2">
@@ -261,17 +278,14 @@ function AdminPage() {
               </Link>
               <span className="font-mono text-xs">@{lot.handle}</span>
               <span className="font-mono text-xs">{listingStatusLabel(lot.status as ListingStatus)}</span>
-              {lot.status !== "sold" && lot.status !== "removed" ? (
-                <Button type="button" variant="ghost" onClick={() => void act({ action: "remove-listing", listingId: lot.id })}>
-                  Снять
-                </Button>
-              ) : null}
+              <Button type="button" variant="line" onClick={() => void act({ action: "remove-listing", listingId: lot.id })}>
+                Удалить
+              </Button>
             </li>
           ))}
         </ul>
-      </section>
-      <section className="space-y-3">
-        <h2 className="font-display text-2xl">Люди</h2>
+      </Fold>
+      <Fold title="Люди">
         <p className="text-sm text-muted">Последние 80 профилей. Смена роли доступна только администратору и не для самого себя.</p>
         <ul className="divide-y divide-ink/10 border-y border-ink/15">
           {data.users.map((person) => {
@@ -346,7 +360,7 @@ function AdminPage() {
             );
           })}
         </ul>
-      </section>
+      </Fold>
     </div>
   );
 }

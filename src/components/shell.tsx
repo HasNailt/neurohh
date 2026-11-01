@@ -175,12 +175,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         К содержанию
       </a>
       <header className="relative z-50 border-b border-ink/20 bg-paper/95 backdrop-blur-sm">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 pt-2 font-mono text-[10px] tracking-[0.2em] text-muted uppercase">
+        <div className="mx-auto flex w-full max-w-[100rem] items-center justify-between px-4 pt-2 font-mono text-[10px] tracking-[0.2em] text-muted uppercase">
           <span>SYS // 01</span>
           <span className="hidden sm:inline">+ live booth</span>
           <span>pay off-site</span>
         </div>
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-3 px-4 py-3">
+        <div className="mx-auto flex w-full max-w-[100rem] flex-wrap items-center gap-3 px-4 py-3">
           <Link to="/" search={{ q: "", tag: "", kind: "all", sort: "new", page: 1 }} className="flex items-center gap-2">
             <Mark />
             <span className="leading-none">
@@ -202,6 +202,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </span>
               ) : null}
             </Link>
+            <Link to="/feed" className="inline-flex min-h-11 items-center border border-ink/25 px-3 font-medium">
+              Лента
+            </Link>
             <Link to="/sell" className="inline-flex min-h-11 items-center gap-1 border border-wine bg-wine px-4 font-medium text-foam">
               <Plus className="size-4" />
               Лот
@@ -222,11 +225,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       {me?.banned ? (
         <p className="border-b border-wine bg-wine-deep px-4 py-2 text-center text-sm text-foam">Аккаунт ограничен модерацией. Новые лоты и ставки недоступны.</p>
       ) : null}
-      <div id="content" className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:py-10">
+      <div id="content" className="mx-auto w-full max-w-[100rem] flex-1 px-4 py-6 sm:py-10">
         {children}
       </div>
       <footer className="border-t border-ink/20">
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 font-mono text-xs text-muted">
+        <div className="mx-auto flex w-full max-w-[100rem] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 font-mono text-xs text-muted">
           <span>ADOPTAI // OFF-SITE PAY</span>
           {me && isStaff(me.role) ? (
             <Link to="/admin" className="hover:text-ink">Модерация</Link>

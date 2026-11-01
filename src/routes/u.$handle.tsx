@@ -2,14 +2,14 @@ import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ListingCardView } from "@/components/listing-card";
-import { Button, fieldClass, Frame, Kicker } from "@/components/ui-bits";
+import { PostCard } from "@/components/post-card";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { addProfileComment, deleteProfileComment, getMe, getPublicProfile } from "@/lib/market/server";
+import { getMe, getPublicProfile, listProfileLots, toggleFollow } from "@/lib/market/server";
 import {
   badgeLabel,
   errText,
   formatWhen,
-  isStaff,
+  PROFILE_LOT_PAGE,
   profileImageUrl,
   roleLabel,
   statusLabel,
@@ -19,7 +19,7 @@ import {
 } from "@/lib/market/shared";
 
 export const Route = createFileRoute("/u/$handle")({
-  loader: ({ params }) => getPublicProfile({ data: params.handle }),
+  loader: ({ params }) => getPublicProfile({ data: { handle: params.handle, page: 1 } }),
   head: ({ loaderData }) => ({
     meta: [{ title: loaderData ? `@${loaderData.handle} — AdoptAI` : "Профиль — AdoptAI" }],
   }),
@@ -27,13 +27,53 @@ export const Route = createFileRoute("/u/$handle")({
 });
 
 function ProfilePage() {
-  const profile = Route.useLoaderData();
-  if (!profile) {
+  const loaded = Route.useLoaderData();
+  const router = useRouter();
+  const { user } = useCurrentUserState();
+  const [me, setMe] = useState<Me | null>(null);
+  const [tab, setTab] = useState<"lots" | "posts">("lots");
+  const [page, setPage] = useState(1);
+  const [lots, setLots] = useState<ListingCard[]>(loaded?.lots ?? []);
+  const [total, setTotal] = useState(loaded?.lotTotal ?? 0);
+
+  useEffect(() => {
+    if (!user) {
+      setMe(null);
+      return;
+    }
+    void getMe().then(setMe).catch(() => undefined);
+  }, [user]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    setLots(loaded.lots);
+    setTotal(loaded.lotTotal);
+    setPage(1);
+  }, [loaded]);
+
+  if (!loaded) {
     return <h1 className="font-display text-4xl">Такого профиля нет</h1>;
   }
+  const profile = loaded;
   const letter = (profile.displayName.trim()[0] || profile.handle[0] || "A").toLocaleUpperCase("ru");
   const bg = profile.hasBackground ? profileImageUrl(profile.handle, "background") : "";
   const banner = profile.hasBanner ? profileImageUrl(profile.handle, "banner") : "";
+  const pages = Math.max(1, Math.ceil(total / PROFILE_LOT_PAGE));
+
+  function openPage(next: number) {
+    setPage(next);
+    if (next === 1) {
+      setLots(profile.lots);
+      return;
+    }
+    void listProfileLots({ data: { handle: profile.handle, page: next } })
+      .then((res) => {
+        setLots(res.items);
+        setTotal(res.total);
+      })
+      .catch((err) => toast.error(errText(err)));
+  }
+
   return (
     <div className="space-y-8">
       <section
@@ -77,10 +117,11 @@ function ProfilePage() {
                   <p className="mt-1 font-mono text-sm text-muted">@{profile.handle}</p>
                 </div>
               </div>
-              <ProfileActions handle={profile.handle} />
+              <ProfileActions profile={profile} onFollow={() => void router.invalidate()} />
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <span className="border border-wine/80 bg-wine px-2 py-1 font-mono text-xs text-foam">{statusLabel(profile.status)}</span>
+              {profile.isNew ? <span className="border border-ink/30 px-2 py-1 font-mono text-xs">Новый пользователь</span> : null}
               {profile.badges.map((badge) => (
                 <span key={badge} className="border border-ink/30 px-2 py-1 font-mono text-xs">
                   {badgeLabel(badge)}
@@ -115,53 +156,75 @@ function ProfilePage() {
           </div>
         </div>
       </section>
-      <LotShelf kicker="pinned" title="закреплено." items={profile.pinned} empty={null} />
-      <LotShelf
-        kicker="live"
-        title="в продаже."
-        items={profile.active}
-        empty="Активных лотов нет."
-      />
-      <LotShelf kicker="archive" title="завершённые." items={profile.done} empty="Завершённых лотов нет." />
-      <Comments profile={profile} />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          className={tab === "lots" ? "min-h-11 border border-wine bg-wine px-4 text-foam" : "min-h-11 border border-ink/25 px-4"}
+          onClick={() => setTab("lots")}
+        >
+          Лоты
+        </button>
+        <button
+          type="button"
+          className={tab === "posts" ? "min-h-11 border border-wine bg-wine px-4 text-foam" : "min-h-11 border border-ink/25 px-4"}
+          onClick={() => setTab("posts")}
+        >
+          Посты
+        </button>
+      </div>
+      {tab === "lots" ? (
+        <section className="space-y-4">
+          {lots.length === 0 ? (
+            <p className="text-muted">Лотов нет.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              {lots.map((item) => (
+                <ListingCardView key={item.id} item={item} showPrice={false} dense />
+              ))}
+            </div>
+          )}
+          {pages > 1 ? (
+            <div className="flex items-center justify-between font-mono text-sm">
+              <button type="button" className="min-h-11 underline disabled:opacity-40" disabled={page <= 1} onClick={() => openPage(page - 1)}>
+                Назад
+              </button>
+              <span className="text-muted tabular-nums">
+                {page} / {pages}
+              </span>
+              <button type="button" className="min-h-11 underline disabled:opacity-40" disabled={page >= pages} onClick={() => openPage(page + 1)}>
+                Дальше
+              </button>
+            </div>
+          ) : null}
+        </section>
+      ) : profile.posts.length === 0 ? (
+        <p className="text-muted">Постов пока нет.</p>
+      ) : (
+        <div className="mx-auto max-w-2xl space-y-4">
+          {profile.posts.map((post) => (
+            <PostCard
+              key={post.id}
+              post={post}
+              mine={me?.handle === profile.handle || me?.role === "admin" || me?.role === "moderator"}
+              onChange={() => void router.invalidate()}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function LotShelf({
-  kicker,
-  title,
-  items,
-  empty,
-}: {
-  kicker: string;
-  title: string;
-  items: ListingCard[];
-  empty: string | null;
-}) {
-  if (items.length === 0 && !empty) return null;
-  return (
-    <section className="space-y-4">
-      <div>
-        <Kicker>{kicker}</Kicker>
-        <h2 className="mt-1 font-display text-3xl leading-none">{title}</h2>
-      </div>
-      {items.length === 0 ? (
-        <p className="text-muted">{empty}</p>
-      ) : (
-        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-          {items.map((item) => (
-            <ListingCardView key={item.id} item={item} showPrice={false} />
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function ProfileActions({ handle }: { handle: string }) {
+function ProfileActions({ profile, onFollow }: { profile: PublicProfile; onFollow: () => void }) {
   const { user } = useCurrentUserState();
   const [me, setMe] = useState<Me | null>(null);
+  const [following, setFollowing] = useState(profile.following);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setFollowing(profile.following);
+  }, [profile.following]);
+
   useEffect(() => {
     if (!user) {
       setMe(null);
@@ -169,6 +232,7 @@ function ProfileActions({ handle }: { handle: string }) {
     }
     void getMe().then(setMe).catch(() => undefined);
   }, [user]);
+
   if (!user) {
     return (
       <Link to="/login" className="inline-flex min-h-11 items-center border border-wine bg-wine px-4 text-foam">
@@ -176,7 +240,7 @@ function ProfileActions({ handle }: { handle: string }) {
       </Link>
     );
   }
-  if (me?.handle === handle) {
+  if (me?.handle === profile.handle) {
     return (
       <Link to="/me" className="inline-flex min-h-11 items-center border border-ink/30 px-4">
         Править профиль
@@ -184,118 +248,27 @@ function ProfileActions({ handle }: { handle: string }) {
     );
   }
   return (
-    <Link to="/chats" search={{ with: handle }} className="inline-flex min-h-11 items-center border border-wine bg-wine px-4 text-foam">
-      Чат
-    </Link>
-  );
-}
-
-function Comments({ profile }: { profile: PublicProfile }) {
-  const { user, isPending } = useCurrentUserState();
-  const router = useRouter();
-  const [me, setMe] = useState<Me | null>(null);
-  const [body, setBody] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!user) {
-      setMe(null);
-      return;
-    }
-    void getMe().then(setMe).catch(() => undefined);
-  }, [user]);
-
-  const own = me?.handle === profile.handle;
-
-  return (
-    <section className="space-y-4">
-      <div>
-        <Kicker>notes</Kicker>
-        <h2 className="mt-2 font-display text-3xl leading-none">стена.</h2>
-      </div>
-      <Frame>
-        <div className="space-y-4 bg-card p-4">
-          {profile.comments.length === 0 ? (
-            <p className="text-sm text-muted">Пока тихо. Зарегистрированные участники могут оставить заметку.</p>
-          ) : (
-            <ul className="divide-y divide-ink/10">
-              {profile.comments.map((comment) => {
-                const canDelete = me && (comment.authorHandle === me.handle || isStaff(me.role));
-                return (
-                  <li key={comment.id} className="py-3">
-                    <p className="font-mono text-xs text-muted">
-                      <Link to="/u/$handle" params={{ handle: comment.authorHandle }} className="hover:text-ink">
-                        @{comment.authorHandle}
-                      </Link>
-                      {" · "}
-                      <span suppressHydrationWarning>{formatWhen(comment.createdAt)}</span>
-                    </p>
-                    <p className="mt-1 whitespace-pre-wrap">{comment.body}</p>
-                    {canDelete ? (
-                      <button
-                        type="button"
-                        className="mt-1 font-mono text-xs text-muted hover:text-ink"
-                        disabled={busy}
-                        onClick={() => {
-                          setBusy(true);
-                          void deleteProfileComment({ data: comment.id })
-                            .then(() => router.invalidate())
-                            .catch((err) => toast.error(errText(err)))
-                            .finally(() => setBusy(false));
-                        }}
-                      >
-                        Удалить
-                      </button>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          {isPending ? null : !user ? (
-            <Link to="/login" className="inline-flex min-h-11 items-center border border-wine px-4 text-sm">
-              Войти, чтобы комментировать
-            </Link>
-          ) : own ? (
-            <p className="text-sm text-muted">Свой профиль комментировать нельзя — это стена для других участников.</p>
-          ) : me?.banned ? (
-            <p className="text-sm text-muted">Аккаунт ограничен, комментарии недоступны.</p>
-          ) : (
-            <form
-              className="space-y-2 border-t border-ink/15 pt-4"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const text = body.trim();
-                if (!text) return;
-                setBusy(true);
-                void addProfileComment({ data: { handle: profile.handle, body: text } })
-                  .then(async () => {
-                    setBody("");
-                    toast.success("Комментарий оставлен");
-                    await router.invalidate();
-                  })
-                  .catch((err) => toast.error(errText(err)))
-                  .finally(() => setBusy(false));
-              }}
-            >
-              <label className="block text-sm">
-                Заметка для @{profile.handle}
-                <textarea
-                  value={body}
-                  onChange={(e) => setBody(e.target.value)}
-                  rows={3}
-                  maxLength={500}
-                  className={`${fieldClass} mt-1 py-2`}
-                  placeholder="Коротко и по делу"
-                />
-              </label>
-              <Button type="submit" variant="wine" disabled={busy || body.trim().length === 0}>
-                Оставить комментарий
-              </Button>
-            </form>
-          )}
-        </div>
-      </Frame>
-    </section>
+    <div className="flex flex-wrap gap-2">
+      <button
+        type="button"
+        disabled={busy}
+        className={following ? "min-h-11 border border-ink/30 px-4" : "min-h-11 border border-wine bg-wine px-4 text-foam"}
+        onClick={() => {
+          setBusy(true);
+          void toggleFollow({ data: profile.handle })
+            .then((res) => {
+              setFollowing(res.following);
+              onFollow();
+            })
+            .catch((err) => toast.error(errText(err)))
+            .finally(() => setBusy(false));
+        }}
+      >
+        {following ? "Отписаться" : "Подписаться"}
+      </button>
+      <Link to="/chats" search={{ with: profile.handle }} className="inline-flex min-h-11 items-center border border-ink/30 px-4">
+        Чат
+      </Link>
+    </div>
   );
 }
