@@ -1,6 +1,7 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Bell, Plus, Search, X } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { authEnabled, signOut } from "@/lib/auth/client";
 import { hasGateSessionMarker } from "@/lib/auth/gate-session-marker";
@@ -179,16 +180,17 @@ function SignalsButton({ unread, onRead }: { unread: number; onRead: () => void 
           </span>
         ) : null}
       </button>
-      {open ? (
-        <div className="fixed inset-0 z-[70]">
-          <button type="button" aria-label="Закрыть сигналы" className="absolute inset-0 bg-paper/70" onClick={() => setOpen(false)} />
-          <aside className="drawer-in absolute inset-y-0 right-0 flex w-full max-w-md flex-col border-l border-ink/30 bg-paper shadow-2xl">
-            <div className="flex items-center justify-between gap-3 border-b border-ink/20 px-4 py-3">
-              <h2 className="font-display text-3xl leading-none">Сигналы</h2>
-              <button type="button" aria-label="Закрыть" onClick={() => setOpen(false)} className="grid size-11 place-items-center border border-ink/25">
-                <X className="size-4" />
-              </button>
-            </div>
+      {open && typeof document !== "undefined"
+        ? createPortal(
+            <div className="fixed inset-0" style={{ zIndex: 400 }}>
+              <button type="button" aria-label="Закрыть сигналы" className="absolute inset-0 bg-paper/70" onClick={() => setOpen(false)} />
+              <aside className="drawer-in absolute inset-y-0 right-0 z-10 flex w-full max-w-md flex-col border-l border-ink/30 bg-paper shadow-2xl">
+                <div className="flex items-center justify-between gap-3 border-b border-ink/20 px-4 py-3">
+                  <h2 className="font-display text-3xl leading-none">Сигналы</h2>
+                  <button type="button" aria-label="Закрыть" onClick={() => setOpen(false)} className="relative z-10 grid size-11 place-items-center border border-ink/25">
+                    <X className="size-4" />
+                  </button>
+                </div>
             {!user ? (
               <p className="p-4 text-sm text-muted">
                 Войдите, чтобы видеть сигналы.{" "}
@@ -239,8 +241,10 @@ function SignalsButton({ unread, onRead }: { unread: number; onRead: () => void 
               </>
             )}
           </aside>
-        </div>
-      ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 }

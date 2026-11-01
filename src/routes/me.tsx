@@ -106,14 +106,10 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
     >
       <div>
         <Kicker>you</Kicker>
-        <h1 className="mt-2 font-display text-5xl leading-none">профиль.</h1>
+        <h1 className="mt-2 font-display text-5xl leading-none">профиль</h1>
         <p className="mt-2 font-mono text-xs text-muted">роль: {roleLabel(me.role)}</p>
         {me.premium ? <p className="mt-2 font-mono text-xs text-[#e6c36a]">★ Premium{me.premiumForever ? " · без срока" : me.premiumUntil ? ` · до ${me.premiumUntil.slice(0, 10)}` : ""}</p> : null}
-        {me.badges.length > 0 ? (
-          <p className="mt-2 font-mono text-xs text-muted">{me.badges.map(badgeLabel).join(" · ")}</p>
-        ) : (
-          <p className="mt-2 text-xs text-muted">Значки «Проверенный» и «Топ-продавец» выдаёт администратор.</p>
-        )}
+        {me.badges.length > 0 ? <p className="mt-2 font-mono text-xs text-muted">{me.badges.map(badgeLabel).join(" · ")}</p> : null}
         <Link to="/u/$handle" params={{ handle: me.handle }} className="mt-2 inline-flex text-sm underline">
           Открыть публичную страницу
         </Link>

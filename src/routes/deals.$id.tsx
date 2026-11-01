@@ -175,8 +175,8 @@ function DealPage() {
               {pics.length > 0 ? ` Выбрано: ${pics.map((f) => f.name).join(", ")}` : ""}
             </span>
           </label>
-          <EmojiBar up onPick={(emoji) => setDraft((value) => value + emoji)} />
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <EmojiBar up onPick={(emoji) => setDraft((value) => value + emoji)} />
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
