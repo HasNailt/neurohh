@@ -6,6 +6,7 @@ import { Nick, PremiumBadge } from "@/components/nick";
 import { PostCard } from "@/components/post-card";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { ACCENTS, THEMES, type AvatarFrame, type BannerOverlay } from "@/lib/market/themes";
+import { getMe, getPublicProfile, listProfileLots, toggleFollow } from "@/lib/market/server";
 import { siteThemeSnapshot, subscribeSiteTheme } from "@/lib/site-theme";
 import {
   badgeLabel,
