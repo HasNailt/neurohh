@@ -26,6 +26,14 @@ export const Route = createFileRoute("/u/$handle")({
   component: ProfilePage,
 });
 
+function followerWord(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "подписчик";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "подписчика";
+  return "подписчиков";
+}
+
 function ProfilePage() {
   const loaded = Route.useLoaderData();
   const router = useRouter();
@@ -55,7 +63,6 @@ function ProfilePage() {
     return <h1 className="font-display text-4xl">Такого профиля нет</h1>;
   }
   const profile = loaded;
-  const letter = (profile.displayName.trim()[0] || profile.handle[0] || "A").toLocaleUpperCase("ru");
   const bg = profile.hasBackground ? profileImageUrl(profile.handle, "background") : "";
   const banner = profile.hasBanner ? profileImageUrl(profile.handle, "banner") : "";
   const pages = Math.max(1, Math.ceil(total / PROFILE_LOT_PAGE));
@@ -96,7 +103,7 @@ function ProfilePage() {
             {banner ? null : <div className="absolute inset-0 bg-[linear-gradient(135deg,#6B1E3A_0%,#131211_55%,#1a1917_100%)]" />}
             <span className="pointer-events-none absolute top-3 left-3 h-3 w-3 border-t border-l border-foam/70" />
             <span className="pointer-events-none absolute top-3 right-3 h-3 w-3 border-t border-r border-foam/70" />
-            <p className="absolute bottom-3 left-4 font-mono text-[10px] tracking-[0.22em] text-foam/80 uppercase">
+            <p className="absolute bottom-3 left-36 font-mono text-[10px] tracking-[0.22em] text-foam/80 uppercase sm:left-44">
               artist file // {profile.handle}
             </p>
           </div>
@@ -106,9 +113,7 @@ function ProfilePage() {
                 <div className="relative grid size-24 place-items-center overflow-hidden border border-wine bg-wine-deep sm:size-28">
                   {profile.hasAvatar ? (
                     <img src={profileImageUrl(profile.handle, "avatar")} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <span className="font-display text-5xl leading-none text-foam">{letter}</span>
-                  )}
+                  ) : null}
                   <span className="pointer-events-none absolute -top-px -left-px h-2.5 w-2.5 border-t border-l border-foam" />
                   <span className="pointer-events-none absolute -right-px -bottom-px h-2.5 w-2.5 border-r border-b border-foam" />
                 </div>
@@ -121,6 +126,9 @@ function ProfilePage() {
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <span className="border border-wine/80 bg-wine px-2 py-1 font-mono text-xs text-foam">{statusLabel(profile.status)}</span>
+              <span className="border border-wine/80 bg-wine px-2 py-1 font-mono text-xs text-foam">
+                {profile.followers} {followerWord(profile.followers)}
+              </span>
               {profile.isNew ? <span className="border border-ink/30 px-2 py-1 font-mono text-xs">Новый пользователь</span> : null}
               {profile.badges.map((badge) => (
                 <span key={badge} className="border border-ink/30 px-2 py-1 font-mono text-xs">

@@ -12,6 +12,7 @@ import {
   MAX_DIM,
   MAX_FILES,
   MAX_PREVIEWS,
+  GRID_PAGE,
   PAGE_SIZE,
   PREVIEW_MAX,
   PROFILE_LOT_PAGE,
@@ -46,6 +47,7 @@ import {
   type Me,
   type MediaMeta,
   type Notice,
+  type PersonHit,
   type Profile,
   type ProfileComment,
   type ProfileImageKind,
@@ -86,7 +88,8 @@ function asTags(v: unknown): Tag[] {
 }
 
 function cleanText(s: string, max: number): string {
-  return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").trim().slice(0, max);
+  const cleaned = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").trim();
+  return Array.from(cleaned).slice(0, max).join("");
 }
 
 function fail(message: string): never {
@@ -391,7 +394,8 @@ export const listListings = createServerFn({ method: "GET" })
     const sql = await getSql();
     await settle(sql);
     const like = data.q ? likeContains(data.q) : "%";
-    const offset = (data.page - 1) * PAGE_SIZE;
+    const pageSize = data.kind === "auction" || data.kind === "fixed" ? GRID_PAGE : PAGE_SIZE;
+    const offset = (data.page - 1) * pageSize;
     const order =
       data.sort === "ending"
         ? "order by l.ends_at asc nulls last, l.created_at desc"
@@ -414,7 +418,7 @@ export const listListings = createServerFn({ method: "GET" })
     const totalRows = await sql.query<{ n: number }>(`select count(*)::int as n ${where}`, params);
     const items = await sql.query<CardRow>(
       `select ${CARD_SQL} ${where} ${order} limit $5 offset $6`,
-      [...params, PAGE_SIZE, offset],
+      [...params, pageSize, offset],
     );
     const total = num(totalRows[0]?.n);
     const mapped = await markLiked(sql, context.userId, items.map(mapCard));
@@ -434,6 +438,21 @@ export const listPopularTags = createServerFn({ method: "GET" }).handler(async (
   `;
   return rows.map((r) => ({ slug: r.slug, label: r.label }));
 });
+
+export const searchPeople = createServerFn({ method: "GET" })
+  .validator((q: unknown) => (typeof q === "string" ? q.trim().replace(/^@+/, "").slice(0, 40) : ""))
+  .handler(async ({ data: q }): Promise<PersonHit[]> => {
+    if (q.length < 1) return [];
+    const sql = await getSql();
+    const like = likeContains(q);
+    const rows = await sql<{ handle: string; display_name: string }>`
+      select handle, display_name from profiles
+      where handle ilike ${like} escape '\\' or display_name ilike ${like} escape '\\'
+      order by handle asc
+      limit 24
+    `;
+    return rows.map((row) => ({ handle: row.handle, displayName: row.display_name }));
+  });
 
 export const suggestTags = createServerFn({ method: "GET" })
   .validator((q: unknown) => (typeof q === "string" ? q : ""))
@@ -1240,7 +1259,7 @@ export const getPublicProfile = createServerFn({ method: "GET" })
     if (!rows[0]) return null;
     const userId = rows[0].user_id;
     const offset = (data.page - 1) * PROFILE_LOT_PAGE;
-    const [items, totalRow, images, posts, followRow] = await Promise.all([
+    const [items, totalRow, images, posts, followRow, followCount] = await Promise.all([
       sql.query<CardRow>(
         `select ${CARD_SQL}
          from listings l
@@ -1262,6 +1281,7 @@ export const getPublicProfile = createServerFn({ method: "GET" })
             where follower_id = ${context.userId} and following_id = ${userId}
           `
         : Promise.resolve([] as { ok: number }[]),
+      sql<{ n: number }>`select count(*)::int as n from follows where following_id = ${userId}`,
     ]);
     const kinds = new Set(images.map((r) => r.kind));
     const createdAt = iso(rows[0].created_at);
@@ -1282,6 +1302,7 @@ export const getPublicProfile = createServerFn({ method: "GET" })
       lots: items.map(mapCard),
       lotTotal: num(totalRow[0]?.n),
       posts,
+      followers: num(followCount[0]?.n),
     };
   });
 
@@ -2385,7 +2406,8 @@ export const listThreads = createServerFn({ method: "GET" })
       from dm_threads t
       join profiles lo on lo.user_id = t.low_id
       join profiles hi on hi.user_id = t.high_id
-      where t.low_id = ${context.userId} or t.high_id = ${context.userId}
+      where (t.low_id = ${context.userId} or t.high_id = ${context.userId})
+        and exists (select 1 from dm_messages m where m.thread_id = t.id)
       order by updated_at desc
       limit 40
     `;
@@ -2468,13 +2490,20 @@ export const openThread = createServerFn({ method: "POST" })
     const existing = await sql<{ id: string }>`
       select id from dm_threads where low_id = ${low} and high_id = ${high}
     `;
-    const id = existing[0]?.id ?? crypto.randomUUID();
     if (!existing[0]) {
-      await sql`
-        insert into dm_threads (id, low_id, high_id) values (${id}, ${low}, ${high})
+      const person = await sql<{ handle: string; display_name: string }>`
+        select handle, display_name from profiles where user_id = ${other[0].user_id}
       `;
+      return {
+        id: "",
+        otherHandle: person[0]?.handle ?? handle,
+        otherName: person[0]?.display_name ?? handle,
+        lastBody: null,
+        updatedAt: new Date().toISOString(),
+        messages: [],
+      };
     }
-    const loaded = await loadThread(sql, id, context.userId);
+    const loaded = await loadThread(sql, existing[0].id, context.userId);
     if (!loaded) fail("Чат не открылся");
     return loaded;
   });
@@ -2496,27 +2525,47 @@ export const sendDirect = createServerFn({ method: "POST" })
   .validator((input: unknown) => {
     if (!input || typeof input !== "object") fail("Пустое сообщение");
     const o = input as Record<string, unknown>;
-    if (typeof o.threadId !== "string" || !UUID_RE.test(o.threadId)) fail("Некорректный чат");
+    let threadId = "";
+    if (typeof o.threadId === "string" && UUID_RE.test(o.threadId)) threadId = o.threadId;
+    const handle = typeof o.handle === "string" ? o.handle.trim().toLocaleLowerCase("ru") : "";
+    if (!threadId && !cleanHandle(handle)) fail("Некорректный чат");
     const body = cleanText(typeof o.body === "string" ? o.body : "", 2000);
     if (body.length < 1) fail("Напишите сообщение");
-    return { threadId: o.threadId, body };
+    return { threadId, handle, body };
   })
   .handler(async ({ data, context }) => {
     const sql = await getSql();
     const me = await ensureProfile(sql, context.userId);
     assertLive(me);
+    let threadId = data.threadId;
+    if (!threadId) {
+      const other = await sql<{ user_id: string }>`select user_id from profiles where handle = ${data.handle}`;
+      if (!other[0]) fail("Такого профиля нет");
+      if (other[0].user_id === context.userId) fail("Себе написать нельзя");
+      const [low, high] =
+        context.userId < other[0].user_id
+          ? [context.userId, other[0].user_id]
+          : [other[0].user_id, context.userId];
+      const existing = await sql<{ id: string }>`
+        select id from dm_threads where low_id = ${low} and high_id = ${high}
+      `;
+      threadId = existing[0]?.id ?? crypto.randomUUID();
+      if (!existing[0]) {
+        await sql`insert into dm_threads (id, low_id, high_id) values (${threadId}, ${low}, ${high})`;
+      }
+    }
     const thread = await sql<{ low_id: string; high_id: string }>`
       select low_id, high_id from dm_threads
-      where id = ${data.threadId} and (low_id = ${context.userId} or high_id = ${context.userId})
+      where id = ${threadId} and (low_id = ${context.userId} or high_id = ${context.userId})
     `;
     if (!thread[0]) fail("Нет доступа к чату");
     await sql`
       insert into dm_messages (id, thread_id, sender_id, body)
-      values (${crypto.randomUUID()}, ${data.threadId}, ${context.userId}, ${data.body})
+      values (${crypto.randomUUID()}, ${threadId}, ${context.userId}, ${data.body})
     `;
     const other = thread[0].low_id === context.userId ? thread[0].high_id : thread[0].low_id;
     await notify(sql, other, "dm", "Новое сообщение", `${me.handle}: ${data.body.slice(0, 140)}`, "/chats");
-    return { ok: true };
+    return { ok: true, threadId };
   });
 
 async function loadAuthorPosts(sql: Sql, authorId: string): Promise<AuthorPost[]> {
@@ -2762,7 +2811,12 @@ export const addPostComment = createServerFn({ method: "POST" })
     const sql = await getSql();
     const me = await ensureProfile(sql, context.userId);
     assertLive(me);
-    const post = await sql<{ id: string }>`select id from posts where id = ${data.postId}`;
+    const post = await sql<{ id: string; author_id: string; handle: string }>`
+      select p.id, p.author_id, a.handle
+      from posts p
+      join profiles a on a.user_id = p.author_id
+      where p.id = ${data.postId}
+    `;
     if (!post[0]) fail("Пост не найден");
     let parentId = data.parentId;
     if (parentId) {
@@ -2776,6 +2830,16 @@ export const addPostComment = createServerFn({ method: "POST" })
       insert into post_comments (id, post_id, author_id, parent_id, body)
       values (${crypto.randomUUID()}, ${data.postId}, ${context.userId}, ${parentId}, ${data.body})
     `;
+    if (post[0].author_id !== context.userId) {
+      await notify(
+        sql,
+        post[0].author_id,
+        "comment",
+        "Комментарий к посту",
+        `${me.handle}: ${data.body.slice(0, 140)}`,
+        `/u/${post[0].handle}`,
+      );
+    }
     return { ok: true };
   });
 

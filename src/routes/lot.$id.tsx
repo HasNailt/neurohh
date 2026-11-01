@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PreviewImg } from "@/components/preview-img";
 import { Button, fieldClass, Frame, Kicker, StatusChip } from "@/components/ui-bits";
+import { EmojiBar } from "@/components/emoji-bar";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
   addListingComment,
@@ -122,7 +123,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
           </ul>
           {user ? (
             <form
-              className="flex gap-2"
+              className="space-y-2"
               onSubmit={(event) => {
                 event.preventDefault();
                 const body = comment.trim();
@@ -133,10 +134,13 @@ function LotView({ lot }: { lot: ListingDetail }) {
                 });
               }}
             >
+              <EmojiBar onPick={(emoji) => setComment((value) => value + emoji)} />
+              <div className="flex gap-2">
               <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий" className={fieldClass} />
               <Button type="submit" variant="line" disabled={busy}>
                 ок
               </Button>
+              </div>
             </form>
           ) : (
             <Link to="/login" className="font-mono text-xs text-muted hover:text-ink">

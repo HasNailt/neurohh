@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ChatPictures } from "@/components/chat-picture";
 import { Button, fieldClass } from "@/components/ui-bits";
+import { EmojiBar } from "@/components/emoji-bar";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { checkChatImage, pushChatImage } from "@/lib/market/client-upload";
@@ -171,6 +172,7 @@ function DealPage() {
               {pics.length > 0 ? ` Выбрано: ${pics.map((f) => f.name).join(", ")}` : ""}
             </span>
           </label>
+          <EmojiBar onPick={(emoji) => setDraft((value) => value + emoji)} />
           <div className="flex gap-2">
             <input
               value={draft}

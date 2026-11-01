@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { PreviewImg } from "@/components/preview-img";
-import { Frame, Kicker, StatusChip } from "@/components/ui-bits";
+import { Frame, Kicker } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { listDeals } from "@/lib/market/server";
@@ -15,27 +15,59 @@ export const Route = createFileRoute("/deals/")({
 function DealsPage() {
   const { user, isPending } = useCurrentUserState();
   const [deals, setDeals] = useState<DealSummary[] | null>(null);
+  const [filter, setFilter] = useState<"all" | "open" | "closed">("all");
   useEffect(() => {
     if (!user) return;
     void listDeals()
       .then(setDeals)
       .catch(() => setDeals([]));
   }, [user]);
+  const visible = (deals ?? []).filter((deal) => {
+    if (filter === "open") return deal.status !== "completed";
+    if (filter === "closed") return deal.status === "completed";
+    return true;
+  });
   if (isPending) return <div className="h-40 animate-pulse bg-soft" />;
   if (!user) return <RedirectToSignIn />;
   return (
     <div className="space-y-6">
       <div>
         <Kicker>trades</Kicker>
-        <h1 className="mt-2 font-display text-5xl leading-none">сделки.</h1>
+        <h1 className="mt-2 font-display text-5xl leading-none">сделки</h1>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {(
+          [
+            ["all", "Все"],
+            ["open", "Открытые"],
+            ["closed", "Закрытые"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={
+              filter === id
+                ? "min-h-11 border border-wine bg-wine px-3 text-foam"
+                : "min-h-11 border border-ink/25 px-3"
+            }
+            onClick={() => setFilter(id)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
       {deals == null ? (
         <div className="h-40 animate-pulse bg-soft" />
-      ) : deals.length === 0 ? (
-        <p className="text-muted">Пока пусто. Сделка появляется после покупки или победы на аукционе.</p>
+      ) : visible.length === 0 ? (
+        <p className="text-muted">
+          {deals.length === 0
+            ? "Пока пусто. Сделка появляется после покупки или победы на аукционе."
+            : "В этом фильтре сделок нет."}
+        </p>
       ) : (
         <ul className="grid gap-3">
-          {deals.map((deal) => (
+          {visible.map((deal) => (
             <li key={deal.id}>
               <Link to="/deals/$id" params={{ id: deal.id }}>
                 <Frame>
@@ -52,7 +84,15 @@ function DealsPage() {
                       </p>
                     </div>
                     <div className="text-right">
-                      <StatusChip kind="deal" status={deal.status} />
+                      <span
+                        className={
+                          deal.status === "completed"
+                            ? "border border-ink/30 px-2 py-1 font-mono text-xs"
+                            : "border border-wine bg-wine px-2 py-1 font-mono text-xs text-foam"
+                        }
+                      >
+                        {deal.status === "completed" ? "Закрыта" : "Открыта"}
+                      </span>
                       <p className="mt-1 font-mono text-sm tabular-nums">{formatPrice(deal.amount)}</p>
                     </div>
                   </div>

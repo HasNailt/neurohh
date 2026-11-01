@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button, fieldClass, Frame, Kicker } from "@/components/ui-bits";
+import { EmojiBar } from "@/components/emoji-bar";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { getThread, listDeals, listThreads, openThread, sendDirect } from "@/lib/market/server";
@@ -65,7 +66,7 @@ function ChatsPage() {
       <section className="space-y-3">
         <div>
           <Kicker>inbox</Kicker>
-          <h1 className="mt-1 font-display text-4xl leading-none">чаты.</h1>
+          <h1 className="mt-1 font-display text-4xl leading-none">чаты</h1>
         </div>
         <div className="flex gap-2">
           <button
@@ -151,6 +152,7 @@ function ChatsPage() {
                   </div>
                 ))}
               </div>
+              <EmojiBar onPick={(emoji) => setDraft((value) => value + emoji)} />
               <form
                 className="flex gap-2"
                 onSubmit={(e) => {
@@ -158,8 +160,8 @@ function ChatsPage() {
                   const body = draft.trim();
                   if (!body) return;
                   setBusy(true);
-                  void sendDirect({ data: { threadId: open.id, body } })
-                    .then(() => getThread({ data: open.id }))
+                  void sendDirect({ data: { threadId: open.id, handle: open.otherHandle, body } })
+                    .then((sent) => getThread({ data: sent.threadId }))
                     .then((next) => {
                       if (next) setOpen(next);
                       setDraft("");

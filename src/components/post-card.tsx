@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button, fieldClass } from "@/components/ui-bits";
+import { EmojiBar } from "@/components/emoji-bar";
 import { addPostComment, deletePost } from "@/lib/market/server";
 import { errText, formatWhen, type AuthorPost, type PostComment } from "@/lib/market/shared";
 
@@ -84,6 +85,7 @@ export function PostCard({
           </li>
         ))}
       </ul>
+      <EmojiBar onPick={(emoji) => setBody((value) => value + emoji)} />
       <form
         className="flex gap-2"
         onSubmit={(e) => {

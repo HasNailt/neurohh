@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { TagField } from "@/components/tag-field";
+import { PreviewImg } from "@/components/preview-img";
 import { Button, fieldClass, Frame, Kicker } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
@@ -40,10 +41,7 @@ function StudioPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <Kicker>booth desk</Kicker>
-          <h1 className="mt-2 font-display text-5xl leading-none">мои лоты.</h1>
-          <p className="mt-2 max-w-prose text-sm text-muted">
-            Все аукционы и фиксы в одном месте. Правка открывается отдельной плашкой, не формой продажи.
-          </p>
+          <h1 className="mt-2 font-display text-5xl leading-none">мои лоты</h1>
         </div>
         <Link to="/sell" className="inline-flex min-h-11 items-center border border-wine bg-wine px-4 text-foam">
           Новый лот
@@ -83,67 +81,85 @@ function Shelf({
       {items.length === 0 ? (
         <p className="text-sm text-muted">Пока пусто.</p>
       ) : (
-        <ul className="divide-y divide-ink/10 border-y border-ink/15">
+        <ul className="grid gap-3">
           {items.map((item) => (
-            <li key={item.id} className="flex flex-wrap items-center gap-3 py-3">
-              <Link to="/lot/$id" params={{ id: item.id }} className="min-w-0 flex-1 truncate hover:underline">
-                {item.title}
-              </Link>
-              <span className="font-mono text-xs text-muted">{listingStatusLabel(item.status)}</span>
-              <span className="font-mono text-xs tabular-nums">{formatPrice(item.currentBid ?? item.price)}</span>
-              <button
-                type="button"
-                className="min-h-9 border border-wine px-2 font-mono text-xs text-wine"
-                onClick={() => {
-                  if (!window.confirm("Удалить пост? Он пропадёт из ленты и профиля.")) return;
-                  void deleteListing({ data: item.id })
-                    .then(() => {
-                      toast.success("Пост удалён");
-                      onPin();
-                    })
-                    .catch((err) => toast.error(errText(err)));
-                }}
-              >
-                Удалить пост
-              </button>
-              {item.status === "active" ? (
-                <>
-                  <button
-                    type="button"
-                    className="min-h-9 border border-ink/25 px-2 font-mono text-xs"
-                    onClick={() => {
-                      void setPinned({ data: { id: item.id, pinned: !item.pinned } })
-                        .then(() => {
-                          toast.success(item.pinned ? "Открепили" : "Закрепили на профиле");
-                          onPin();
-                        })
-                        .catch((err) => toast.error(errText(err)));
-                    }}
-                  >
-                    {item.pinned ? "Открепить" : "Закрепить"}
-                  </button>
-                  <Button type="button" variant="line" onClick={() => onEdit(item.id)}>
-                    Править
-                  </Button>
-                </>
-              ) : item.pinned ? (
-                <span className="font-mono text-xs">на профиле</span>
-              ) : (
-                <button
-                  type="button"
-                  className="min-h-9 border border-ink/25 px-2 font-mono text-xs"
-                  onClick={() => {
-                    void setPinned({ data: { id: item.id, pinned: true } })
-                      .then(() => {
-                        toast.success("Закрепили на профиле");
-                        onPin();
-                      })
-                      .catch((err) => toast.error(errText(err)));
-                  }}
-                >
-                  Закрепить
-                </button>
-              )}
+            <li key={item.id}>
+              <Frame>
+                <div className="flex flex-wrap items-center gap-3 bg-card p-3">
+                  <Link to="/lot/$id" params={{ id: item.id }} className="shrink-0">
+                    {item.previewId || item.previewSrc ? (
+                      <PreviewImg id={item.previewId} src={item.previewSrc} alt="" className="h-16 w-12 object-cover" />
+                    ) : (
+                      <span className="grid h-16 w-12 place-items-center bg-wine-deep font-display text-foam">
+                        {item.title.slice(0, 1)}
+                      </span>
+                    )}
+                  </Link>
+                  <div className="min-w-0 flex-1">
+                    <Link to="/lot/$id" params={{ id: item.id }} className="block truncate font-display text-xl hover:underline">
+                      {item.title}
+                    </Link>
+                    <p className="font-mono text-xs text-muted">
+                      {listingStatusLabel(item.status)} · {formatPrice(item.currentBid ?? item.price)}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className="min-h-9 border border-wine px-2 font-mono text-xs text-wine"
+                      onClick={() => {
+                        if (!window.confirm("Удалить пост? Он пропадёт из ленты и профиля.")) return;
+                        void deleteListing({ data: item.id })
+                          .then(() => {
+                            toast.success("Пост удалён");
+                            onPin();
+                          })
+                          .catch((err) => toast.error(errText(err)));
+                      }}
+                    >
+                      Удалить пост
+                    </button>
+                    {item.status === "active" ? (
+                      <>
+                        <button
+                          type="button"
+                          className="min-h-9 border border-ink/25 px-2 font-mono text-xs"
+                          onClick={() => {
+                            void setPinned({ data: { id: item.id, pinned: !item.pinned } })
+                              .then(() => {
+                                toast.success(item.pinned ? "Открепили" : "Закрепили на профиле");
+                                onPin();
+                              })
+                              .catch((err) => toast.error(errText(err)));
+                          }}
+                        >
+                          {item.pinned ? "Открепить" : "Закрепить"}
+                        </button>
+                        <Button type="button" variant="line" onClick={() => onEdit(item.id)}>
+                          Править
+                        </Button>
+                      </>
+                    ) : item.pinned ? (
+                      <span className="font-mono text-xs">на профиле</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="min-h-9 border border-ink/25 px-2 font-mono text-xs"
+                        onClick={() => {
+                          void setPinned({ data: { id: item.id, pinned: true } })
+                            .then(() => {
+                              toast.success("Закрепили на профиле");
+                              onPin();
+                            })
+                            .catch((err) => toast.error(errText(err)));
+                        }}
+                      >
+                        Закрепить
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </Frame>
             </li>
           ))}
         </ul>

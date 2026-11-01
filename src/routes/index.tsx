@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ListingCardView } from "@/components/listing-card";
-import { listListings, listPopularTags, listRecommendations } from "@/lib/market/server";
-import { parseFeedQuery, type FeedQuery, type FeedResult } from "@/lib/market/shared";
+import { listListings, listPopularTags, listRecommendations, searchPeople } from "@/lib/market/server";
+import { GRID_PAGE, parseFeedQuery, type FeedQuery, type FeedResult, type PersonHit } from "@/lib/market/shared";
 
 const emptyFeed: FeedResult = { items: [], total: 0, hasMore: false };
 
@@ -10,12 +10,15 @@ export const Route = createFileRoute("/")({
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
     const home = isHome(deps);
-    const [feed, tags, recommended] = await Promise.all([
-      home ? Promise.resolve(emptyFeed) : listListings({ data: deps }),
+    const peopleQuery = deps.q.startsWith("@") ? deps.q : "";
+    const listingQuery = peopleQuery ? { ...deps, q: peopleQuery.replace(/^@+/, "") } : deps;
+    const [feed, tags, recommended, people] = await Promise.all([
+      home ? Promise.resolve(emptyFeed) : listListings({ data: listingQuery }),
       listPopularTags().catch(() => []),
       home ? listRecommendations().catch(() => []) : Promise.resolve([]),
+      peopleQuery ? searchPeople({ data: peopleQuery }).catch(() => []) : Promise.resolve([] as PersonHit[]),
     ]);
-    return [feed, tags, recommended] as const;
+    return [feed, tags, recommended, people] as const;
   },
   head: () => ({ meta: [{ title: "AdoptAI — открытые лоты" }] }),
   component: Home,
@@ -27,8 +30,10 @@ function isHome(search: FeedQuery): boolean {
 
 function Home() {
   const search = Route.useSearch();
-  const [feed, tags, recommended] = Route.useLoaderData();
+  const [feed, tags, recommended, people] = Route.useLoaderData();
   const home = isHome(search);
+  const grid = search.kind === "auction" || search.kind === "fixed";
+  const pageSize = grid ? GRID_PAGE : 12;
 
   return (
     <div className="space-y-8">
@@ -46,13 +51,34 @@ function Home() {
             </div>
           )}
         </section>
-      ) : feed.items.length === 0 ? (
-        <p className="border border-dashed border-ink/30 px-4 py-10 text-center text-muted">По этому запросу лотов нет.</p>
       ) : (
-        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-          {feed.items.map((item) => (
-            <ListingCardView key={item.id} item={item} />
-          ))}
+        <div className="space-y-6">
+          {people.length > 0 ? (
+            <section className="space-y-3">
+              <h2 className="font-display text-3xl leading-none">Люди</h2>
+              <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {people.map((person) => (
+                  <li key={person.handle}>
+                    <Link to="/u/$handle" params={{ handle: person.handle }} className="block border border-ink/20 bg-card px-3 py-3">
+                      <p className="font-display text-2xl leading-none">@{person.handle}</p>
+                      <p className="mt-1 text-sm text-muted">{person.displayName}</p>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+          {feed.items.length === 0 ? (
+            people.length > 0 ? null : (
+              <p className="border border-dashed border-ink/30 px-4 py-10 text-center text-muted">По этому запросу лотов нет.</p>
+            )
+          ) : (
+            <div className={grid ? "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6" : "grid gap-8 sm:grid-cols-2 lg:grid-cols-3"}>
+              {feed.items.map((item) => (
+                <ListingCardView key={item.id} item={item} dense={grid} />
+              ))}
+            </div>
+          )}
         </div>
       )}
       {!home && feed.total > 0 ? (
@@ -65,7 +91,7 @@ function Home() {
             <span />
           )}
           <span className="text-muted tabular-nums">
-            {search.page} / {Math.max(1, Math.ceil(feed.total / 12))}
+            {search.page} / {Math.max(1, Math.ceil(feed.total / pageSize))}
           </span>
           {feed.hasMore ? (
             <Link to="/" search={{ ...search, page: search.page + 1 }} className="min-h-11 underline">
@@ -90,7 +116,7 @@ function FilterBar({
   showSort: boolean;
 }) {
   const kinds = [
-    ["all", "Все"],
+    ["all", "Топ"],
     ["auction", "Аукцион"],
     ["fixed", "Фикс"],
   ] as const;

@@ -11,6 +11,7 @@ export const CHAT_IMAGE_MAX = 3 * 1024 * 1024;
 export const CHAT_IMAGE_DIM = 3000;
 export const CHAT_IMAGE_COUNT = 10;
 export const PAGE_SIZE = 12;
+export const GRID_PAGE = 60;
 export const TOP_LIMIT = 30;
 export const PROFILE_LOT_PAGE = 60;
 export const NEW_USER_MS = 30 * 24 * 60 * 60 * 1000;
@@ -228,6 +229,7 @@ export type PublicProfile = {
   lots: ListingCard[];
   lotTotal: number;
   posts: AuthorPost[];
+  followers: number;
 };
 
 export type PostComment = {
@@ -255,6 +257,11 @@ export type AuthorPost = {
 export type FeedEntry =
   | { kind: "lot"; at: string; lot: ListingCard; authorIsNew: boolean }
   | { kind: "post"; at: string; post: AuthorPost };
+
+export type PersonHit = {
+  handle: string;
+  displayName: string;
+};
 
 export type DealSummary = {
   id: string;

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { ListingCardView } from "@/components/listing-card";
 import { PostCard } from "@/components/post-card";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
+import { EmojiBar } from "@/components/emoji-bar";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { createPost, getMe, listFeed } from "@/lib/market/server";
@@ -67,6 +68,7 @@ function FeedPage() {
         <p className="mt-2 text-sm text-muted">Новые лоты и посты людей, на которых вы подписаны, и ваши собственные.</p>
       </div>
       <form onSubmit={(e) => void onSubmit(e)} className="space-y-3 border border-ink/20 bg-card p-4">
+        <EmojiBar onPick={(emoji) => setBody((value) => value + emoji)} />
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}

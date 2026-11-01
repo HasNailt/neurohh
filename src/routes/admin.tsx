@@ -56,7 +56,7 @@ function DealSearch() {
 }
 
 function Fold({ title, children }: { title: string; children: ReactNode }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   return (
     <section className="border border-ink/20 bg-card">
       <button
@@ -197,7 +197,7 @@ function AdminPage() {
     <div className="space-y-8">
       <div>
         <Kicker>{data.viewerRole}</Kicker>
-        <h1 className="mt-2 font-display text-5xl leading-none">модерация.</h1>
+        <h1 className="mt-2 font-display text-5xl leading-none">модерация</h1>
         <p className="mt-2 max-w-prose text-sm text-muted">
           {admin
             ? "Вы администратор: жалобы, снятие лотов, ограничения, роли и инвайт-коды. Переписку сделки можно открыть по номеру."

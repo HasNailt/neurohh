@@ -30,7 +30,7 @@ function SearchForm({ className }: { className?: string }) {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Поиск по названию"
+          placeholder="Название или @ник"
           className="w-full bg-transparent text-sm outline-none placeholder:text-muted"
           suppressHydrationWarning
         />
