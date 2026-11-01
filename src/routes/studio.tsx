@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { TagField } from "@/components/tag-field";
+import { EmojiBar } from "@/components/emoji-bar";
 import { PreviewImg } from "@/components/preview-img";
 import { Button, fieldClass, Frame, Kicker } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
@@ -225,6 +226,9 @@ function EditSheet({ id, onClose, onSaved }: { id: string; onClose: () => void; 
             Коротко
             <textarea value={blurb} onChange={(e) => setBlurb(e.target.value)} rows={4} maxLength={400} className={`${fieldClass} mt-1 py-2`} />
             <span className="mt-1 block font-mono text-xs text-muted">{blurb.length}/400</span>
+            <div className="mt-2">
+              <EmojiBar onPick={(emoji) => setBlurb((value) => value + emoji)} />
+            </div>
           </label>
           <div>
             <p className="mb-2 text-sm">Теги</p>

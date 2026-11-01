@@ -2,12 +2,13 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { TagField } from "@/components/tag-field";
+import { EmojiBar } from "@/components/emoji-bar";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { checkPreviewFile, pushFile } from "@/lib/market/client-upload";
 import { createListing, discardListing, publishListing } from "@/lib/market/server";
-import { DURATIONS, MAX_PREVIEWS, SNIPE_OPTIONS, errText } from "@/lib/market/shared";
+import { DURATIONS, MAX_PREVIEWS, errText } from "@/lib/market/shared";
 
 export const Route = createFileRoute("/sell")({
   head: () => ({ meta: [{ title: "Новый лот — AdoptAI" }] }),
@@ -29,7 +30,7 @@ function SellForm() {
   const [price, setPrice] = useState("");
   const [buyNow, setBuyNow] = useState("");
   const [durationHours, setDurationHours] = useState(24);
-  const [antiSnipeMinutes, setAntiSnipeMinutes] = useState(3);
+  const [antiSnipeMinutes, setAntiSnipeMinutes] = useState(0);
   const [tags, setTags] = useState<string[]>([]);
   const [previews, setPreviews] = useState<File[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -103,7 +104,7 @@ function SellForm() {
     <form onSubmit={(e) => void onSubmit(e)} className="mx-auto grid max-w-2xl gap-5">
       <div>
         <Kicker>new lot</Kicker>
-        <h1 className="mt-2 font-display text-5xl leading-none">выставить.</h1>
+        <h1 className="mt-2 font-display text-5xl leading-none">выставить</h1>
       </div>
       <div className="border border-ink/30 bg-card p-4">
         <p className="font-display text-2xl leading-none">Картинки</p>
@@ -125,6 +126,9 @@ function SellForm() {
       <label className="block text-sm">
         Коротко на карточке
         <textarea value={blurb} onChange={(e) => setBlurb(e.target.value)} maxLength={400} rows={3} className={`${fieldClass} mt-1 py-2`} />
+        <div className="mt-2">
+          <EmojiBar onPick={(emoji) => setBlurb((value) => value + emoji)} />
+        </div>
         <span className="mt-1 block font-mono text-xs text-muted">{blurb.length}/400</span>
       </label>
       <div className="flex gap-2">
@@ -161,16 +165,21 @@ function SellForm() {
             </div>
           </fieldset>
           <fieldset>
-            <legend className="text-sm">Антиснайп: ставка в последние минуты продлевает аукцион на столько же</legend>
+            <legend className="text-sm">Антиснайп — по желанию. Ставка в последние минуты продлевает аукцион на столько же</legend>
             <div className="mt-2 flex flex-wrap gap-2">
-              {SNIPE_OPTIONS.map((n) => (
+              {[
+                [0, "Выключить"],
+                [10, "10 мин"],
+                [30, "30 мин"],
+                [60, "1 час"],
+              ].map(([n, label]) => (
                 <button
                   key={n}
                   type="button"
-                  onClick={() => setAntiSnipeMinutes(n)}
+                  onClick={() => setAntiSnipeMinutes(Number(n))}
                   className={antiSnipeMinutes === n ? "min-h-11 border border-wine bg-wine px-3 text-foam" : "min-h-11 border border-ink/25 px-3"}
                 >
-                  {n} мин
+                  {label}
                 </button>
               ))}
             </div>

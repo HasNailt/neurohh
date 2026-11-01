@@ -639,7 +639,7 @@ function parseCreate(input: unknown): CreateBody {
   }
   const anti = Number(o.antiSnipeMinutes);
   if (kind === "auction" && !(SNIPE_OPTIONS as readonly number[]).includes(anti)) {
-    fail("Выберите окно антиснайпа");
+    fail("Выберите антиснайп: выключить, 10 минут, 30 минут или 1 час");
   }
   const tags = Array.isArray(o.tags) ? o.tags.filter((t): t is string => typeof t === "string") : [];
   if (tags.length > 8) fail("Не больше 8 тегов");
@@ -1016,7 +1016,8 @@ export const placeBid = createServerFn({ method: "POST" })
           current_bidder_id = ${context.userId},
           bid_count = bid_count + 1,
           ends_at = case
-            when ends_at <= now() + (anti_snipe_minutes * interval '1 minute')
+            when anti_snipe_minutes > 0
+              and ends_at <= now() + (anti_snipe_minutes * interval '1 minute')
             then now() + (anti_snipe_minutes * interval '1 minute')
             else ends_at
           end,

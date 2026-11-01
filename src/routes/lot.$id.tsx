@@ -16,6 +16,12 @@ import {
 } from "@/lib/market/server";
 import { errText, formatPrice, formatWhen, type ListingDetail } from "@/lib/market/shared";
 
+function snipeLabel(minutes: number): string {
+  if (minutes <= 0) return "антиснайп выключен";
+  if (minutes === 60) return "антиснайп 1 час";
+  return `антиснайп ${minutes} мин`;
+}
+
 export const Route = createFileRoute("/lot/$id")({
   loader: ({ params }) => getListing({ data: params.id }),
   head: ({ loaderData }) => ({
@@ -74,17 +80,17 @@ function LotView({ lot }: { lot: ListingDetail }) {
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
       <div className="space-y-6">
         <Gallery lot={lot} />
-        <div>
+        <div className="border border-ink/20 bg-card p-4">
           <Kicker>{lot.kind === "auction" ? "auction" : "fixed"}</Kicker>
           <h1 className="mt-2 font-display text-5xl leading-none">{lot.title}</h1>
-          <p className="mt-3 text-ink/90">{lot.blurb || "Без короткого описания."}</p>
+          <p className="mt-3 whitespace-pre-wrap text-ink/90">{lot.blurb || "Без короткого описания."}</p>
           <p className="mt-3 font-mono text-xs text-muted">
             <Link to="/u/$handle" params={{ handle: lot.sellerHandle }} className="hover:text-ink">
               @{lot.sellerHandle}
             </Link>
             {" · "}
             {formatWhen(lot.createdAt)}
-            {lot.kind === "auction" ? ` · антиснайп ${lot.antiSnipeMinutes} мин` : ""}
+            {lot.kind === "auction" ? ` · ${snipeLabel(lot.antiSnipeMinutes)}` : ""}
           </p>
           {mine && lot.privateDescription ? (
             <p className="mt-3 border border-ink/15 bg-card px-3 py-2 text-sm text-muted">Для вас: {lot.privateDescription}</p>
@@ -288,6 +294,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
                 }}
               >
                 <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} className={fieldClass} placeholder="Что не так с лотом" />
+                <EmojiBar onPick={(emoji) => setReason((value) => value + emoji)} />
                 <Button type="submit" variant="line" disabled={busy}>
                   отправить
                 </Button>

@@ -104,7 +104,7 @@ function ProfilePage() {
             <span className="pointer-events-none absolute top-3 left-3 h-3 w-3 border-t border-l border-foam/70" />
             <span className="pointer-events-none absolute top-3 right-3 h-3 w-3 border-t border-r border-foam/70" />
             <p className="absolute bottom-3 left-36 font-mono text-[10px] tracking-[0.22em] text-foam/80 uppercase sm:left-44">
-              artist file // {profile.handle}
+              // {profile.handle}
             </p>
           </div>
           <div className="relative px-4 pt-0 pb-5 sm:px-6">

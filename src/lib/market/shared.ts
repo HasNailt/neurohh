@@ -25,7 +25,7 @@ export const DURATIONS = [
   { hours: 168, label: "7 дней" },
 ] as const;
 
-export const SNIPE_OPTIONS = [2, 3, 5, 10] as const;
+export const SNIPE_OPTIONS = [0, 10, 30, 60] as const;
 
 export type Tag = { slug: string; label: string };
 export type ListingStatus = "active" | "sold" | "ended" | "removed" | "draft";

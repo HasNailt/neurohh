@@ -225,7 +225,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {me?.banned ? (
         <p className="border-b border-wine bg-wine-deep px-4 py-2 text-center text-sm text-foam">Аккаунт ограничен модерацией. Новые лоты и ставки недоступны.</p>
       ) : null}
-      <div id="content" className="mx-auto w-full max-w-[100rem] flex-1 px-4 py-6 sm:py-10">
+      <div id="content" className="mx-auto flex w-full max-w-[100rem] min-h-0 flex-1 flex-col px-4 py-4 sm:py-6">
         {children}
       </div>
       <footer className="border-t border-ink/20">

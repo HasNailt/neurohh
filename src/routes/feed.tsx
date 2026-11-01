@@ -64,7 +64,7 @@ function FeedPage() {
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
         <Kicker>following</Kicker>
-        <h1 className="mt-2 font-display text-5xl leading-none">лента.</h1>
+        <h1 className="mt-2 font-display text-5xl leading-none">лента</h1>
         <p className="mt-2 text-sm text-muted">Новые лоты и посты людей, на которых вы подписаны, и ваши собственные.</p>
       </div>
       <form onSubmit={(e) => void onSubmit(e)} className="space-y-3 border border-ink/20 bg-card p-4">

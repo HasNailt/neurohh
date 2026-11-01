@@ -2,6 +2,7 @@ import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
+import { EmojiBar } from "@/components/emoji-bar";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { clearProfileImage, getMe, updateProfile, uploadProfileImage } from "@/lib/market/server";
@@ -189,6 +190,9 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
       <label className="block text-sm">
         О себе
         <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={4} maxLength={400} className={`${fieldClass} mt-1 py-2`} />
+        <div className="mt-2">
+          <EmojiBar onPick={(emoji) => setBio((value) => value + emoji)} />
+        </div>
       </label>
       <fieldset className="space-y-2">
         <legend className="text-sm">Ссылки</legend>
