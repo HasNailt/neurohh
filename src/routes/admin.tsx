@@ -169,6 +169,9 @@ function AdminPage() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { user, isPending } = useCurrentUserState();
   const [data, setData] = useState<AdminData | null | "deny">(null);
+  const [dealQ, setDealQ] = useState("");
+  const [lotQ, setLotQ] = useState("");
+  const [peopleQ, setPeopleQ] = useState("");
   const child = pathname.startsWith("/admin/");
   const load = () => {
     void adminOverview()
@@ -198,9 +201,6 @@ function AdminPage() {
   }
 
   const admin = data.viewerRole === "admin";
-  const [dealQ, setDealQ] = useState("");
-  const [lotQ, setLotQ] = useState("");
-  const [peopleQ, setPeopleQ] = useState("");
   const dealNeedle = dealQ.trim().toLocaleLowerCase("ru");
   const lotNeedle = lotQ.trim().toLocaleLowerCase("ru");
   const peopleNeedle = peopleQ.trim().toLocaleLowerCase("ru");
