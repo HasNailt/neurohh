@@ -231,15 +231,6 @@ async function openDeal(sql: Sql, row: CloseRow): Promise<string | null> {
     )[0]?.id;
   if (!dealId || !inserted[0]) return dealId ?? null;
   const publicNo = num(inserted[0].public_no);
-  await sql`
-    insert into messages (id, deal_id, sender_id, body)
-    values (
-      ${crypto.randomUUID()},
-      ${dealId},
-      'system',
-      ${`Сделка ${publicNo ? `#${publicNo}` : ""} открыта. Оплата проходит вне площадки. Когда перевод дойдёт, обе стороны нажимают «Оплата прошла» — после этого покупатель видит файлы и полное описание.`}
-    )
-  `;
   const href = `/deals/${dealId}`;
   const body = `«${row.title}» · #${publicNo} · ${num(row.amount)} ₽`;
   await notify(sql, row.seller_id, "deal", "Новая сделка", body, href);
@@ -1466,7 +1457,9 @@ async function hydrateMessages(sql: Sql, rows: RawMessage[]): Promise<ChatMessag
       images.set(pic.message_id, list);
     }
   }
-  return rows.map((m) => ({
+  return rows
+    .filter((m) => !(m.sender_id === "system" && m.body.includes("Оплата проходит вне площадки")))
+    .map((m) => ({
     id: m.id,
     senderId: m.sender_id,
     handle: m.sender_id === "system" ? null : m.handle,
