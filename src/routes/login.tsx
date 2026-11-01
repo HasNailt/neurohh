@@ -13,7 +13,7 @@ export const Route = createFileRoute("/login")({
   component: LoginPage,
 });
 
-type LoginOptions = { requireInvite: boolean };
+type LoginOptions = { requireInvite: boolean; google?: boolean };
 
 function mapAuth(message: string): string {
   if (/invite|инвайт/i.test(message)) return message;
@@ -44,6 +44,10 @@ function LoginPage() {
     const detail = params.get("error_description") ?? "";
     if (/invite|инвайт|forbidden/i.test(`${code} ${detail}`)) {
       setError("Для нового аккаунта нужен действующий инвайт-код");
+    } else if (/account_not_linked/i.test(`${code} ${detail}`)) {
+      setError("Этот Google привязан к другому входу. Войдите по email.");
+    } else if (code) {
+      setError("Google не завершил вход. Попробуйте ещё раз или войдите по email.");
     }
   }, []);
 
@@ -105,6 +109,33 @@ function LoginPage() {
         }
       }
       setError(mapAuth(message));
+      setBusy(false);
+    }
+  }
+
+  async function onGoogle() {
+    setError(null);
+    setBusy(true);
+    try {
+      const host = window.location.hostname;
+      if (host === "www.neurohh.ru" || host.endsWith(".vercel.app")) {
+        window.location.href = "https://neurohh.ru/login";
+        return;
+      }
+      if (options?.requireInvite) {
+        if (invite.trim()) await stageIfNeeded(false);
+        else if (mode === "up") throw new Error("Для регистрации нужен инвайт-код");
+      }
+      const onSite = host === "neurohh.ru";
+      const res = await authClient.signIn.social({
+        provider: "google",
+        callbackURL: onSite ? "https://neurohh.ru/" : "/",
+        errorCallbackURL: onSite ? "https://neurohh.ru/login" : "/login",
+      });
+      if (res.error) throw new Error(res.error.message || "Не получилось войти через Google");
+      if (res.data?.url) window.location.href = res.data.url;
+    } catch (err) {
+      setError(mapAuth(err instanceof Error ? err.message : "Не получилось"));
       setBusy(false);
     }
   }
@@ -198,6 +229,16 @@ function LoginPage() {
               {busy ? "Секунду…" : mode === "up" ? "Создать аккаунт" : "Войти по email"}
             </Button>
           </form>
+          {options?.google ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void onGoogle()}
+              className="inline-flex min-h-11 w-full items-center justify-center border border-ink/25 px-4"
+            >
+              Войти через Google
+            </button>
+          ) : null}
         </>
       )}
     </div>

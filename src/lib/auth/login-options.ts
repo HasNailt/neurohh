@@ -18,6 +18,7 @@ export const getLoginOptions = createServerFn({ method: "GET" }).handler(async (
   }
   return {
     vk,
+    google: Boolean(process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim()),
     telegramBotId: /^\d+$/.test(botId) ? botId : null,
     requireInvite,
   };

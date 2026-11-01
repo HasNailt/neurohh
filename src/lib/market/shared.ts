@@ -66,6 +66,7 @@ export function providerLabel(id: string): string {
   switch (id) {
     case "credential":
       return "email";
+    case "google":
     case "grok-google":
       return "Google";
     case "vk":

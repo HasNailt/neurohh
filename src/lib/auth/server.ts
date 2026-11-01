@@ -209,6 +209,8 @@ const trustedOrigins: string[] = [
     : []),
 ];
 
+const googleClientId = env("GOOGLE_CLIENT_ID");
+const googleClientSecret = env("GOOGLE_CLIENT_SECRET");
 const databaseUrl = resolveDatabaseUrl();
 
 // Real Postgres (Supabase when configured, otherwise DATABASE_URL), else the
@@ -244,6 +246,7 @@ export const auth = betterAuth({
     accountLinking: {
       enabled: true,
       trustedProviders: [
+        "google",
         ...GROK_PROVIDERS.map((p) => p.providerId),
         "vk",
         "telegram",
@@ -276,6 +279,17 @@ export const auth = betterAuth({
           password: {
             hash: hashPassword,
             verify: verifyPassword,
+          },
+        },
+      }
+    : {}),
+  ...(googleClientId && googleClientSecret
+    ? {
+        socialProviders: {
+          google: {
+            clientId: googleClientId,
+            clientSecret: googleClientSecret,
+            prompt: "select_account",
           },
         },
       }
@@ -324,8 +338,8 @@ export const auth = betterAuth({
   plugins: [
     gateIdentitySessions(),
 
-    // Email and password only. Google, VK and Telegram are not registered,
-    // so those sign-in routes do not exist.
+    // Direct Google (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET). Callback is
+    // https://neurohh.ru/api/auth/callback/google — not auth.grok.me.
 
     // Accept `Authorization: Bearer <session-token>` as an alternative to the
     // cookie. Needed for the LIVE PREVIEW: the app runs in an embedded iframe

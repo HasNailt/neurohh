@@ -207,13 +207,8 @@ export async function signIn(
     return;
   }
 
-  const host = window.location.hostname;
-  // Public site: start on a host auth.grok.me allows, then land on neurohh.ru.
-  // Preview keeps the popup; localhost keeps the direct broker redirect.
-  if (
-    providerId === "grok-google" &&
-    (host === "neurohh.ru" || host === "www.neurohh.ru" || host.endsWith(".vercel.app"))
-  ) {
+  // Google on the public site is this app's own OAuth client, not auth.grok.me.
+  if (providerId === "grok-google" || providerId === "google") {
     window.location.href = "/api/auth/google";
     return;
   }
