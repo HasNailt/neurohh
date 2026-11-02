@@ -5,7 +5,8 @@ import { optionalAuth } from "@/lib/market/optional-auth";
 import { decodedImageSize, isRaster, psdSize, sniffMagic } from "@/lib/market/images";
 import { asAccent, asFrame, asOverlay, asSideShape, asTheme, premiumActive } from "@/lib/market/themes";
 import {
-  ACTIVE_LOT_LIMIT,
+  ACTIVE_AUCTION_LIMIT,
+  ACTIVE_FIXED_LIMIT,
   AVATAR_DIM,
   AVATAR_MAX,
   PROFILE_DECOR_DIM,
@@ -21,7 +22,8 @@ import {
   GRID_PAGE,
   PAGE_SIZE,
   PIN_LIMIT,
-  PREMIUM_ACTIVE_LOT_LIMIT,
+  PREMIUM_AUCTION_LIMIT,
+  PREMIUM_FIXED_LIMIT,
   PREMIUM_BLURB_MAX,
   PREMIUM_PREVIEWS,
   PREVIEW_MAX,
@@ -787,8 +789,8 @@ export const publishListing = createServerFn({ method: "POST" })
   .handler(async ({ data: id, context }) => {
     const sql = await getSql();
     const profile = await ensureProfile(sql, context.userId);
-    const owned = await sql<{ status: string; bid_count: number }>`
-      select status, bid_count from listings where id = ${id} and seller_id = ${context.userId}
+    const owned = await sql<{ status: string; bid_count: number; kind: string }>`
+      select status, bid_count, kind from listings where id = ${id} and seller_id = ${context.userId}
     `;
     const row = owned[0];
     if (!row) fail("Лот не найден");
@@ -802,13 +804,26 @@ export const publishListing = createServerFn({ method: "POST" })
       fail("Нужна обложка");
     }
     if (row.status === "draft") {
-      const limit = profile.premium ? PREMIUM_ACTIVE_LOT_LIMIT : ACTIVE_LOT_LIMIT;
+      const auction = row.kind === "auction";
+      const limit = profile.premium
+        ? auction
+          ? PREMIUM_AUCTION_LIMIT
+          : PREMIUM_FIXED_LIMIT
+        : auction
+          ? ACTIVE_AUCTION_LIMIT
+          : ACTIVE_FIXED_LIMIT;
+      const premiumLimit = auction ? PREMIUM_AUCTION_LIMIT : PREMIUM_FIXED_LIMIT;
+      const label = auction ? "аукционов" : "фиксов";
       const active = await sql<{ n: number }>`
         select count(*)::int as n from listings
-        where seller_id = ${context.userId} and status = 'active'
+        where seller_id = ${context.userId} and status = 'active' and kind = ${row.kind}
       `;
       if (num(active[0]?.n) >= limit) {
-        fail(profile.premium ? `Уже ${limit} активных лотов` : `Одновременно можно ${limit} активных лотов. С Premium — ${PREMIUM_ACTIVE_LOT_LIMIT}.`);
+        fail(
+          profile.premium
+            ? `Уже ${limit} активных ${label}`
+            : `Одновременно можно ${limit} активных ${label}. С Premium — ${premiumLimit}.`,
+        );
       }
       await sql`
         update listings set status = 'active', updated_at = now()
