@@ -86,7 +86,8 @@ function ProfilePage() {
       ? { ...preset, bg: "#eceae6", ink: "#1c1b19", muted: "#5f5b55", card: "#f7f6f3", line: "rgba(28,27,25,0.16)", foam: "#f7f4ef" }
       : preset;
   const hud = lightSurface(theme.bg) ? theme.ink : theme.foam;
-  const center = profile.premium && profile.hasBackground ? profileImageUrl(profile.handle, "background") : "";
+  const blockBg = profile.hasBackground ? profileImageUrl(profile.handle, "background") : "";
+  const middle = profile.premium && profile.hasMiddle ? profileImageUrl(profile.handle, "middle") : "";
   const sideLeft = profile.premium && profile.hasSideLeft ? profileImageUrl(profile.handle, "side_left") : "";
   const sideRight = profile.premium && profile.hasSideRight ? profileImageUrl(profile.handle, "side_right") : "";
   const banner = profile.hasBanner ? profileImageUrl(profile.handle, "banner") : "";
@@ -132,13 +133,26 @@ function ProfilePage() {
           {sideRight ? <div aria-hidden className="absolute inset-y-0" style={sidePanel(sideRight, "right")} /> : null}
         </div>
       ) : null}
+      {middle ? (
+        <div className="pointer-events-none absolute inset-x-3 top-4 z-[1] h-72 max-md:overflow-hidden md:inset-y-0 md:inset-x-auto md:left-1/2 md:h-auto md:w-screen md:-translate-x-1/2">
+          <div
+            aria-hidden
+            className="absolute inset-0 bg-cover bg-center"
+            style={{
+              backgroundImage: `url(${middle})`,
+              maskImage: "linear-gradient(90deg, transparent 0%, #000 16%, #000 84%, transparent 100%)",
+              WebkitMaskImage: "linear-gradient(90deg, transparent 0%, #000 16%, #000 84%, transparent 100%)",
+            }}
+          />
+        </div>
+      ) : null}
       <div className="profile-scope relative z-10 mx-auto w-full max-w-6xl space-y-8 px-4" style={scope}>
       <section
         className="theme-card relative z-0 overflow-hidden border"
         style={
-          center
+          blockBg
             ? {
-                background: `linear-gradient(180deg, color-mix(in srgb, ${theme.bg} 28%, transparent), color-mix(in srgb, ${theme.bg} 58%, transparent)), url(${center}) center / cover no-repeat`,
+                background: `linear-gradient(180deg, color-mix(in srgb, ${theme.bg} 28%, transparent), color-mix(in srgb, ${theme.bg} 58%, transparent)), url(${blockBg}) center / cover no-repeat`,
                 color: theme.ink,
               }
             : { background: theme.card, color: theme.ink }
@@ -146,7 +160,7 @@ function ProfilePage() {
       >
         <div>
           <div className="relative h-36 overflow-hidden border-b sm:h-48" style={{ borderColor: theme.line, ...(banner ? bannerStyle : {}) }}>
-            {!banner && !center ? (
+            {!banner && !blockBg ? (
               <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${accent} 0%, ${theme.bg} 55%, ${theme.card} 100%)` }} />
             ) : null}
             <span className="pointer-events-none absolute top-3 left-3 h-3 w-3 border-t border-l" style={{ borderColor: hud }} />

@@ -73,7 +73,7 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
     setImageBusy(true);
     try {
       if (kind === "avatar") await assertAvatar(file);
-      if (kind === "background" || kind === "side_left" || kind === "side_right") await assertDecor(file);
+      if (kind === "background" || kind === "side_left" || kind === "side_right" || kind === "middle") await assertDecor(file);
       const b64 = await fileToB64(file);
       await uploadProfileImage({ data: { kind, b64 } });
       const next = await getMe();
@@ -132,6 +132,26 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
           void clearProfileImage({ data: "banner" })
             .then(() => getMe())
             .then(onSaved)
+            .catch((err) => toast.error(errText(err)))
+            .finally(() => setImageBusy(false));
+        }}
+      />
+      <ImageSlot
+        label="Фон блока профиля — шапка, ник и описание. До 3 МБ"
+        kind="background"
+        has={me.hasBackground}
+        handle={me.handle}
+        stamp={stamp}
+        busy={imageBusy}
+        onFile={(file) => void saveImage("background", file)}
+        onClear={() => {
+          setImageBusy(true);
+          void clearProfileImage({ data: "background" })
+            .then(() => getMe())
+            .then((next) => {
+              onSaved(next);
+              setStamp(Date.now());
+            })
             .catch((err) => toast.error(errText(err)))
             .finally(() => setImageBusy(false));
         }}
@@ -246,7 +266,7 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
         onSaved={onSaved}
       />
     ) : (
-      <p className="text-sm text-muted">Цвет акцента, рамка аватарки, оверлей баннера и свои фоны — только с Premium.</p>
+      <p className="text-sm text-muted">Цвет акцента, рамка аватарки, оверлей баннера, бока и фон середины — только с Premium.</p>
     )}
     </div>
   );
@@ -289,14 +309,14 @@ function LookForm({
     >
       <p className="font-display text-2xl">Оформление профиля</p>
       <ImageSlot
-        label="Фон блока профиля — шапка, ник и описание. До 3 МБ"
-        kind="background"
-        has={me.hasBackground}
+        label="Середина страницы, до 3 МБ. Под профилем, на всю ширину, по краям растворяется"
+        kind="middle"
+        has={me.hasMiddle}
         handle={me.handle}
         stamp={stamp}
         busy={imageBusy}
-        onFile={(file) => onFile("background", file)}
-        onClear={() => onClear("background")}
+        onFile={(file) => onFile("middle", file)}
+        onClear={() => onClear("middle")}
       />
       <ImageSlot
         label="Левый бок, до 3 МБ. На всю высоту профиля, на телефоне скрыт"

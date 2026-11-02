@@ -302,7 +302,7 @@ create table if not exists profile_images (
   mime text not null,
   data_b64 text not null,
   primary key (user_id, kind),
-  constraint profile_images_kind_chk check (kind in ('avatar', 'banner', 'background', 'side_left', 'side_right'))
+  constraint profile_images_kind_chk check (kind in ('avatar', 'banner', 'background', 'side_left', 'side_right', 'middle'))
 );
 
 alter table listings add column if not exists pinned boolean not null default false;

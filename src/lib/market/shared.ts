@@ -62,7 +62,7 @@ export type Role = "user" | "moderator" | "admin";
 export type ArtistStatus = "open" | "busy" | "closed" | "away";
 export type BadgeId = "verified" | "top";
 export type SocialLink = { label: string; url: string };
-export type ProfileImageKind = "avatar" | "banner" | "background" | "side_left" | "side_right";
+export type ProfileImageKind = "avatar" | "banner" | "background" | "side_left" | "side_right" | "middle";
 
 export type Look = {
   theme: ThemeId;
@@ -333,6 +333,7 @@ export type Me = Profile & {
   hasBackground: boolean;
   hasSideLeft: boolean;
   hasSideRight: boolean;
+  hasMiddle: boolean;
 };
 
 export type ProfileComment = {
@@ -360,6 +361,7 @@ export type PublicProfile = {
   hasBackground: boolean;
   hasSideLeft: boolean;
   hasSideRight: boolean;
+  hasMiddle: boolean;
   premium: boolean;
   lots: ListingCard[];
   lotTotal: number;

@@ -1296,6 +1296,7 @@ export const getMe = createServerFn({ method: "GET" })
       hasBackground: kinds.has("background"),
       hasSideLeft: kinds.has("side_left"),
       hasSideRight: kinds.has("side_right"),
+      hasMiddle: kinds.has("middle"),
     };
   });
 
@@ -1434,6 +1435,7 @@ export const getPublicProfile = createServerFn({ method: "GET" })
       hasBackground: kinds.has("background"),
       hasSideLeft: kinds.has("side_left"),
       hasSideRight: kinds.has("side_right"),
+      hasMiddle: kinds.has("middle"),
       premium,
       theme: premium ? asTheme(rows[0].theme) : "classic",
       accent: premium ? asAccent(rows[0].accent) : "wine",
@@ -2619,10 +2621,18 @@ const IMAGE_MAX: Record<"banner", number> = {
   banner: 1_200_000,
 };
 
-const DECOR_KINDS = new Set<ProfileImageKind>(["background", "side_left", "side_right"]);
+const DECOR_KINDS = new Set<ProfileImageKind>(["background", "side_left", "side_right", "middle"]);
+const PREMIUM_DECOR = new Set<ProfileImageKind>(["side_left", "side_right", "middle"]);
 
 function isProfileKind(value: unknown): value is ProfileImageKind {
-  return value === "avatar" || value === "banner" || value === "background" || value === "side_left" || value === "side_right";
+  return (
+    value === "avatar" ||
+    value === "banner" ||
+    value === "background" ||
+    value === "side_left" ||
+    value === "side_right" ||
+    value === "middle"
+  );
 }
 
 export const uploadProfileImage = createServerFn({ method: "POST" })
@@ -2652,8 +2662,10 @@ export const uploadProfileImage = createServerFn({ method: "POST" })
     const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
     const magic = sniffMagic(bytes);
     if (!magic || !isRaster(magic)) fail("Нужны PNG, JPG, WEBP или GIF");
-    if (DECOR_KINDS.has(data.kind) && !profile.premium) fail("Боковые и центральный фон доступны с Premium");
-    if (magic === "image/gif" && !profile.premium) fail("GIF в аватарке и шапке доступен с Premium");
+    if (PREMIUM_DECOR.has(data.kind) && !profile.premium) fail("Боковые фоны и фон середины доступны с Premium");
+    if (magic === "image/gif" && !profile.premium && data.kind !== "background") {
+      fail("GIF в аватарке и шапке доступен с Premium");
+    }
     const size = decodedImageSize(bytes);
     if (data.kind === "avatar") {
       const problems: string[] = [];
