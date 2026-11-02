@@ -79,8 +79,8 @@ function buildFromParts(env) {
   }
   const region = read(env, "SUPABASE_REGION");
   if (region) {
-    // Session mode (5432) so node-postgres prepared statements survive the pooler.
-    return `postgresql://postgres.${ref}:${encodedPass}@aws-0-${region}.pooler.supabase.com:5432/postgres`;
+    // Transaction mode (6543). Session mode (5432) caps at about 15 clients.
+    return `postgresql://postgres.${ref}:${encodedPass}@aws-0-${region}.pooler.supabase.com:6543/postgres`;
   }
   return `postgresql://postgres:${encodedPass}@db.${ref}.supabase.co:5432/postgres`;
 }
@@ -88,8 +88,8 @@ function buildFromParts(env) {
 /**
  * db.<ref>.supabase.co is often IPv6-only. Vercel is IPv4, so that host
  * hangs and the browser reports ERR_CONNECTION_RESET after ~30s. When the
- * region is known, use the IPv4 session pooler instead. Port 6543 is
- * transaction mode and breaks node-postgres prepared statements.
+ * region is known, use the IPv4 transaction pooler (6543). Session mode on
+ * 5432 only allows ~15 clients and returns EMAXCONNSESSION.
  * @param {string} url
  * @param {NodeJS.ProcessEnv} env
  */
@@ -108,9 +108,9 @@ export function rewriteSupabaseHost(url, env) {
       parsed.username = `postgres.${ref}`;
     }
     parsed.hostname = `aws-0-${region}.pooler.supabase.com`;
-    parsed.port = "5432";
-  } else if (/pooler\.supabase\.com$/i.test(parsed.hostname) && parsed.port === "6543") {
-    parsed.port = "5432";
+    parsed.port = "6543";
+  } else if (/pooler\.supabase\.com$/i.test(parsed.hostname) && (parsed.port === "5432" || parsed.port === "")) {
+    parsed.port = "6543";
   } else {
     return url;
   }
@@ -161,9 +161,9 @@ export function postgresPoolConfig(connectionString, max = 2) {
   const supabase = isSupabaseUrl(connectionString);
   return {
     connectionString: withSslMode(connectionString, supabase),
-    // Keep this tiny. Each Vercel isolate used to open 10 clients and the
-    // pooler then reset new connections after they waited half a minute.
-    max: Math.min(Math.max(max, 1), 2),
+    // One client per isolate. Session mode only allowed 15, and a pool of 2
+    // on every Vercel instance filled it.
+    max: 1,
     idleTimeoutMillis: 5_000,
     connectionTimeoutMillis: 8_000,
     query_timeout: 10_000,

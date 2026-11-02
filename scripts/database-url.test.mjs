@@ -40,13 +40,14 @@ test("SUPABASE_URL plus password builds a direct connection", () => {
   assert.match(url, /^postgresql:\/\/postgres:p%40ss%20word@db\.abcdef\.supabase\.co:5432\/postgres\?sslmode=require$/);
 });
 
-test("region builds the session pooler, not the transaction pooler", () => {
+test("region builds the transaction pooler, not session mode", () => {
   const url = resolveDatabaseUrl({
     SUPABASE_URL: "https://abcdef.supabase.co",
     SUPABASE_DB_PASSWORD: "secret",
     SUPABASE_REGION: "eu-central-1",
   });
-  assert.match(url, /postgres\.abcdef:secret@aws-0-eu-central-1\.pooler\.supabase\.com:5432/);
+  assert.match(url, /postgres\.abcdef:secret@aws-0-eu-central-1\.pooler\.supabase\.com:6543/);
+  assert.doesNotMatch(url, /:5432/);
 });
 
 test("blank DATABASE_URL is unset and falls through", () => {
@@ -70,27 +71,37 @@ test("migrations prefer the non-pooling URI", () => {
   assert.match(url, /db\.abcdef\.supabase\.co/);
 });
 
-test("direct Supabase host is rewritten to the IPv4 pooler when the region is known", () => {
+test("direct Supabase host is rewritten to the IPv4 transaction pooler when the region is known", () => {
   const url = resolveDatabaseUrl({
     SUPABASE_DB_URL: "postgresql://postgres:pw@db.abcdef.supabase.co:5432/postgres",
     SUPABASE_REGION: "eu-central-1",
   });
-  assert.match(url, /postgres\.abcdef:pw@aws-0-eu-central-1\.pooler\.supabase\.com:5432/);
+  assert.match(url, /postgres\.abcdef:pw@aws-0-eu-central-1\.pooler\.supabase\.com:6543/);
   assert.match(url, /sslmode=require/);
+  assert.doesNotMatch(url, /:5432/);
 });
 
-test("transaction pooler port is rewritten to session mode", () => {
+test("session pooler port is rewritten to the transaction pooler", () => {
+  const url = resolveDatabaseUrl({
+    SUPABASE_DB_URL:
+      "postgresql://postgres.abcdef:pw@aws-0-eu-central-1.pooler.supabase.com:5432/postgres",
+  });
+  assert.match(url, /:6543\//);
+  assert.doesNotMatch(url, /:5432/);
+});
+
+test("transaction pooler port is left on 6543", () => {
   const url = resolveDatabaseUrl({
     SUPABASE_DB_URL:
       "postgresql://postgres.abcdef:pw@aws-0-eu-central-1.pooler.supabase.com:6543/postgres",
   });
-  assert.match(url, /:5432\//);
-  assert.doesNotMatch(url, /:6543/);
+  assert.match(url, /:6543\//);
+  assert.doesNotMatch(url, /:5432/);
 });
 
 test("the runtime pool stays small and times out instead of hanging", () => {
   const pool = postgresPoolConfig(supabaseUri, 5);
-  assert.equal(pool.max, 2);
+  assert.equal(pool.max, 1);
   assert.equal(pool.connectionTimeoutMillis, 8_000);
   assert.equal(pool.query_timeout, 10_000);
   assert.equal(pool.allowExitOnIdle, true);

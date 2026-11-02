@@ -108,41 +108,34 @@ async function migratePostgres(pool: {
   const migrate = async (): Promise<void> => {
     const migrations = migrationSources();
     const client = await pool.connect();
-    let locked = false;
     try {
-      // One isolate migrates. The others must not wait on a lock until the
-      // gateway resets the request.
-      const lock = await client.query("select pg_try_advisory_lock(881122334) as locked");
-      locked = Boolean(lock.rows[0]?.locked);
-      if (!locked) return;
+      // Transaction-scoped lock. Session advisory locks pin a backend and
+      // fail on the transaction pooler (port 6543).
+      await client.query("begin");
+      const lock = await client.query("select pg_try_advisory_xact_lock(881122334) as locked");
+      const locked = Boolean(lock.rows[0]?.locked);
+      if (!locked) {
+        await client.query("rollback");
+        return;
+      }
       await client.query(
         "create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now())",
       );
       const doneRows = await client.query("select name from _migrations");
       const done = doneRows.rows.map((r) => r.name);
       for (const { name, path } of pendingMigrations(Object.keys(migrations), done)) {
-        try {
-          await client.query("begin");
-          await client.query(migrations[path]);
-          await client.query("insert into _migrations (name) values ($1)", [name]);
-          await client.query("commit");
-        } catch (err) {
-          try {
-            await client.query("rollback");
-          } catch {
-            // The connection may already be dead.
-          }
-          throw err;
-        }
+        await client.query(migrations[path]);
+        await client.query("insert into _migrations (name) values ($1)", [name]);
       }
+      await client.query("commit");
+    } catch (err) {
+      try {
+        await client.query("rollback");
+      } catch {
+        // The connection may already be dead.
+      }
+      throw err;
     } finally {
-      if (locked) {
-        try {
-          await client.query("select pg_advisory_unlock(881122334)");
-        } catch {
-          // The connection may already be dead.
-        }
-      }
       client.release();
     }
   };
