@@ -1,4 +1,5 @@
-import { useRef, type ReactNode, type RefObject } from "react";
+import { useEffect, useState, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 
 const RULES: { open: string; close: string; className: string }[] = [
   { open: "~~", close: "~~", className: "line-through" },
@@ -82,6 +83,57 @@ const ACTIONS = [
   { label: "Зачёркнутый", mark: "~~", className: "line-through", text: "S" },
 ] as const;
 
+const MIRROR_PROPS = [
+  "boxSizing",
+  "width",
+  "borderTopWidth",
+  "borderRightWidth",
+  "borderBottomWidth",
+  "borderLeftWidth",
+  "paddingTop",
+  "paddingRight",
+  "paddingBottom",
+  "paddingLeft",
+  "fontStyle",
+  "fontWeight",
+  "fontSize",
+  "fontFamily",
+  "lineHeight",
+  "letterSpacing",
+  "textTransform",
+  "textIndent",
+  "textAlign",
+] as const;
+
+function selectionAnchor(el: HTMLInputElement | HTMLTextAreaElement) {
+  const start = el.selectionStart ?? 0;
+  const end = el.selectionEnd ?? 0;
+  if (start === end) return null;
+  const computed = getComputedStyle(el);
+  const mirror = document.createElement("div");
+  const style = mirror.style;
+  style.position = "absolute";
+  style.visibility = "hidden";
+  style.whiteSpace = el.nodeName === "INPUT" ? "pre" : "pre-wrap";
+  style.wordWrap = "break-word";
+  style.overflow = "hidden";
+  for (const prop of MIRROR_PROPS) style[prop] = computed[prop];
+  style.width = computed.boxSizing === "border-box" ? `${el.offsetWidth}px` : `${el.clientWidth}px`;
+  mirror.textContent = el.value.slice(0, start);
+  const mark = document.createElement("span");
+  mark.textContent = el.value.slice(start, start + 1) || "\u200b";
+  mirror.append(mark);
+  document.body.append(mirror);
+  const border = Number.parseFloat(computed.borderTopWidth) || 0;
+  const top = el.getBoundingClientRect().top + mark.offsetTop + border - el.scrollTop;
+  const left = el.getBoundingClientRect().left + mark.offsetLeft - el.scrollLeft;
+  mirror.remove();
+  const barWidth = 148;
+  const clampedLeft = Math.min(window.innerWidth - barWidth - 8, Math.max(8, left));
+  const clampedTop = Math.max(8, top - 36);
+  return { top: clampedTop, left: clampedLeft };
+}
+
 export function FormatBar({
   inputRef,
   value,
@@ -91,24 +143,63 @@ export function FormatBar({
   value: string;
   onChange: (next: string) => void;
 }) {
-  const busy = useRef(false);
-  function apply(mark: string) {
-    if (busy.current) return;
+  const [box, setBox] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
     const el = inputRef.current;
-    const start = el?.selectionStart ?? value.length;
-    const end = el?.selectionEnd ?? value.length;
-    const next = wrapSelection(el?.value ?? value, start, end, mark, mark);
+    if (!el) return;
+    const update = () => {
+      if (document.activeElement !== el) {
+        setBox(null);
+        return;
+      }
+      setBox(selectionAnchor(el));
+    };
+    const onSelect = () => window.setTimeout(update, 0);
+    el.addEventListener("select", onSelect);
+    el.addEventListener("keyup", onSelect);
+    el.addEventListener("mouseup", onSelect);
+    el.addEventListener("scroll", update);
+    const onDoc = () => {
+      if (document.activeElement === el) update();
+    };
+    document.addEventListener("selectionchange", onDoc);
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      el.removeEventListener("select", onSelect);
+      el.removeEventListener("keyup", onSelect);
+      el.removeEventListener("mouseup", onSelect);
+      el.removeEventListener("scroll", update);
+      document.removeEventListener("selectionchange", onDoc);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [inputRef, value]);
+
+  function apply(mark: string) {
+    const el = inputRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    if (start === end) return;
+    const next = wrapSelection(el.value, start, end, mark, mark);
     onChange(next.value);
-    busy.current = true;
+    setBox(null);
     requestAnimationFrame(() => {
-      const node = inputRef.current;
-      node?.focus();
-      node?.setSelectionRange(next.start, next.end);
-      busy.current = false;
+      el.focus();
+      el.setSelectionRange(next.end, next.end);
     });
   }
-  return (
-    <div className="flex shrink-0 flex-col gap-1">
+
+  if (!box || typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      role="toolbar"
+      aria-label="Формат"
+      className="fixed z-[90] flex gap-1 border border-ink/30 bg-card p-1"
+      style={{ top: box.top, left: box.left }}
+    >
       {ACTIONS.map((action) => (
         <button
           key={action.label}
@@ -117,11 +208,12 @@ export function FormatBar({
           title={action.label}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => apply(action.mark)}
-          className="grid size-8 place-items-center border border-ink/25 font-mono text-xs leading-none"
+          className="grid size-7 place-items-center border border-ink/20 font-mono text-xs leading-none"
         >
           <span className={action.className}>{action.text}</span>
         </button>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }
