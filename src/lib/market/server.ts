@@ -3,7 +3,7 @@ import { getSql, type Sql } from "@/lib/db";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { optionalAuth } from "@/lib/market/optional-auth";
 import { decodedImageSize, isRaster, psdSize, sniffMagic } from "@/lib/market/images";
-import { asAccent, asFrame, asOverlay, asTheme, premiumActive } from "@/lib/market/themes";
+import { asAccent, asFrame, asOverlay, asSideShape, asTheme, premiumActive } from "@/lib/market/themes";
 import {
   ACTIVE_LOT_LIMIT,
   AVATAR_DIM,
@@ -126,9 +126,11 @@ type ProfileRow = {
   accent: string;
   avatar_frame: string;
   banner_overlay: string;
+  side_left_shape: string;
+  side_right_shape: string;
 };
 
-const PROFILE_SELECT = `user_id, handle, display_name, bio, role, banned, status, links, badges, premium_forever, premium_until, theme, accent, avatar_frame, banner_overlay`;
+const PROFILE_SELECT = `user_id, handle, display_name, bio, role, banned, status, links, badges, premium_forever, premium_until, theme, accent, avatar_frame, banner_overlay, side_left_shape, side_right_shape`;
 
 function mapProfile(row: ProfileRow): Profile {
   const until = row.premium_until == null ? null : iso(row.premium_until);
@@ -150,6 +152,8 @@ function mapProfile(row: ProfileRow): Profile {
     accent: asAccent(row.accent),
     avatarFrame: asFrame(row.avatar_frame),
     bannerOverlay: asOverlay(row.banner_overlay),
+    sideLeftShape: asSideShape(row.side_left_shape),
+    sideRightShape: asSideShape(row.side_right_shape),
   };
 }
 
@@ -1382,9 +1386,12 @@ export const getPublicProfile = createServerFn({ method: "GET" })
       accent: string;
       avatar_frame: string;
       banner_overlay: string;
+      side_left_shape: string;
+      side_right_shape: string;
     }>`
       select user_id, display_name, bio, role, status, links, badges, created_at,
-        premium_forever, premium_until, theme, accent, avatar_frame, banner_overlay
+        premium_forever, premium_until, theme, accent, avatar_frame, banner_overlay,
+        side_left_shape, side_right_shape
       from profiles where handle = ${data.handle}
     `;
     if (!rows[0]) return null;
@@ -1441,6 +1448,8 @@ export const getPublicProfile = createServerFn({ method: "GET" })
       accent: premium ? asAccent(rows[0].accent) : "wine",
       avatarFrame: premium ? asFrame(rows[0].avatar_frame) : "thin",
       bannerOverlay: premium ? asOverlay(rows[0].banner_overlay) : "gradient",
+      sideLeftShape: premium ? asSideShape(rows[0].side_left_shape) : "rect",
+      sideRightShape: premium ? asSideShape(rows[0].side_right_shape) : "rect",
       lots: items.map(mapCard),
       lotTotal: num(totalRow[0]?.n),
       posts,
@@ -2515,6 +2524,8 @@ export const updateProfileLook = createServerFn({ method: "POST" })
       accent: asAccent(o.accent),
       avatarFrame: asFrame(o.avatarFrame),
       bannerOverlay: asOverlay(o.bannerOverlay),
+      sideLeftShape: asSideShape(o.sideLeftShape),
+      sideRightShape: asSideShape(o.sideRightShape),
     };
   })
   .handler(async ({ data, context }) => {
@@ -2525,7 +2536,9 @@ export const updateProfileLook = createServerFn({ method: "POST" })
       update profiles
       set accent = ${data.accent},
           avatar_frame = ${data.avatarFrame},
-          banner_overlay = ${data.bannerOverlay}
+          banner_overlay = ${data.bannerOverlay},
+          side_left_shape = ${data.sideLeftShape},
+          side_right_shape = ${data.sideRightShape}
       where user_id = ${context.userId}
     `;
     return { ok: true };

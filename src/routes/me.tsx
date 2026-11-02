@@ -7,7 +7,7 @@ import { FormatBar } from "@/components/rich-text";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { clearProfileImage, getMe, updateProfile, updateProfileLook, uploadProfileImage } from "@/lib/market/server";
-import { ACCENTS, ACCENT_IDS, FRAME_IDS, FRAME_LABELS, OVERLAY_IDS, OVERLAY_LABELS } from "@/lib/market/themes";
+import { ACCENTS, ACCENT_IDS, FRAME_IDS, FRAME_LABELS, OVERLAY_IDS, OVERLAY_LABELS, SIDE_SHAPES, SIDE_SHAPE_LABELS, type SideShape } from "@/lib/market/themes";
 import {
   AVATAR_DIM,
   AVATAR_MAX,
@@ -290,6 +290,8 @@ function LookForm({
   const [accent, setAccent] = useState(me.accent);
   const [avatarFrame, setAvatarFrame] = useState(me.avatarFrame);
   const [bannerOverlay, setBannerOverlay] = useState(me.bannerOverlay);
+  const [sideLeftShape, setSideLeftShape] = useState<SideShape>(me.sideLeftShape);
+  const [sideRightShape, setSideRightShape] = useState<SideShape>(me.sideRightShape);
   const [busy, setBusy] = useState(false);
   return (
     <form
@@ -297,7 +299,7 @@ function LookForm({
       onSubmit={(e) => {
         e.preventDefault();
         setBusy(true);
-        void updateProfileLook({ data: { accent, avatarFrame, bannerOverlay } })
+        void updateProfileLook({ data: { accent, avatarFrame, bannerOverlay, sideLeftShape, sideRightShape } })
           .then(() => getMe())
           .then((next) => {
             onSaved(next);
@@ -319,7 +321,7 @@ function LookForm({
         onClear={() => onClear("middle")}
       />
       <ImageSlot
-        label="Левая рамка, до 3 МБ. Тонкая полоска по краю экрана, на телефоне скрыта"
+        label="Левая рамка, PNG с прозрачностью или GIF, до 3 МБ. На телефоне скрыта"
         kind="side_left"
         has={me.hasSideLeft}
         handle={me.handle}
@@ -329,7 +331,7 @@ function LookForm({
         onClear={() => onClear("side_left")}
       />
       <ImageSlot
-        label="Правая рамка, до 3 МБ. Тонкая полоска по краю экрана, на телефоне скрыта"
+        label="Правая рамка, PNG с прозрачностью или GIF, до 3 МБ. На телефоне скрыта"
         kind="side_right"
         has={me.hasSideRight}
         handle={me.handle}
@@ -369,6 +371,26 @@ function LookForm({
           {OVERLAY_IDS.map((id) => (
             <option key={id} value={id}>
               {OVERLAY_LABELS[id]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="block text-sm">
+        Левая рамка
+        <select value={sideLeftShape} onChange={(e) => setSideLeftShape(e.target.value as SideShape)} className={`${fieldClass} mt-1`}>
+          {SIDE_SHAPES.map((id) => (
+            <option key={id} value={id}>
+              {SIDE_SHAPE_LABELS[id]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="block text-sm">
+        Правая рамка
+        <select value={sideRightShape} onChange={(e) => setSideRightShape(e.target.value as SideShape)} className={`${fieldClass} mt-1`}>
+          {SIDE_SHAPES.map((id) => (
+            <option key={id} value={id}>
+              {SIDE_SHAPE_LABELS[id]}
             </option>
           ))}
         </select>

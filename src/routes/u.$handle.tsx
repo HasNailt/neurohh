@@ -6,7 +6,7 @@ import { Nick, PremiumBadge } from "@/components/nick";
 import { PostCard } from "@/components/post-card";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { RichText } from "@/components/rich-text";
-import { ACCENTS, THEMES, type AvatarFrame, type BannerOverlay } from "@/lib/market/themes";
+import { ACCENTS, THEMES, type AvatarFrame, type BannerOverlay, type SideShape } from "@/lib/market/themes";
 import { getMe, getPublicProfile, listProfileLots, toggleFollow } from "@/lib/market/server";
 import { siteThemeSnapshot, subscribeSiteTheme } from "@/lib/site-theme";
 import {
@@ -132,8 +132,8 @@ function ProfilePage() {
           />
         </div>
       ) : null}
-      {sideLeft ? <SideFrame url={sideLeft} accent={accent} edge="left" /> : null}
-      {sideRight ? <SideFrame url={sideRight} accent={accent} edge="right" /> : null}
+      {sideLeft ? <SideFrame url={sideLeft} accent={accent} edge="left" shape={profile.sideLeftShape} /> : null}
+      {sideRight ? <SideFrame url={sideRight} accent={accent} edge="right" shape={profile.sideRightShape} /> : null}
       <div className="profile-scope relative z-10 mx-auto w-full max-w-6xl space-y-8 px-4" style={scope}>
       <section
         className="theme-card relative z-0 overflow-hidden border"
@@ -334,18 +334,50 @@ function ProfilePage() {
   );
 }
 
-function SideFrame({ url, accent, edge }: { url: string; accent: string; edge: "left" | "right" }) {
+function SideFrame({
+  url,
+  accent,
+  edge,
+  shape,
+}: {
+  url: string;
+  accent: string;
+  edge: "left" | "right";
+  shape: SideShape;
+}) {
+  const square = shape === "square-top" || shape === "square-bottom";
+  const framed = shape !== "none";
+  const gutter = "max(0px, calc((100vw - min(72rem, 100vw)) / 2 - 1rem))";
+  const style: CSSProperties = {
+    borderColor: framed ? accent : "transparent",
+    ...(square
+      ? {
+          width: gutter,
+          height: gutter,
+          top: shape === "square-top" ? "6.25rem" : undefined,
+          bottom: shape === "square-bottom" ? "0.75rem" : undefined,
+        }
+      : {
+          top: "6.25rem",
+          bottom: "0.75rem",
+          width: shape === "wide" ? "12rem" : "7.5rem",
+        }),
+  };
   return (
     <div
       aria-hidden
-      className={`pointer-events-none fixed bottom-3 z-20 hidden w-[7.5rem] overflow-hidden border min-[1440px]:block ${edge === "left" ? "left-3" : "right-3"}`}
-      style={{ borderColor: accent, top: "6.25rem" }}
+      className={`pointer-events-none fixed z-20 hidden overflow-hidden bg-transparent min-[1440px]:block ${framed ? "border" : ""} ${edge === "left" ? "left-3" : "right-3"}`}
+      style={style}
     >
-      <img src={url} alt="" className="absolute inset-0 h-full w-full object-cover" />
-      <span className="pointer-events-none absolute top-1 left-1 h-2 w-2 border-t border-l" style={{ borderColor: accent }} />
-      <span className="pointer-events-none absolute top-1 right-1 h-2 w-2 border-t border-r" style={{ borderColor: accent }} />
-      <span className="pointer-events-none absolute bottom-1 left-1 h-2 w-2 border-b border-l" style={{ borderColor: accent }} />
-      <span className="pointer-events-none absolute right-1 bottom-1 h-2 w-2 border-r border-b" style={{ borderColor: accent }} />
+      <img src={url} alt="" className="absolute inset-0 h-full w-full object-contain" />
+      {framed ? (
+        <>
+          <span className="pointer-events-none absolute top-1 left-1 h-2 w-2 border-t border-l" style={{ borderColor: accent }} />
+          <span className="pointer-events-none absolute top-1 right-1 h-2 w-2 border-t border-r" style={{ borderColor: accent }} />
+          <span className="pointer-events-none absolute bottom-1 left-1 h-2 w-2 border-b border-l" style={{ borderColor: accent }} />
+          <span className="pointer-events-none absolute right-1 bottom-1 h-2 w-2 border-r border-b" style={{ borderColor: accent }} />
+        </>
+      ) : null}
     </div>
   );
 }

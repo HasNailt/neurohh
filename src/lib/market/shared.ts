@@ -1,4 +1,4 @@
-import type { AccentId, AvatarFrame, BannerOverlay, ThemeId } from "@/lib/market/themes";
+import type { AccentId, AvatarFrame, BannerOverlay, SideShape, ThemeId } from "@/lib/market/themes";
 
 export const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -69,6 +69,8 @@ export type Look = {
   accent: AccentId;
   avatarFrame: AvatarFrame;
   bannerOverlay: BannerOverlay;
+  sideLeftShape: SideShape;
+  sideRightShape: SideShape;
 };
 
 export function asRole(value: unknown): Role {

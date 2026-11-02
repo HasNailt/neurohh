@@ -75,6 +75,21 @@ export const OVERLAY_LABELS: Record<BannerOverlay, string> = {
   none: "Без оверлея",
 };
 
+export const SIDE_SHAPES = ["rect", "wide", "square-top", "square-bottom", "none"] as const;
+export type SideShape = (typeof SIDE_SHAPES)[number];
+
+export const SIDE_SHAPE_LABELS: Record<SideShape, string> = {
+  rect: "Прямоугольник",
+  wide: "Прямоугольник шире",
+  "square-top": "Квадрат сверху",
+  "square-bottom": "Квадрат снизу",
+  none: "Без рамки",
+};
+
+export function asSideShape(value: unknown): SideShape {
+  return SIDE_SHAPES.includes(value as SideShape) ? (value as SideShape) : "rect";
+}
+
 export function asTheme(value: unknown): ThemeId {
   return THEME_IDS.includes(value as ThemeId) ? (value as ThemeId) : "classic";
 }
