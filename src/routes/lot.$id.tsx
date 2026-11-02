@@ -12,6 +12,7 @@ import {
   addListingComment,
   buyFixed,
   buyNow,
+  closeAuctionEarly,
   getListing,
   placeBid,
   reportListing,
@@ -191,20 +192,17 @@ function LotView({ lot }: { lot: ListingDetail }) {
               </button>
             </div>
             <p className="font-display text-4xl tabular-nums leading-none">
-              {formatPrice(lot.kind === "auction" ? (lot.currentBid ?? lot.price) : lot.price, lot.currency)}
+              {lot.kind === "auction"
+                ? formatPrice(lot.currentBid ?? lot.price, lot.currency)
+                : formatPrice(
+                    Math.min(
+                      ...lot.slots.filter((slot) => slot.status === "open").map((slot) => slot.price),
+                      lot.slots[0]?.price ?? lot.price,
+                    ),
+                    lot.currency,
+                  )}
             </p>
             <p className="font-mono text-xs text-muted">{payLabel(lot.currency)}</p>
-            {lot.kind === "fixed" && lot.price2 != null ? (
-              <p className="font-mono text-sm">
-                ещё {formatPrice(lot.price2, lot.currency)}
-                {lot.price2Label ? (
-                  <>
-                    {" — "}
-                    <RichText text={lot.price2Label} />
-                  </>
-                ) : null}
-              </p>
-            ) : null}
             {lot.kind === "auction" ? (
               <>
                 <p className="font-mono text-xs text-muted">
@@ -252,6 +250,26 @@ function LotView({ lot }: { lot: ListingDetail }) {
                 </p>
               </form>
             ) : null}
+            {live && mine && lot.kind === "auction" ? (
+              <Button
+                variant="line"
+                className="w-full"
+                disabled={busy}
+                onClick={() => {
+                  const ask = lot.bidCount > 0
+                    ? "Закрыть аукцион сейчас и открыть сделку по текущей ставке?"
+                    : "Закрыть аукцион без ставок?";
+                  if (!window.confirm(ask)) return;
+                  void run(async () => {
+                    const res = await closeAuctionEarly({ data: lot.id });
+                    toast.success(res.dealId ? "Аукцион закрыт, сделка открыта" : "Аукцион закрыт");
+                    if (res.dealId) await navigate({ to: "/deals/$id", params: { id: res.dealId } });
+                  });
+                }}
+              >
+                Закрыть досрочно
+              </Button>
+            ) : null}
             {showBuyNow ? (
               <Button
                 variant="wine"
@@ -268,42 +286,46 @@ function LotView({ lot }: { lot: ListingDetail }) {
                 Купить сейчас · {formatPrice(lot.buyNow ?? 0, lot.buyNowCurrency)}
               </Button>
             ) : null}
-            {live && lot.kind === "fixed" && user && !mine ? (
-              <Button
-                className="w-full"
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    const res = await buyFixed({ data: lot.id });
-                    toast.success("Лот ваш");
-                    await navigate({ to: "/deals/$id", params: { id: res.dealId } });
-                  })
-                }
-              >
-                Забрать за {formatPrice(lot.price, lot.currency)}
-              </Button>
-            ) : null}
-            {live && lot.kind === "fixed" && user && !mine && lot.price2 != null ? (
-              <Button
-                variant="line"
-                className="w-full"
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    const res = await buyFixed({ data: { id: lot.id, tier: 2 } });
-                    toast.success("Лот ваш");
-                    await navigate({ to: "/deals/$id", params: { id: res.dealId } });
-                  })
-                }
-              >
-                {lot.price2Label ? (
-                  <>
-                    <RichText text={lot.price2Label} />
-                    {" · "}
-                  </>
-                ) : null}
-                {formatPrice(lot.price2, lot.currency)}
-              </Button>
+            {lot.kind === "fixed" ? (
+              <ul className="space-y-2">
+                {lot.slots.map((slot, index) => (
+                  <li key={slot.id} className="border border-ink/15 p-3">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <p>
+                        <span className="font-mono text-xs text-muted">{index + 1}. </span>
+                        <RichText text={slot.title} />
+                      </p>
+                      <span className="font-mono tabular-nums">{formatPrice(slot.price, lot.currency)}</span>
+                    </div>
+                    {slot.status === "sold" ? (
+                      <p className="mt-2 font-mono text-xs text-muted">Продано</p>
+                    ) : live && user && !mine ? (
+                      <Button
+                        className="mt-2 w-full"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(async () => {
+                            const res = await buyFixed({
+                              data: slot.id === lot.id ? lot.id : { id: lot.id, itemId: slot.id },
+                            });
+                            toast.success("Позиция ваша");
+                            await navigate({ to: "/deals/$id", params: { id: res.dealId } });
+                          })
+                        }
+                      >
+                        Выкупить
+                      </Button>
+                    ) : (
+                      <p className="mt-2 font-mono text-xs text-muted">{live ? "Свободно" : "Недоступно"}</p>
+                    )}
+                    {slot.dealId ? (
+                      <Link to="/deals/$id" params={{ id: slot.dealId }} className="mt-2 inline-flex font-mono text-xs text-wine hover:underline">
+                        открыть сделку
+                      </Link>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
             ) : null}
             {!user && live ? (
               <Link to="/login" className="block text-center font-mono text-xs text-muted hover:text-ink">

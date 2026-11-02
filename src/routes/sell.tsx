@@ -34,8 +34,9 @@ function SellForm() {
   const [buyNow, setBuyNow] = useState("");
   const [durationHours, setDurationHours] = useState(24);
   const [antiSnipeMinutes, setAntiSnipeMinutes] = useState(0);
-  const [price2, setPrice2] = useState("");
-  const [price2Label, setPrice2Label] = useState("");
+  const [slots, setSlots] = useState<{ key: string; title: string; price: string }[]>([
+    { key: "slot-1", title: "", price: "" },
+  ]);
   const [engine, setEngine] = useState<EngineId>("niji");
   const [mixed, setMixed] = useState(false);
   const [tags, setTags] = useState<string[]>([]);
@@ -54,7 +55,6 @@ function SellForm() {
 
   const titleRef = useRef<HTMLInputElement>(null);
   const blurbRef = useRef<HTMLTextAreaElement>(null);
-  const price2Ref = useRef<HTMLInputElement>(null);
   const imagesRef = useRef(images);
   imagesRef.current = images;
   useEffect(() => {
@@ -110,6 +110,18 @@ function SellForm() {
       toast.error("Шаг ставки — целое число больше 0");
       return;
     }
+    if (kind === "fixed") {
+      if (slots.length < 1 || slots.length > 9) {
+        setBusy(false);
+        toast.error("В фиксе от 1 до 9 позиций");
+        return;
+      }
+      if (slots.some((slot) => slot.title.trim().length < 1 || !Number.isInteger(Number(slot.price)) || Number(slot.price) < 1)) {
+        setBusy(false);
+        toast.error("У каждой позиции нужны название и цена больше 0");
+        return;
+      }
+    }
     let createdId: string | null = null;
     try {
       const ordered = [
@@ -124,7 +136,7 @@ function SellForm() {
           privateDescription: "",
           kind,
           currency,
-          price: Number(price),
+          price: kind === "auction" ? Number(price) : Number(slots[0]?.price),
           bidStep: kind === "auction" ? Number(bidStep) : 1,
           buyNow: kind === "auction" && buyNow.trim() ? Number(buyNow) : null,
           durationHours,
@@ -132,8 +144,7 @@ function SellForm() {
           tags,
           engine,
           mixed: kind === "auction" && currency === "sw" && mixed,
-          price2: kind === "fixed" && price2.trim() ? Number(price2) : null,
-          price2Label,
+          items: kind === "fixed" ? slots.map((slot) => ({ title: slot.title.trim(), price: Number(slot.price) })) : [],
         },
       });
       createdId = created.id;
@@ -231,10 +242,12 @@ function SellForm() {
           </button>
         ))}
       </div>
-      <label className="block text-sm">
-        {kind === "auction" ? `Стартовая цена, ${currency === "sw" ? "SW" : "₽"}` : `Цена, ${currency === "sw" ? "SW" : "₽"}`}
-        <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="numeric" required placeholder="Введите цену" className={`${fieldClass} mt-1 tabular-nums`} />
-      </label>
+      {kind === "auction" ? (
+        <label className="block text-sm">
+          Стартовая цена, {currency === "sw" ? "SW" : "₽"}
+          <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="numeric" required placeholder="Введите цену" className={`${fieldClass} mt-1 tabular-nums`} />
+        </label>
+      ) : null}
       {kind === "auction" ? (
         <>
           <label className="block text-sm">
@@ -298,18 +311,54 @@ function SellForm() {
         </>
       ) : (
         <div className="grid gap-3 border border-ink/20 p-3">
-          <p className="text-sm">Второй фикс — необязательно</p>
-          <label className="block text-sm">
-            Вторая цена, {currency === "sw" ? "SW" : "₽"}
-            <input value={price2} onChange={(e) => setPrice2(e.target.value)} inputMode="numeric" placeholder="Пусто, если одна цена" className={`${fieldClass} mt-1 tabular-nums`} />
-          </label>
-          <label className="block text-sm">
-            За что эта цена
-            <div className="mt-1 flex items-end gap-2">
-              <FormatBar inputRef={price2Ref} value={price2Label} onChange={setPrice2Label} />
-              <input ref={price2Ref} value={price2Label} onChange={(e) => setPrice2Label(e.target.value)} maxLength={80} placeholder="Например, с фоном" className={`${fieldClass} min-w-0 flex-1`} />
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm">Позиции — до 9. У каждой своё название и цена.</p>
+            {slots.length < 9 ? (
+              <button
+                type="button"
+                className="font-mono text-xs underline"
+                onClick={() => setSlots((current) => [...current, { key: crypto.randomUUID(), title: "", price: "" }])}
+              >
+                Добавить позицию
+              </button>
+            ) : null}
+          </div>
+          {slots.map((slot, index) => (
+            <div key={slot.key} className="grid gap-2 border border-ink/15 p-3">
+              <div className="flex items-center justify-between">
+                <p className="font-mono text-xs text-muted">Позиция {index + 1}</p>
+                {slots.length > 1 ? (
+                  <button type="button" className="font-mono text-xs underline" onClick={() => setSlots((current) => current.filter((item) => item.key !== slot.key))}>
+                    Убрать
+                  </button>
+                ) : null}
+              </div>
+              <label className="block text-sm">
+                Название
+                <input
+                  value={slot.title}
+                  onChange={(e) =>
+                    setSlots((current) => current.map((item) => (item.key === slot.key ? { ...item, title: e.target.value } : item)))
+                  }
+                  maxLength={80}
+                  placeholder="Персонаж или предмет"
+                  className={`${fieldClass} mt-1`}
+                />
+              </label>
+              <label className="block text-sm">
+                Цена, {currency === "sw" ? "SW" : "₽"}
+                <input
+                  value={slot.price}
+                  onChange={(e) =>
+                    setSlots((current) => current.map((item) => (item.key === slot.key ? { ...item, price: e.target.value } : item)))
+                  }
+                  inputMode="numeric"
+                  placeholder="Больше 0"
+                  className={`${fieldClass} mt-1 tabular-nums`}
+                />
+              </label>
             </div>
-          </label>
+          ))}
         </div>
       )}
       <fieldset>

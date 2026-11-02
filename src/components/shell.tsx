@@ -372,6 +372,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Link to="/terms" className="hover:text-ink">
             Условия
           </Link>
+          <Link to="/premium" className="hover:text-ink">
+            Premium
+          </Link>
         </div>
       </footer>
     </div>

@@ -300,6 +300,14 @@ export type BidRow = { id: string; amount: number; handle: string; premium: bool
 
 export type MediaMeta = { id: string; filename: string; mime: string; sizeBytes: number };
 
+export type LotSlot = {
+  id: string;
+  title: string;
+  price: number;
+  status: "open" | "sold";
+  dealId: string | null;
+};
+
 export type ListingDetail = ListingCard & {
   blurb: string;
   winnerId: string | null;
@@ -312,8 +320,7 @@ export type ListingDetail = ListingCard & {
   files: MediaMeta[] | null;
   comments: ProfileComment[];
   currentBidderId: string | null;
-  price2: number | null;
-  price2Label: string | null;
+  slots: LotSlot[];
   engine: string | null;
   buyNowCurrency: PayKind;
 };

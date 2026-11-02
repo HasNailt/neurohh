@@ -17,6 +17,7 @@ import { Route as ForgotRouteImport } from './routes/forgot'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as MeRouteImport } from './routes/me'
 import { Route as NotificationsRouteImport } from './routes/notifications'
+import { Route as PremiumRouteImport } from './routes/premium'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as RulesRouteImport } from './routes/rules'
 import { Route as SellRouteImport } from './routes/sell'
@@ -70,6 +71,11 @@ const MeRoute = MeRouteImport.update({
 const NotificationsRoute = NotificationsRouteImport.update({
   id: '/notifications',
   path: '/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PremiumRoute = PremiumRouteImport.update({
+  id: '/premium',
+  path: '/premium',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
@@ -152,6 +158,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/me': typeof MeRoute
   '/notifications': typeof NotificationsRoute
+  '/premium': typeof PremiumRoute
   '/reset-password': typeof ResetPasswordRoute
   '/rules': typeof RulesRoute
   '/sell': typeof SellRoute
@@ -176,6 +183,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/me': typeof MeRoute
   '/notifications': typeof NotificationsRoute
+  '/premium': typeof PremiumRoute
   '/reset-password': typeof ResetPasswordRoute
   '/rules': typeof RulesRoute
   '/sell': typeof SellRoute
@@ -201,6 +209,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/me': typeof MeRoute
   '/notifications': typeof NotificationsRoute
+  '/premium': typeof PremiumRoute
   '/reset-password': typeof ResetPasswordRoute
   '/rules': typeof RulesRoute
   '/sell': typeof SellRoute
@@ -227,6 +236,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/me'
     | '/notifications'
+    | '/premium'
     | '/reset-password'
     | '/rules'
     | '/sell'
@@ -251,6 +261,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/me'
     | '/notifications'
+    | '/premium'
     | '/reset-password'
     | '/rules'
     | '/sell'
@@ -275,6 +286,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/me'
     | '/notifications'
+    | '/premium'
     | '/reset-password'
     | '/rules'
     | '/sell'
@@ -300,6 +312,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   MeRoute: typeof MeRoute
   NotificationsRoute: typeof NotificationsRoute
+  PremiumRoute: typeof PremiumRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   RulesRoute: typeof RulesRoute
   SellRoute: typeof SellRoute
@@ -371,6 +384,13 @@ declare module '@tanstack/react-router' {
       path: '/notifications'
       fullPath: '/notifications'
       preLoaderRoute: typeof NotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/premium': {
+      id: '/premium'
+      path: '/premium'
+      fullPath: '/premium'
+      preLoaderRoute: typeof PremiumRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/reset-password': {
@@ -493,6 +513,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   MeRoute: MeRoute,
   NotificationsRoute: NotificationsRoute,
+  PremiumRoute: PremiumRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   RulesRoute: RulesRoute,
   SellRoute: SellRoute,
@@ -510,12 +531,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}
