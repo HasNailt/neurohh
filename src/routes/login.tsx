@@ -153,7 +153,7 @@ function LoginPage() {
         <div className="h-40 animate-pulse bg-soft" />
       ) : user ? (
         <p>
-          Вы уже вошли. <Link to="/" search={{ q: "", tag: "", kind: "all", sort: "new", page: 1 }} className="underline">На ленту</Link>
+          Вы уже вошли. <Link to="/" search={{ q: "", tag: "", kind: "all", pay: "", sort: "new", page: 1 }} className="underline">На ленту</Link>
         </p>
       ) : (
         <>

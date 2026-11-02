@@ -42,7 +42,7 @@ function LotPage() {
       <div className="space-y-3">
         <Kicker>404</Kicker>
         <h1 className="font-display text-5xl leading-none">лот не найден.</h1>
-        <Link to="/" search={{ q: "", tag: "", kind: "all", sort: "new", page: 1 }} className="font-mono text-sm text-muted hover:text-ink">
+        <Link to="/" search={{ q: "", tag: "", kind: "all", pay: "", sort: "new", page: 1 }} className="font-mono text-sm text-muted hover:text-ink">
           в ленту
         </Link>
       </div>
@@ -115,7 +115,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
                 <Link
                   key={tag.slug}
                   to="/"
-                  search={{ q: "", tag: tag.slug, kind: "all", sort: "new", page: 1 }}
+                  search={{ q: "", tag: tag.slug, kind: "all", pay: "", sort: "new", page: 1 }}
                   className="border border-ink/25 px-2 py-1 font-mono text-xs hover:border-wine"
                 >
                   {tag.label}

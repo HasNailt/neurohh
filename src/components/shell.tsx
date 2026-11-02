@@ -24,7 +24,7 @@ function SearchForm({ className }: { className?: string }) {
         e.preventDefault();
         void navigate({
           to: "/",
-          search: { q: q.trim(), tag: "", kind: "all", sort: "new", page: 1 },
+          search: { q: q.trim(), tag: "", kind: "all", pay: "", sort: "new", page: 1 },
         });
       }}
     >
@@ -309,7 +309,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span>pay off-site</span>
         </div>
         <div className="mx-auto flex w-full max-w-[100rem] flex-wrap items-center gap-3 px-4 py-3">
-          <Link to="/" search={{ q: "", tag: "", kind: "all", sort: "new", page: 1 }} className="flex items-center gap-2">
+          <Link to="/" search={{ q: "", tag: "", kind: "all", pay: "", sort: "new", page: 1 }} className="flex items-center gap-2">
             <Mark />
             <span className="leading-none">
               <span className="block font-display text-xl tracking-tight">AdoptAI</span>

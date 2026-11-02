@@ -444,7 +444,7 @@ export const listListings = createServerFn({ method: "GET" })
     const sql = await getSql();
     await settle(sql);
     const like = data.q ? likeContains(data.q) : "%";
-    const pageSize = data.kind === "auction" || data.kind === "fixed" || data.tag ? GRID_PAGE : PAGE_SIZE;
+    const pageSize = data.kind === "auction" || data.kind === "fixed" || data.tag || data.pay ? GRID_PAGE : PAGE_SIZE;
     const offset = (data.page - 1) * pageSize;
     const boostRank = "(l.boosted_until is not null and l.boosted_until > now()) desc";
     const premiumRank =
@@ -466,11 +466,12 @@ export const listListings = createServerFn({ method: "GET" })
           where lt.listing_id = l.id and t.slug = $3
         ))
         and ($4::text = 'all' or l.kind = $4)
+        and ($5::text = '' or l.currency = $5)
     `;
-    const params = [data.q, like, data.tag, data.kind];
+    const params = [data.q, like, data.tag, data.kind, data.pay];
     const totalRows = await sql.query<{ n: number }>(`select count(*)::int as n ${where}`, params);
     const items = await sql.query<CardRow>(
-      `select ${CARD_SQL} ${where} ${order} limit $5 offset $6`,
+      `select ${CARD_SQL} ${where} ${order} limit $6 offset $7`,
       [...params, pageSize, offset],
     );
     const total = num(totalRows[0]?.n);

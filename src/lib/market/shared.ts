@@ -291,6 +291,7 @@ export type FeedQuery = {
   q: string;
   tag: string;
   kind: "all" | "fixed" | "auction";
+  pay: "" | "rub" | "sw";
   sort: "new" | "ending" | "price";
   page: number;
 };
@@ -587,10 +588,11 @@ export type AdminData = {
 export function parseFeedQuery(input: unknown): FeedQuery {
   const s = (input ?? {}) as Record<string, unknown>;
   const kind = s.kind === "auction" || s.kind === "fixed" ? s.kind : "all";
+  const pay = s.pay === "rub" || s.pay === "sw" ? s.pay : "";
   const sort = s.sort === "ending" || s.sort === "price" ? s.sort : "new";
   const pageRaw = Number(s.page);
   const page = Number.isInteger(pageRaw) && pageRaw > 0 && pageRaw < 100 ? pageRaw : 1;
   const q = typeof s.q === "string" ? s.q.trim().slice(0, 80) : "";
   const tag = typeof s.tag === "string" ? s.tag.trim().toLocaleLowerCase("ru").slice(0, 24) : "";
-  return { q, tag, kind, sort, page };
+  return { q, tag, kind, pay, sort, page };
 }

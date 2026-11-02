@@ -25,14 +25,14 @@ export const Route = createFileRoute("/")({
 });
 
 function isHome(search: FeedQuery): boolean {
-  return !search.q && !search.tag && search.kind === "all";
+  return !search.q && !search.tag && search.kind === "all" && !search.pay;
 }
 
 function Home() {
   const search = Route.useSearch();
   const [feed, tags, recommended, people] = Route.useLoaderData();
   const home = isHome(search);
-  const grid = search.kind === "auction" || search.kind === "fixed" || Boolean(search.tag);
+  const grid = search.kind === "auction" || search.kind === "fixed" || Boolean(search.tag) || Boolean(search.pay);
   const pageSize = grid ? GRID_PAGE : 12;
 
   return (
@@ -123,6 +123,10 @@ function FilterBar({
     ["auction", "Аукцион"],
     ["fixed", "Фикс"],
   ] as const;
+  const pays = [
+    ["rub", "За рубли"],
+    ["sw", "Токены SW"],
+  ] as const;
   const sorts = [
     ["new", "Новые"],
     ["ending", "Скоро конец"],
@@ -134,9 +138,23 @@ function FilterBar({
           <Link
             key={id}
             to="/"
-            search={{ ...search, kind: id, page: 1, ...(id === "fixed" ? { sort: "new" as const } : {}) }}
+            search={{ ...search, kind: id, pay: "", page: 1, ...(id === "fixed" ? { sort: "new" as const } : {}) }}
             className={
-              search.kind === id
+              search.kind === id && !search.pay
+                ? "inline-flex min-h-11 items-center border border-wine bg-wine px-3 text-sm text-foam"
+                : "inline-flex min-h-11 items-center border border-ink/25 px-3 text-sm"
+            }
+          >
+            {label}
+          </Link>
+        ))}
+        {pays.map(([id, label]) => (
+          <Link
+            key={id}
+            to="/"
+            search={{ ...search, kind: "all", pay: id, page: 1 }}
+            className={
+              search.pay === id
                 ? "inline-flex min-h-11 items-center border border-wine bg-wine px-3 text-sm text-foam"
                 : "inline-flex min-h-11 items-center border border-ink/25 px-3 text-sm"
             }
