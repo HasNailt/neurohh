@@ -28,15 +28,32 @@ export const PROFILE_LOT_PAGE = 60;
 export const NEW_USER_MS = 30 * 24 * 60 * 60 * 1000;
 
 export const DURATIONS = [
-  { hours: 1, label: "1 час" },
-  { hours: 6, label: "6 часов" },
   { hours: 12, label: "12 часов" },
   { hours: 24, label: "1 день" },
+  { hours: 48, label: "2 дня" },
   { hours: 72, label: "3 дня" },
-  { hours: 168, label: "7 дней" },
 ] as const;
 
-export const SNIPE_OPTIONS = [0, 10, 30, 60] as const;
+export const SNIPE_OPTIONS = [0, 10, 30, 60, 1440] as const;
+
+export const ENGINES = [
+  { id: "niji", label: "Niji" },
+  { id: "stable_waifu", label: "Stable Waifu" },
+  { id: "stable_diffusion", label: "Stable Diffusion" },
+  { id: "neurochan", label: "NeuroChan" },
+] as const;
+
+export type EngineId = (typeof ENGINES)[number]["id"];
+
+export function engineLabel(id: string | null | undefined): string {
+  return ENGINES.find((item) => item.id === id)?.label ?? "";
+}
+
+export function asEngine(value: unknown): EngineId | null {
+  return ENGINES.some((item) => item.id === value) ? (value as EngineId) : null;
+}
+
+export const POST_IMAGE_MAX = 8;
 
 export type Tag = { slug: string; label: string };
 export type ListingStatus = "active" | "sold" | "ended" | "removed" | "draft";
@@ -288,6 +305,10 @@ export type ListingDetail = ListingCard & {
   files: MediaMeta[] | null;
   comments: ProfileComment[];
   currentBidderId: string | null;
+  price2: number | null;
+  price2Label: string | null;
+  engine: string | null;
+  buyNowCurrency: PayKind;
 };
 
 export type Profile = {
@@ -468,6 +489,7 @@ export type DirectMessage = {
   createdAt: string;
   mine: boolean;
   premium: boolean;
+  images: ChatImage[];
 };
 
 export type ThreadPreview = {

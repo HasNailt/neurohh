@@ -298,7 +298,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [userId]);
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col overflow-x-clip">
       <a href="#content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-wine focus:px-3 focus:py-2 focus:text-foam">
         К содержанию
       </a>

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Frame, Kicker, StatusChip } from "@/components/ui-bits";
 import { ChatPictures } from "@/components/chat-picture";
+import { RichText } from "@/components/rich-text";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { getStaffDeal } from "@/lib/market/server";
@@ -88,7 +89,11 @@ function StaffDealPage() {
                   @{message.handle ?? "?"} · <span suppressHydrationWarning>{formatWhen(message.createdAt)}</span>
                 </p>
                 <p className="border border-ink/25 px-3 py-2">
-                  {message.body ? <span className="whitespace-pre-wrap">{message.body}</span> : null}
+                  {message.body ? (
+                    <span className="whitespace-pre-wrap">
+                      <RichText text={message.body} />
+                    </span>
+                  ) : null}
                   <ChatPictures images={message.images} />
                 </p>
               </div>

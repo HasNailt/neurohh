@@ -1,12 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ChatPictures } from "@/components/chat-picture";
 import { Button, fieldClass } from "@/components/ui-bits";
 import { EmojiBar } from "@/components/emoji-bar";
+import { FormatBar, RichText } from "@/components/rich-text";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { getThread, listDeals, listThreads, openThread, sendDirect } from "@/lib/market/server";
-import { errText, formatDealNo, formatPrice, formatWhen, type DealSummary, type ThreadDetail, type ThreadPreview } from "@/lib/market/shared";
+import { checkChatImage, pushDmImage } from "@/lib/market/client-upload";
+import { discardBlankDm, getThread, listDeals, listThreads, openThread, sendDirect } from "@/lib/market/server";
+import { CHAT_IMAGE_COUNT, errText, formatDealNo, formatPrice, formatWhen, type DealSummary, type ThreadDetail, type ThreadPreview } from "@/lib/market/shared";
 
 type ChatSearch = { with: string };
 
@@ -26,6 +29,8 @@ function ChatsPage() {
   const [box, setBox] = useState<"direct" | "deals">("direct");
   const [open, setOpen] = useState<ThreadDetail | null>(null);
   const [draft, setDraft] = useState("");
+  const draftRef = useRef<HTMLInputElement>(null);
+  const [pics, setPics] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
 
   function reloadList() {
@@ -162,9 +167,14 @@ function ChatsPage() {
                     {message.premium ? <span className="star">★ </span> : null}
                     <span className={message.premium ? "text-[#e6c36a]" : undefined}>@{message.handle}</span> · <span suppressHydrationWarning>{formatWhen(message.createdAt)}</span>
                   </p>
-                  <p className={message.mine ? "whitespace-pre-wrap bg-wine px-3 py-2 text-foam" : "whitespace-pre-wrap border border-ink/25 px-3 py-2"}>
-                    {message.body}
-                  </p>
+                  <div className={message.mine ? "bg-wine px-3 py-2 text-foam" : "border border-ink/25 px-3 py-2"}>
+                    {message.body ? (
+                      <p className="whitespace-pre-wrap">
+                        <RichText text={message.body} />
+                      </p>
+                    ) : null}
+                    <ChatPictures images={message.images} />
+                  </div>
                 </div>
               ))}
             </div>
@@ -173,22 +183,52 @@ function ChatsPage() {
               onSubmit={(e) => {
                 e.preventDefault();
                 const body = draft.trim();
-                if (!body) return;
+                const files = pics.slice(0, CHAT_IMAGE_COUNT);
+                if (!body && files.length === 0) return;
+                if (!open) return;
                 setBusy(true);
-                void sendDirect({ data: { threadId: open.id, handle: open.otherHandle, body } })
-                  .then((sent) => getThread({ data: sent.threadId }))
-                  .then((next) => {
+                void (async () => {
+                  let messageId: string | null = null;
+                  try {
+                    for (const file of files) await checkChatImage(file);
+                    const sent = await sendDirect({
+                      data: { threadId: open.id, handle: open.otherHandle, body, withImages: files.length > 0 },
+                    });
+                    messageId = sent.id;
+                    for (const file of files) await pushDmImage(sent.id, file);
+                    const next = await getThread({ data: sent.threadId });
                     if (next) setOpen(next);
                     setDraft("");
+                    setPics([]);
                     reloadList();
-                  })
-                  .catch((err) => toast.error(errText(err)))
-                  .finally(() => setBusy(false));
+                  } catch (err) {
+                    if (messageId && !body) await discardBlankDm({ data: messageId }).catch(() => undefined);
+                    toast.error(errText(err));
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
               }}
             >
+              <label className="block text-sm">
+                Картинки, до 10, каждая до 3 МБ
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  multiple
+                  className="mt-1 block w-full text-sm file:mr-3 file:min-h-11 file:border-0 file:bg-wine file:px-3 file:text-foam"
+                  onChange={(e) => {
+                    const picked = Array.from(e.target.files ?? []).slice(0, CHAT_IMAGE_COUNT);
+                    e.currentTarget.value = "";
+                    setPics(picked);
+                  }}
+                />
+                {pics.length > 0 ? <span className="mt-1 block font-mono text-xs text-muted">{pics.length} в этом сообщении. Нажмите на картинку, чтобы скачать.</span> : null}
+              </label>
               <div className="flex items-center gap-2">
                 <EmojiBar up onPick={(emoji) => setDraft((value) => value + emoji)} />
-                <input value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={2000} className={`${fieldClass} min-w-0 flex-1`} placeholder="Сообщение" />
+                <FormatBar inputRef={draftRef} value={draft} onChange={setDraft} />
+                <input ref={draftRef} value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={2000} className={`${fieldClass} min-w-0 flex-1`} placeholder="Сообщение" />
                 <Button type="submit" variant="wine" disabled={busy}>
                   Ок
                 </Button>

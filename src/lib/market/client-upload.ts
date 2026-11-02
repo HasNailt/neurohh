@@ -1,4 +1,4 @@
-import { attachDealImage, uploadMedia } from "@/lib/market/server";
+import { attachDealImage, attachDmImage, uploadMedia } from "@/lib/market/server";
 import { CHAT_IMAGE_DIM, CHAT_IMAGE_MAX, FILE_MAX, MAX_DIM, PREVIEW_MAX } from "@/lib/market/shared";
 
 function readB64(file: Blob): Promise<string> {
@@ -84,6 +84,13 @@ export async function pushChatImage(messageId: string, file: File): Promise<void
   const b64 = await readB64(file);
   if (b64.length < 32) throw new Error("Не удалось прочитать файл");
   await attachDealImage({ data: { messageId, filename: file.name, b64 } });
+}
+
+export async function pushDmImage(messageId: string, file: File): Promise<void> {
+  await checkChatImage(file);
+  const b64 = await readB64(file);
+  if (b64.length < 32) throw new Error("Не удалось прочитать файл");
+  await attachDmImage({ data: { messageId, filename: file.name, b64 } });
 }
 
 export async function pushFile(listingId: string, file: File, kind: "preview" | "file", cover = false) {

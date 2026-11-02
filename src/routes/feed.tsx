@@ -1,14 +1,15 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { ListingCardView } from "@/components/listing-card";
 import { PostCard } from "@/components/post-card";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
 import { EmojiBar } from "@/components/emoji-bar";
+import { FormatBar } from "@/components/rich-text";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { createPost, getMe, listFeed } from "@/lib/market/server";
-import { errText, type FeedEntry, type Me } from "@/lib/market/shared";
+import { errText, POST_IMAGE_MAX, type FeedEntry, type Me } from "@/lib/market/shared";
 
 export const Route = createFileRoute("/feed")({
   loader: () => listFeed().catch(() => [] as FeedEntry[]),
@@ -23,6 +24,7 @@ function FeedPage() {
   const [items, setItems] = useState<FeedEntry[]>(initial);
   const [me, setMe] = useState<Me | null>(null);
   const [body, setBody] = useState("");
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -46,7 +48,7 @@ function FeedPage() {
     setBusy(true);
     try {
       const images: string[] = [];
-      for (const file of files.slice(0, 4)) images.push(await jpegCard(file));
+      for (const file of files.slice(0, POST_IMAGE_MAX)) images.push(await jpegCard(file));
       await createPost({ data: { body, images } });
       setBody("");
       setFiles([]);
@@ -70,7 +72,9 @@ function FeedPage() {
       <form onSubmit={(e) => void onSubmit(e)} className="space-y-3 border border-ink/20 bg-card p-4">
         <div className="flex items-end gap-2">
           <EmojiBar up onPick={(emoji) => setBody((value) => value + emoji)} />
+          <FormatBar inputRef={bodyRef} value={body} onChange={setBody} />
           <textarea
+            ref={bodyRef}
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={4}
@@ -79,12 +83,13 @@ function FeedPage() {
             className={`${fieldClass} min-w-0 flex-1 py-2`}
           />
         </div>
+        <p className="font-mono text-xs text-muted">До {POST_IMAGE_MAX} картинок в ряд. Нажмите, чтобы открыть крупно.</p>
         <input
           type="file"
           accept="image/png,image/jpeg,image/webp,image/gif"
           multiple
           className="block w-full text-sm file:mr-3 file:min-h-11 file:border-0 file:bg-wine file:px-3 file:text-foam"
-          onChange={(e) => setFiles(Array.from(e.target.files ?? []).slice(0, 4))}
+          onChange={(e) => setFiles(Array.from(e.target.files ?? []).slice(0, POST_IMAGE_MAX))}
         />
         <Button type="submit" variant="wine" disabled={busy}>
           {busy ? "Публикуем…" : "Опубликовать пост"}
@@ -105,7 +110,7 @@ function FeedPage() {
                 onChange={reload}
               />
             ) : (
-              <div key={entry.lot.id} className="max-w-sm">
+              <div key={entry.lot.id} className={entry.lot.kind === "auction" ? "mx-auto w-full max-w-sm" : "max-w-sm"}>
                 {entry.authorIsNew ? (
                   <p className="mb-2 font-mono text-xs">
                     <Link to="/u/$handle" params={{ handle: entry.lot.sellerHandle }} className="hover:underline">

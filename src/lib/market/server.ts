@@ -29,6 +29,8 @@ import {
   SNIPE_OPTIONS,
   TOP_LIMIT,
   UUID_RE,
+  POST_IMAGE_MAX,
+  asEngine,
   cleanHandle,
   slugHandle,
   likeContains,
@@ -511,9 +513,14 @@ export const getListing = createServerFn({ method: "GET" })
         anti_snipe_minutes: number;
         created_at: unknown;
         current_bidder_id: string | null;
+        price2: number | null;
+        price2_label: string | null;
+        engine: string | null;
+        buy_now_currency: string | null;
       }
     >(
-      `select ${CARD_SQL}, l.blurb, l.anti_snipe_minutes, l.created_at, l.current_bidder_id
+      `select ${CARD_SQL}, l.blurb, l.anti_snipe_minutes, l.created_at, l.current_bidder_id,
+              l.price2, l.price2_label, l.engine, l.buy_now_currency
        from listings l
        left join profiles p on p.user_id = l.seller_id
        where l.id = $1`,
@@ -597,6 +604,10 @@ export const getListing = createServerFn({ method: "GET" })
       winnerId: row.winner_id,
       antiSnipeMinutes: num(row.anti_snipe_minutes),
       createdAt: iso(row.created_at),
+      price2: row.price2 == null ? null : num(row.price2),
+      price2Label: row.price2_label,
+      engine: row.engine,
+      buyNowCurrency: asPay(row.buy_now_currency ?? likedCards[0].currency),
       previews: previews.map((p) => ({
         id: p.id,
         src: p.view_b64 ? `data:image/jpeg;base64,${p.view_b64}` : p.card_b64 ? `data:image/jpeg;base64,${p.card_b64}` : null,
@@ -647,6 +658,10 @@ type CreateBody = {
   bidStep: number;
   currency: "rub" | "sw";
   tags: string[];
+  price2: number | null;
+  price2Label: string | null;
+  engine: string;
+  buyNowCurrency: "rub" | "sw";
 };
 
 function parseCreate(input: unknown): CreateBody {
@@ -663,21 +678,33 @@ function parseCreate(input: unknown): CreateBody {
   if (!kind) fail("Выберите аукцион или фиксированную цену");
   const price = parsePrice(o.price);
   if (price == null) fail("Цена — целое число от 1");
+  const currency = o.currency === "sw" ? "sw" : o.currency === "rub" ? "rub" : null;
+  if (!currency) fail("Выберите денежную ставку или токены SW");
+  const mixed = kind === "auction" && currency === "sw" && o.mixed === true;
   let buyNow: number | null = null;
   if (kind === "auction" && o.buyNow != null && o.buyNow !== "") {
     buyNow = parsePrice(o.buyNow);
-    if (buyNow == null || buyNow <= price) fail("«Купить сейчас» должно быть выше стартовой цены");
+    if (buyNow == null) fail("«Купить сейчас» — целое число больше 0");
+    if (!mixed && buyNow <= price) fail("«Купить сейчас» должно быть выше стартовой цены");
   }
   const durationHours = Number(o.durationHours);
-  if (kind === "auction" && ![1, 6, 12, 24, 72, 168].includes(durationHours)) {
-    fail("Выберите длительность аукциона");
+  if (kind === "auction" && ![12, 24, 48, 72].includes(durationHours)) {
+    fail("Выберите длительность: 12 часов, 1 день, 2 дня или 3 дня");
   }
   const anti = Number(o.antiSnipeMinutes);
   if (kind === "auction" && !(SNIPE_OPTIONS as readonly number[]).includes(anti)) {
-    fail("Выберите антиснайп: выключить, 10 минут, 30 минут или 1 час");
+    fail("Выберите антиснайп");
   }
-  const currency = o.currency === "sw" ? "sw" : o.currency === "rub" ? "rub" : null;
-  if (!currency) fail("Выберите денежную ставку или токены SW");
+  const engine = asEngine(o.engine);
+  if (!engine) fail("Выберите нейросеть");
+  let price2: number | null = null;
+  let price2Label: string | null = null;
+  if (kind === "fixed" && o.price2 != null && o.price2 !== "") {
+    price2 = parsePrice(o.price2);
+    if (price2 == null) fail("Вторая цена — целое число больше 0");
+    price2Label = cleanText(typeof o.price2Label === "string" ? o.price2Label : "", 80);
+    if (price2Label.length < 1) fail("Подпишите, за что вторая цена");
+  }
   const bidStep = kind === "auction" ? parsePrice(o.bidStep) : 1;
   if (kind === "auction" && bidStep == null) fail("Шаг ставки — целое число больше 0");
   const tags = Array.isArray(o.tags) ? o.tags.filter((t): t is string => typeof t === "string") : [];
@@ -694,6 +721,10 @@ function parseCreate(input: unknown): CreateBody {
     bidStep: bidStep ?? 1,
     currency,
     tags,
+    price2,
+    price2Label,
+    engine,
+    buyNowCurrency: mixed && buyNow != null ? "rub" : currency,
   };
 }
 
@@ -712,7 +743,8 @@ export const createListing = createServerFn({ method: "POST" })
     await sql`
       insert into listings (
         id, seller_id, title, blurb, private_description, kind, price, buy_now,
-        bid_step, currency, anti_snipe_minutes, ends_at, status
+        bid_step, currency, anti_snipe_minutes, ends_at, status,
+        price2, price2_label, engine, buy_now_currency
       ) values (
         ${id},
         ${context.userId},
@@ -726,7 +758,11 @@ export const createListing = createServerFn({ method: "POST" })
         ${data.currency},
         ${data.antiSnipeMinutes},
         case when ${data.kind} = 'auction' then now() + (${hours} * interval '1 hour') else null end,
-        'draft'
+        'draft',
+        ${data.price2},
+        ${data.price2Label},
+        ${data.engine},
+        ${data.buyNowCurrency}
       )
     `;
     await attachTags(sql, id, data.tags);
@@ -1062,10 +1098,11 @@ export const placeBid = createServerFn({ method: "POST" })
       seller_id: string;
       title: string;
       buy_now: number | null;
+      buy_now_currency: string | null;
       status: string;
       kind: string;
     }>`
-      select ends_at, current_bidder_id, current_bid, price, bid_step, currency, seller_id, title, buy_now, status, kind
+      select ends_at, current_bidder_id, current_bid, price, bid_step, currency, seller_id, title, buy_now, buy_now_currency, status, kind
       from listings where id = ${data.listingId}
     `;
     const lot = before[0];
@@ -1075,7 +1112,8 @@ export const placeBid = createServerFn({ method: "POST" })
     const standing = lot.current_bid == null ? null : num(lot.current_bid);
     const floor = standing == null ? num(lot.price) : standing + step;
     if (data.amount < floor) fail(`Минимальная ставка ${formatPrice(floor, currency)}`);
-    if (lot.buy_now != null && data.amount >= num(lot.buy_now)) {
+    const sameBuy = lot.buy_now != null && asPay(lot.buy_now_currency ?? lot.currency) === currency;
+    if (sameBuy && data.amount >= num(lot.buy_now)) {
       fail("Для этой суммы нажмите «Купить сейчас»");
     }
     const prevBidder = lot.current_bidder_id;
@@ -1097,7 +1135,11 @@ export const placeBid = createServerFn({ method: "POST" })
         and kind = 'auction'
         and ends_at > now()
         and ${data.amount} >= case when current_bid is null then price else current_bid + bid_step end
-        and (buy_now is null or ${data.amount} < buy_now)
+        and (
+          buy_now is null
+          or coalesce(buy_now_currency, currency) <> currency
+          or ${data.amount} < buy_now
+        )
       returning ends_at, current_bid, bid_count
     `;
     if (!updated[0]) fail("Ставка не принята — кто-то успел раньше или сумма слишком мала");
@@ -1140,24 +1182,30 @@ async function takeListing(
   sql: Sql,
   userId: string,
   listingId: string,
-  mode: "fixed" | "buy-now",
+  mode: "fixed" | "fixed-2" | "buy-now",
 ): Promise<{ dealId: string }> {
   await settle(sql);
   const profile = await ensureProfile(sql, userId);
   assertLive(profile);
   const updated =
-    mode === "fixed"
+    mode === "fixed" || mode === "fixed-2"
       ? await sql<CloseRow>`
           update listings
           set status = 'sold', winner_id = ${userId}, updated_at = now()
-          where id = ${listingId} and status = 'active' and kind = 'fixed' and seller_id <> ${userId}
-          returning id, title, seller_id, winner_id, price as amount, currency
+          where id = ${listingId}
+            and status = 'active'
+            and kind = 'fixed'
+            and seller_id <> ${userId}
+            and (${mode === "fixed-2"} = false or price2 is not null)
+          returning id, title, seller_id, winner_id,
+            case when ${mode === "fixed-2"} then price2 else price end as amount,
+            currency
         `
       : await sql<CloseRow>`
           update listings
           set status = 'sold',
               winner_id = ${userId},
-              current_bid = buy_now,
+              current_bid = case when coalesce(buy_now_currency, currency) = currency then buy_now else current_bid end,
               current_bidder_id = ${userId},
               updated_at = now()
           where id = ${listingId}
@@ -1166,7 +1214,7 @@ async function takeListing(
             and buy_now is not null
             and ends_at > now()
             and seller_id <> ${userId}
-          returning id, title, seller_id, winner_id, buy_now as amount, currency
+          returning id, title, seller_id, winner_id, buy_now as amount, coalesce(buy_now_currency, currency) as currency
         `;
   if (!updated[0]) fail("Лот уже забрали или он закрыт");
   const dealId = await openDeal(sql, updated[0]);
@@ -1176,13 +1224,16 @@ async function takeListing(
 
 export const buyFixed = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((id: unknown) => {
-    if (typeof id !== "string" || !UUID_RE.test(id)) fail("Некорректный лот");
-    return id;
+  .validator((input: unknown) => {
+    if (typeof input === "string" && UUID_RE.test(input)) return { id: input, tier: 1 as const };
+    if (!input || typeof input !== "object") fail("Некорректный лот");
+    const o = input as Record<string, unknown>;
+    if (typeof o.id !== "string" || !UUID_RE.test(o.id)) fail("Некорректный лот");
+    return { id: o.id, tier: o.tier === 2 ? (2 as const) : (1 as const) };
   })
   .handler(async ({ data, context }) => {
     const sql = await getSql();
-    return takeListing(sql, context.userId, data, "fixed");
+    return takeListing(sql, context.userId, data.id, data.tier === 2 ? "fixed-2" : "fixed");
   });
 
 export const buyNow = createServerFn({ method: "POST" })
@@ -2735,12 +2786,34 @@ async function loadThread(sql: Sql, threadId: string, userId: string): Promise<T
     limit 200
   `;
   const last = messages[messages.length - 1];
+  const ids = messages.map((m) => m.id);
+  const pics = ids.length
+    ? await sql<{ id: string; message_id: string; filename: string; mime: string; size_bytes: number; width: number | null; height: number | null }>`
+        select id, message_id, filename, mime, size_bytes, width, height
+        from dm_message_images
+        where message_id = any(${ids}::text[])
+        order by sort asc
+      `
+    : [];
+  const byMessage = new Map<string, ChatImage[]>();
+  for (const pic of pics) {
+    const list = byMessage.get(pic.message_id) ?? [];
+    list.push({
+      id: pic.id,
+      filename: pic.filename,
+      mime: pic.mime,
+      sizeBytes: num(pic.size_bytes),
+      width: pic.width,
+      height: pic.height,
+    });
+    byMessage.set(pic.message_id, list);
+  }
   return {
     id: thread.id,
     otherHandle: thread.other_handle,
     otherName: thread.other_name,
     otherPremium: Boolean(thread.other_premium),
-    lastBody: last?.body ?? null,
+    lastBody: last?.body ? last.body : last ? "картинка" : null,
     updatedAt: last ? iso(last.created_at) : new Date().toISOString(),
     messages: messages.map((m) => ({
       id: m.id,
@@ -2749,6 +2822,7 @@ async function loadThread(sql: Sql, threadId: string, userId: string): Promise<T
       createdAt: iso(m.created_at),
       mine: m.sender_id === userId,
       premium: Boolean(m.premium),
+      images: byMessage.get(m.id) ?? [],
     })),
   };
 }
@@ -2825,8 +2899,9 @@ export const sendDirect = createServerFn({ method: "POST" })
     const handle = typeof o.handle === "string" ? o.handle.trim().toLocaleLowerCase("ru") : "";
     if (!threadId && !cleanHandle(handle)) fail("Некорректный чат");
     const body = cleanText(typeof o.body === "string" ? o.body : "", 2000);
-    if (body.length < 1) fail("Напишите сообщение");
-    return { threadId, handle, body };
+    const withImages = o.withImages === true;
+    if (body.length < 1 && !withImages) fail("Напишите сообщение или приложите картинку");
+    return { threadId, handle, body, withImages };
   })
   .handler(async ({ data, context }) => {
     const sql = await getSql();
@@ -2851,13 +2926,84 @@ export const sendDirect = createServerFn({ method: "POST" })
       where id = ${threadId} and (low_id = ${context.userId} or high_id = ${context.userId})
     `;
     if (!thread[0]) fail("Нет доступа к чату");
+    const messageId = crypto.randomUUID();
     await sql`
       insert into dm_messages (id, thread_id, sender_id, body)
-      values (${crypto.randomUUID()}, ${threadId}, ${context.userId}, ${data.body})
+      values (${messageId}, ${threadId}, ${context.userId}, ${data.body})
     `;
     const other = thread[0].low_id === context.userId ? thread[0].high_id : thread[0].low_id;
-    await notify(sql, other, "dm", "Новое сообщение", `${me.handle}: ${data.body.slice(0, 140)}`, "/chats");
-    return { ok: true, threadId };
+    const preview = data.body ? data.body.slice(0, 140) : "картинка";
+    await notify(sql, other, "dm", "Новое сообщение", `${me.handle}: ${preview}`, "/chats");
+    return { ok: true, threadId, id: messageId };
+  });
+
+export const attachDmImage = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    if (!input || typeof input !== "object") fail("Пустой файл");
+    const o = input as Record<string, unknown>;
+    if (typeof o.messageId !== "string" || !UUID_RE.test(o.messageId)) fail("Некорректное сообщение");
+    if (typeof o.filename !== "string" || typeof o.b64 !== "string") fail("Файл не прочитан");
+    const b64 = o.b64.replace(/^data:[^,]*,/, "").replace(/\s/g, "");
+    if (b64.length > 4_600_000) fail("Картинка больше 3 МБ");
+    return { messageId: o.messageId, filename: o.filename, b64 };
+  })
+  .handler(async ({ data, context }) => {
+    const sql = await getSql();
+    const profile = await ensureProfile(sql, context.userId);
+    assertLive(profile);
+    const message = await sql<{ id: string }>`
+      select m.id
+      from dm_messages m
+      join dm_threads t on t.id = m.thread_id
+      where m.id = ${data.messageId}
+        and m.sender_id = ${context.userId}
+        and (t.low_id = ${context.userId} or t.high_id = ${context.userId})
+    `;
+    if (!message[0]) fail("Это сообщение нельзя дополнить");
+    const counts = await sql<{ n: number }>`
+      select count(*)::int as n from dm_message_images where message_id = ${data.messageId}
+    `;
+    if (num(counts[0]?.n) >= CHAT_IMAGE_COUNT) fail("Не больше 10 картинок в одном сообщении");
+    const buf = Buffer.from(data.b64, "base64");
+    if (buf.length > CHAT_IMAGE_MAX) fail("Картинка больше 3 МБ");
+    if (buf.length < 32) fail("Файл пустой");
+    const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+    const magic = sniffMagic(bytes);
+    if (!magic || !isRaster(magic)) fail("В чат — только PNG, JPG, WEBP или GIF");
+    const size = decodedImageSize(bytes);
+    if (!size) fail("Не удалось прочитать размер изображения");
+    if (size.width > CHAT_IMAGE_DIM || size.height > CHAT_IMAGE_DIM) {
+      fail(`Картинка больше ${CHAT_IMAGE_DIM}×${CHAT_IMAGE_DIM}`);
+    }
+    const filename = data.filename.replace(/[^\p{L}\p{N}._\- ()]+/gu, "_").slice(0, 80) || "image";
+    const id = crypto.randomUUID();
+    await sql`
+      insert into dm_message_images (id, message_id, filename, mime, data_b64, width, height, size_bytes, sort)
+      values (
+        ${id}, ${data.messageId}, ${filename}, ${magic}, ${buf.toString("base64")},
+        ${size.width}, ${size.height}, ${buf.length}, ${num(counts[0]?.n)}
+      )
+    `;
+    return { id };
+  });
+
+export const discardBlankDm = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((id: unknown) => {
+    if (typeof id !== "string" || !UUID_RE.test(id)) fail("Некорректное сообщение");
+    return id;
+  })
+  .handler(async ({ data: id, context }) => {
+    const sql = await getSql();
+    await sql`
+      delete from dm_messages
+      where id = ${id}
+        and sender_id = ${context.userId}
+        and body = ''
+        and not exists (select 1 from dm_message_images where message_id = ${id})
+    `;
+    return { ok: true };
   });
 
 async function loadAuthorPosts(sql: Sql, authorId: string): Promise<AuthorPost[]> {
@@ -3084,7 +3230,7 @@ export const createPost = createServerFn({ method: "POST" })
     const body = cleanText(typeof o.body === "string" ? o.body : "", 2000);
     if (body.length < 1) fail("Напишите текст поста");
     const images = Array.isArray(o.images) ? o.images.filter((item): item is string => typeof item === "string") : [];
-    if (images.length > 4) fail("Не больше 4 картинок");
+    if (images.length > POST_IMAGE_MAX) fail(`Не больше ${POST_IMAGE_MAX} картинок`);
     return { body, images: images.map((item) => item.replace(/^data:[^,]*,/, "").replace(/\s/g, "")) };
   })
   .handler(async ({ data, context }) => {

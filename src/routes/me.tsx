@@ -1,8 +1,9 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
 import { EmojiBar } from "@/components/emoji-bar";
+import { FormatBar } from "@/components/rich-text";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { clearProfileImage, getMe, updateProfile, updateProfileLook, uploadProfileImage } from "@/lib/market/server";
@@ -60,6 +61,7 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
   const [handle, setHandle] = useState(me.handle);
   const [displayName, setDisplayName] = useState(me.displayName);
   const [bio, setBio] = useState(me.bio);
+  const bioRef = useRef<HTMLTextAreaElement>(null);
   const [status, setStatus] = useState<ArtistStatus>(me.status);
   const [links, setLinks] = useState<SocialLink[]>(me.links.length ? me.links : [{ label: "", url: "" }]);
   const [saving, setSaving] = useState(false);
@@ -180,7 +182,8 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
         О себе
         <div className="mt-1 flex items-end gap-2">
           <EmojiBar up onPick={(emoji) => setBio((value) => value + emoji)} />
-          <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={4} maxLength={400} className={`${fieldClass} min-w-0 flex-1 py-2`} />
+          <FormatBar inputRef={bioRef} value={bio} onChange={setBio} />
+          <textarea ref={bioRef} value={bio} onChange={(e) => setBio(e.target.value)} rows={4} maxLength={400} className={`${fieldClass} min-w-0 flex-1 py-2`} />
         </div>
       </label>
       <fieldset className="space-y-2">
@@ -286,7 +289,7 @@ function LookForm({
     >
       <p className="font-display text-2xl">Оформление профиля</p>
       <ImageSlot
-        label="Центр, до 3 МБ и 3000×3000"
+        label="Фон блока профиля — шапка, ник и описание. До 3 МБ"
         kind="background"
         has={me.hasBackground}
         handle={me.handle}
@@ -296,7 +299,7 @@ function LookForm({
         onClear={() => onClear("background")}
       />
       <ImageSlot
-        label="Левый бок, до 3 МБ. На телефоне скрыт"
+        label="Левый бок, до 3 МБ. На всю высоту профиля, на телефоне скрыт"
         kind="side_left"
         has={me.hasSideLeft}
         handle={me.handle}
@@ -306,7 +309,7 @@ function LookForm({
         onClear={() => onClear("side_left")}
       />
       <ImageSlot
-        label="Правый бок, до 3 МБ. На телефоне скрыт"
+        label="Правый бок, до 3 МБ. На всю высоту профиля, на телефоне скрыт"
         kind="side_right"
         has={me.hasSideRight}
         handle={me.handle}

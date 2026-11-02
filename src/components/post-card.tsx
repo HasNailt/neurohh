@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
+import { ImageZoom } from "@/components/image-zoom";
 import { Nick, PremiumBadge } from "@/components/nick";
 import { EmojiBar } from "@/components/emoji-bar";
+import { FormatBar, RichText } from "@/components/rich-text";
 import { Button, fieldClass } from "@/components/ui-bits";
 import { addPostComment, deletePost, setPostPinned } from "@/lib/market/server";
 import { errText, formatWhen, type AuthorPost, type PostComment } from "@/lib/market/shared";
@@ -16,8 +18,10 @@ export function PostCard({
   onChange: () => void;
 }) {
   const [body, setBody] = useState("");
+  const bodyRef = useRef<HTMLInputElement>(null);
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [zoom, setZoom] = useState<string | null>(null);
   const roots = post.comments.filter((comment) => !comment.parentId);
   const replies = (id: string) => post.comments.filter((comment) => comment.parentId === id);
 
@@ -78,14 +82,21 @@ export function PostCard({
           </span>
         ) : null}
       </div>
-      <p className="whitespace-pre-wrap">{post.body}</p>
+      <p className="whitespace-pre-wrap">
+        <RichText text={post.body} />
+      </p>
       {post.images.length > 0 ? (
-        <div className="flex flex-wrap items-start gap-3">
+        <div className="flex flex-nowrap items-start gap-2 overflow-x-auto">
           {post.images.map((image) => (
-            <img key={image.id} src={image.src} alt="" className="h-auto max-h-[28rem] w-auto max-w-full object-contain" />
+            <button key={image.id} type="button" className="shrink-0" onClick={() => setZoom(image.src)}>
+              <img src={image.src} alt="" className="h-40 w-auto max-w-64 object-contain" />
+            </button>
           ))}
         </div>
       ) : null}
+      <ImageZoom open={Boolean(zoom)} onClose={() => setZoom(null)}>
+        {zoom ? <img src={zoom} alt="" className="max-h-[90vh] max-w-[90vw] object-contain" /> : null}
+      </ImageZoom>
       <ul className="space-y-3 border-t border-ink/10 pt-3">
         {roots.map((comment) => (
           <li key={comment.id}>
@@ -110,7 +121,8 @@ export function PostCard({
         }}
       >
         <EmojiBar up onPick={(emoji) => setBody((value) => value + emoji)} />
-        <input value={body} onChange={(e) => setBody(e.target.value)} placeholder={replyTo ? "Ответ" : "Комментарий"} className={`${fieldClass} min-w-0 flex-1`} />
+        <FormatBar inputRef={bodyRef} value={body} onChange={setBody} />
+        <input ref={bodyRef} value={body} onChange={(e) => setBody(e.target.value)} placeholder={replyTo ? "Ответ" : "Комментарий"} className={`${fieldClass} min-w-0 flex-1`} />
         <Button type="submit" variant="line" disabled={busy}>
           ок
         </Button>
@@ -130,7 +142,9 @@ function CommentLine({ comment, onReply }: { comment: PostComment; onReply: () =
           ответить
         </button>
       </p>
-      <p className="whitespace-pre-wrap">{comment.body}</p>
+      <p className="whitespace-pre-wrap">
+        <RichText text={comment.body} />
+      </p>
     </div>
   );
 }

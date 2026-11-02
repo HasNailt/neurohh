@@ -5,6 +5,7 @@ import { ListingCardView } from "@/components/listing-card";
 import { Nick, PremiumBadge } from "@/components/nick";
 import { PostCard } from "@/components/post-card";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
+import { RichText } from "@/components/rich-text";
 import { ACCENTS, THEMES, type AvatarFrame, type BannerOverlay } from "@/lib/market/themes";
 import { getMe, getPublicProfile, listProfileLots, toggleFollow } from "@/lib/market/server";
 import { siteThemeSnapshot, subscribeSiteTheme } from "@/lib/site-theme";
@@ -105,7 +106,6 @@ function ProfilePage() {
   const accent = ACCENTS[profile.accent].color;
   const scope: CSSProperties = {
     color: theme.ink,
-    background: theme.bg,
     ["--p-bg" as string]: theme.bg,
     ["--p-ink" as string]: theme.ink,
     ["--p-muted" as string]: theme.muted,
@@ -115,34 +115,40 @@ function ProfilePage() {
     ["--p-foam" as string]: theme.foam,
   };
   const bannerStyle = bannerLayer(profile.bannerOverlay, banner, theme.bg);
+  const sidePanel = (url: string, edge: "left" | "right"): CSSProperties => ({
+    backgroundImage: `url(${url})`,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    width: "calc((100% - min(72rem, 100%)) / 2 + 6rem)",
+    [edge]: 0,
+  });
 
   return (
-    <div className="relative -mx-4 py-6 sm:-mx-0">
+    <div className="relative -mx-4 py-6">
       {sideLeft || sideRight ? (
-        <div className="pointer-events-none absolute inset-0 hidden xl:grid xl:grid-cols-[minmax(0,1fr)_64rem_minmax(0,1fr)]">
-          <div
-            className="bg-cover bg-center"
-            style={sideLeft ? { backgroundImage: `url(${sideLeft})` } : undefined}
-          />
-          <div />
-          <div
-            className="bg-cover bg-center"
-            style={sideRight ? { backgroundImage: `url(${sideRight})` } : undefined}
-          />
+        <div className="pointer-events-none absolute inset-y-0 left-1/2 z-0 hidden w-screen -translate-x-1/2 xl:block">
+          {sideLeft ? <div aria-hidden className="absolute inset-y-0" style={sidePanel(sideLeft, "left")} /> : null}
+          {sideRight ? <div aria-hidden className="absolute inset-y-0" style={sidePanel(sideRight, "right")} /> : null}
         </div>
       ) : null}
-      <div className="profile-scope relative z-10 mx-auto max-w-5xl space-y-8 px-4" style={scope}>
+      <div className="profile-scope relative z-10 mx-auto w-full max-w-6xl space-y-8 px-4" style={scope}>
       <section
         className="theme-card relative z-0 overflow-hidden border"
         style={
           center
-            ? { backgroundImage: `url(${center})`, backgroundSize: "cover", backgroundPosition: "center" }
-            : { background: theme.card }
+            ? {
+                background: `linear-gradient(180deg, color-mix(in srgb, ${theme.bg} 28%, transparent), color-mix(in srgb, ${theme.bg} 58%, transparent)), url(${center}) center / cover no-repeat`,
+                color: theme.ink,
+              }
+            : { background: theme.card, color: theme.ink }
         }
       >
-        <div style={center ? { background: `color-mix(in srgb, ${theme.bg} 58%, transparent)` } : undefined}>
-          <div className="relative h-36 border-b sm:h-48" style={{ borderColor: theme.line, ...bannerStyle }}>
-            {banner ? null : <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${accent} 0%, ${theme.bg} 55%, ${theme.card} 100%)` }} />}
+        <div>
+          <div className="relative h-36 overflow-hidden border-b sm:h-48" style={{ borderColor: theme.line, ...(banner ? bannerStyle : {}) }}>
+            {!banner && !center ? (
+              <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${accent} 0%, ${theme.bg} 55%, ${theme.card} 100%)` }} />
+            ) : null}
             <span className="pointer-events-none absolute top-3 left-3 h-3 w-3 border-t border-l" style={{ borderColor: hud }} />
             <span className="pointer-events-none absolute top-3 right-3 h-3 w-3 border-t border-r" style={{ borderColor: hud }} />
             <p className="absolute bottom-3 left-36 font-mono text-[10px] tracking-[0.22em] uppercase sm:left-44" style={{ color: hud }}>
@@ -188,7 +194,11 @@ function ProfilePage() {
                 на площадке с {formatWhen(profile.createdAt)}
               </span>
             </div>
-            {profile.bio ? <p className="mt-4 max-w-prose whitespace-pre-wrap">{profile.bio}</p> : (
+            {profile.bio ? (
+              <p className="mt-4 max-w-prose whitespace-pre-wrap">
+                <RichText text={profile.bio} />
+              </p>
+            ) : (
               <p className="mt-4 text-sm text-muted">Описание пока пустое.</p>
             )}
             {profile.links.length > 0 ? (
@@ -226,7 +236,7 @@ function ProfilePage() {
             </div>
           ) : null}
           {profile.posts.some((post) => post.pinned) ? (
-            <div className="mx-auto max-w-5xl space-y-3">
+            <div className="mx-auto space-y-3">
               {profile.posts
                 .filter((post) => post.pinned)
                 .slice(0, 3)
@@ -306,7 +316,7 @@ function ProfilePage() {
       ) : profile.posts.length === 0 ? (
         <p className="text-muted">Постов пока нет.</p>
       ) : (
-        <div className="mx-auto max-w-5xl space-y-4">
+        <div className="space-y-4">
           {profile.posts.map((post) => (
             <PostCard
               key={post.id}

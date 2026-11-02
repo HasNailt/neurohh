@@ -3,12 +3,13 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { TagField } from "@/components/tag-field";
 import { EmojiBar } from "@/components/emoji-bar";
+import { FormatBar } from "@/components/rich-text";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { checkPreviewFile, pushFile } from "@/lib/market/client-upload";
 import { createListing, discardListing, getMe, publishListing } from "@/lib/market/server";
-import { DURATIONS, MAX_PREVIEWS, PREMIUM_BLURB_MAX, PREMIUM_PREVIEWS, errText, payLabel, type PayKind } from "@/lib/market/shared";
+import { DURATIONS, ENGINES, MAX_PREVIEWS, PREMIUM_BLURB_MAX, PREMIUM_PREVIEWS, errText, payLabel, type EngineId, type PayKind } from "@/lib/market/shared";
 
 export const Route = createFileRoute("/sell")({
   head: () => ({ meta: [{ title: "Новый лот — AdoptAI" }] }),
@@ -33,6 +34,10 @@ function SellForm() {
   const [buyNow, setBuyNow] = useState("");
   const [durationHours, setDurationHours] = useState(24);
   const [antiSnipeMinutes, setAntiSnipeMinutes] = useState(0);
+  const [price2, setPrice2] = useState("");
+  const [price2Label, setPrice2Label] = useState("");
+  const [engine, setEngine] = useState<EngineId>("niji");
+  const [mixed, setMixed] = useState(false);
   const [tags, setTags] = useState<string[]>([]);
   const [images, setImages] = useState<{ key: string; file: File; url: string }[]>([]);
   const [coverKey, setCoverKey] = useState<string | null>(null);
@@ -47,6 +52,9 @@ function SellForm() {
     void getMe().then((me) => setPremium(me.premium)).catch(() => undefined);
   }, []);
 
+  const titleRef = useRef<HTMLInputElement>(null);
+  const blurbRef = useRef<HTMLTextAreaElement>(null);
+  const price2Ref = useRef<HTMLInputElement>(null);
   const imagesRef = useRef(images);
   imagesRef.current = images;
   useEffect(() => {
@@ -122,6 +130,10 @@ function SellForm() {
           durationHours,
           antiSnipeMinutes,
           tags,
+          engine,
+          mixed: kind === "auction" && currency === "sw" && mixed,
+          price2: kind === "fixed" && price2.trim() ? Number(price2) : null,
+          price2Label,
         },
       });
       createdId = created.id;
@@ -185,13 +197,17 @@ function SellForm() {
       </div>
       <label className="block text-sm">
         Название
-        <input value={title} onChange={(e) => setTitle(e.target.value)} required minLength={3} maxLength={80} className={`${fieldClass} mt-1`} />
+        <div className="mt-1 flex items-end gap-2">
+          <FormatBar inputRef={titleRef} value={title} onChange={setTitle} />
+          <input ref={titleRef} value={title} onChange={(e) => setTitle(e.target.value)} required minLength={3} maxLength={80} className={`${fieldClass} min-w-0 flex-1`} />
+        </div>
       </label>
       <label className="block text-sm">
         Коротко на карточке
         <div className="mt-1 flex items-end gap-2">
           <EmojiBar up onPick={(emoji) => setBlurb((value) => value + emoji)} />
-          <textarea value={blurb} onChange={(e) => setBlurb(e.target.value)} maxLength={blurbCap} rows={3} className={`${fieldClass} min-w-0 flex-1 py-2`} />
+          <FormatBar inputRef={blurbRef} value={blurb} onChange={setBlurb} />
+          <textarea ref={blurbRef} value={blurb} onChange={(e) => setBlurb(e.target.value)} maxLength={blurbCap} rows={3} className={`${fieldClass} min-w-0 flex-1 py-2`} />
         </div>
         <span className="mt-1 block font-mono text-xs text-muted">{blurb.length}/{blurbCap}</span>
       </label>
@@ -234,9 +250,15 @@ function SellForm() {
             />
           </label>
           <label className="block text-sm">
-            Купить сейчас, {currency === "sw" ? "SW" : "₽"} — необязательно, выше старта
+            {mixed ? "Автовыкуп, ₽ — любая сумма, даже меньше старта в SW" : `Купить сейчас, ${currency === "sw" ? "SW" : "₽"} — необязательно, выше старта`}
             <input value={buyNow} onChange={(e) => setBuyNow(e.target.value)} inputMode="numeric" className={`${fieldClass} mt-1 tabular-nums`} />
           </label>
+          {currency === "sw" ? (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={mixed} onChange={(e) => setMixed(e.target.checked)} />
+              Смешанные ставки: обычные в SW, автовыкуп в рублях
+            </label>
+          ) : null}
           <fieldset>
             <legend className="text-sm">Длительность</legend>
             <div className="mt-2 flex flex-wrap gap-2">
@@ -253,13 +275,14 @@ function SellForm() {
             </div>
           </fieldset>
           <fieldset>
-            <legend className="text-sm">Антиснайп — по желанию. Ставка в последние минуты продлевает аукцион на столько же</legend>
+            <legend className="text-sm">Антиснайп — по желанию. Ставка в конце продлевает аукцион на выбранный срок</legend>
             <div className="mt-2 flex flex-wrap gap-2">
               {[
                 [0, "Выключить"],
                 [10, "10 мин"],
                 [30, "30 мин"],
                 [60, "1 час"],
+                [1440, "24 часа"],
               ].map(([n, label]) => (
                 <button
                   key={n}
@@ -273,7 +296,37 @@ function SellForm() {
             </div>
           </fieldset>
         </>
-      ) : null}
+      ) : (
+        <div className="grid gap-3 border border-ink/20 p-3">
+          <p className="text-sm">Второй фикс — необязательно</p>
+          <label className="block text-sm">
+            Вторая цена, {currency === "sw" ? "SW" : "₽"}
+            <input value={price2} onChange={(e) => setPrice2(e.target.value)} inputMode="numeric" placeholder="Пусто, если одна цена" className={`${fieldClass} mt-1 tabular-nums`} />
+          </label>
+          <label className="block text-sm">
+            За что эта цена
+            <div className="mt-1 flex items-end gap-2">
+              <FormatBar inputRef={price2Ref} value={price2Label} onChange={setPrice2Label} />
+              <input ref={price2Ref} value={price2Label} onChange={(e) => setPrice2Label(e.target.value)} maxLength={80} placeholder="Например, с фоном" className={`${fieldClass} min-w-0 flex-1`} />
+            </div>
+          </label>
+        </div>
+      )}
+      <fieldset>
+        <legend className="text-sm">Нейросеть</legend>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {ENGINES.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setEngine(item.id)}
+              className={engine === item.id ? "min-h-11 border border-wine bg-wine px-3 text-foam" : "min-h-11 border border-ink/25 px-3"}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </fieldset>
       <div>
         <p className="mb-2 text-sm">Теги</p>
         <TagField tags={tags} onChange={setTags} />

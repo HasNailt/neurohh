@@ -1,9 +1,11 @@
 import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ImageZoom } from "@/components/image-zoom";
 import { PreviewImg } from "@/components/preview-img";
 import { Button, fieldClass, Frame, Kicker, StatusChip } from "@/components/ui-bits";
 import { EmojiBar } from "@/components/emoji-bar";
+import { FormatBar, RichText } from "@/components/rich-text";
 import { Nick } from "@/components/nick";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
@@ -15,11 +17,12 @@ import {
   reportListing,
   toggleLike,
 } from "@/lib/market/server";
-import { errText, formatPrice, formatWhen, payLabel, type ListingDetail } from "@/lib/market/shared";
+import { engineLabel, errText, formatPrice, formatWhen, payLabel, type ListingDetail } from "@/lib/market/shared";
 
 function snipeLabel(minutes: number): string {
   if (minutes <= 0) return "антиснайп выключен";
   if (minutes === 60) return "антиснайп 1 час";
+  if (minutes === 1440) return "антиснайп 24 часа";
   return `антиснайп ${minutes} мин`;
 }
 
@@ -58,13 +61,16 @@ function LotView({ lot }: { lot: ListingDetail }) {
   const [bid, setBid] = useState("");
   const [comment, setComment] = useState("");
   const [reason, setReason] = useState("");
+  const commentRef = useRef<HTMLInputElement>(null);
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const step = Math.max(1, lot.bidStep || 1);
   const floor = lot.currentBid == null ? lot.price : lot.currentBid + step;
+  const mixed = lot.currency === "sw" && lot.buyNowCurrency === "rub";
   const showBuyNow =
-    live && !mine && lot.kind === "auction" && lot.buyNow != null && (lot.currentBid == null || lot.currentBid < lot.buyNow);
+    live && !mine && lot.kind === "auction" && lot.buyNow != null && (mixed || lot.currentBid == null || lot.currentBid < lot.buyNow);
 
   async function run(job: () => Promise<void>) {
     setBusy(true);
@@ -84,8 +90,13 @@ function LotView({ lot }: { lot: ListingDetail }) {
         <Gallery lot={lot} />
         <div className="border border-ink/20 bg-card p-4">
           <Kicker>{lot.kind === "auction" ? "auction" : "fixed"}</Kicker>
-          <h1 className="mt-2 font-display text-2xl leading-tight">{lot.title}</h1>
-          <p className="mt-3 whitespace-pre-wrap text-base text-ink/90">{lot.blurb || "Без короткого описания."}</p>
+          <h1 className="mt-2 font-display text-2xl leading-tight">
+            <RichText text={lot.title} />
+          </h1>
+          {engineLabel(lot.engine) ? <p className="mt-2 font-mono text-xs tracking-widest text-muted uppercase">{engineLabel(lot.engine)}</p> : null}
+          <p className="mt-3 whitespace-pre-wrap text-base text-ink/90">
+            {lot.blurb ? <RichText text={lot.blurb} /> : "Без короткого описания."}
+          </p>
           <p className="mt-3 text-base text-ink/90">
             <Nick handle={lot.sellerHandle} premium={lot.sellerPremium} />
             <span className="text-muted">
@@ -123,7 +134,9 @@ function LotView({ lot }: { lot: ListingDetail }) {
                   {" · "}
                   {formatWhen(item.createdAt)}
                 </p>
-                <p className="mt-1 whitespace-pre-wrap">{item.body}</p>
+                <p className="mt-1 whitespace-pre-wrap">
+                  <RichText text={item.body} />
+                </p>
               </li>
             ))}
           </ul>
@@ -141,7 +154,8 @@ function LotView({ lot }: { lot: ListingDetail }) {
               }}
             >
               <EmojiBar up onPick={(emoji) => setComment((value) => value + emoji)} />
-              <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий" className={`${fieldClass} min-w-0 flex-1`} />
+              <FormatBar inputRef={commentRef} value={comment} onChange={setComment} />
+              <input ref={commentRef} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий" className={`${fieldClass} min-w-0 flex-1`} />
               <Button type="submit" variant="line" disabled={busy}>
                 ок
               </Button>
@@ -180,13 +194,27 @@ function LotView({ lot }: { lot: ListingDetail }) {
               {formatPrice(lot.kind === "auction" ? (lot.currentBid ?? lot.price) : lot.price, lot.currency)}
             </p>
             <p className="font-mono text-xs text-muted">{payLabel(lot.currency)}</p>
-            {lot.kind === "auction" ? (
-              <p className="font-mono text-xs text-muted">
-                старт {formatPrice(lot.price, lot.currency)}
-                {" · "}шаг {formatPrice(step, lot.currency)}
-                {lot.bidCount > 0 ? ` · ${lot.bidCount} став.` : ""}
-                {lot.buyNow != null ? ` · сразу ${formatPrice(lot.buyNow, lot.currency)}` : ""}
+            {lot.kind === "fixed" && lot.price2 != null ? (
+              <p className="font-mono text-sm">
+                ещё {formatPrice(lot.price2, lot.currency)}
+                {lot.price2Label ? (
+                  <>
+                    {" — "}
+                    <RichText text={lot.price2Label} />
+                  </>
+                ) : null}
               </p>
+            ) : null}
+            {lot.kind === "auction" ? (
+              <>
+                <p className="font-mono text-xs text-muted">
+                  старт {formatPrice(lot.price, lot.currency)}
+                  {" · "}шаг {formatPrice(step, lot.currency)}
+                  {lot.bidCount > 0 ? ` · ${lot.bidCount} став.` : ""}
+                  {lot.buyNow != null ? ` · автовыкуп ${formatPrice(lot.buyNow, lot.buyNowCurrency)}` : ""}
+                </p>
+                {mixed ? <p className="font-mono text-xs text-muted">Ставки в SW. Автовыкуп в ₽.</p> : null}
+              </>
             ) : null}
             {lot.kind === "auction" && lot.endsAt && live ? <Countdown endsAt={lot.endsAt} /> : null}
             {lot.dealId && user ? (
@@ -237,7 +265,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
                   })
                 }
               >
-                Купить сейчас · {formatPrice(lot.buyNow ?? 0, lot.currency)}
+                Купить сейчас · {formatPrice(lot.buyNow ?? 0, lot.buyNowCurrency)}
               </Button>
             ) : null}
             {live && lot.kind === "fixed" && user && !mine ? (
@@ -253,6 +281,28 @@ function LotView({ lot }: { lot: ListingDetail }) {
                 }
               >
                 Забрать за {formatPrice(lot.price, lot.currency)}
+              </Button>
+            ) : null}
+            {live && lot.kind === "fixed" && user && !mine && lot.price2 != null ? (
+              <Button
+                variant="line"
+                className="w-full"
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    const res = await buyFixed({ data: { id: lot.id, tier: 2 } });
+                    toast.success("Лот ваш");
+                    await navigate({ to: "/deals/$id", params: { id: res.dealId } });
+                  })
+                }
+              >
+                {lot.price2Label ? (
+                  <>
+                    <RichText text={lot.price2Label} />
+                    {" · "}
+                  </>
+                ) : null}
+                {formatPrice(lot.price2, lot.currency)}
               </Button>
             ) : null}
             {!user && live ? (
@@ -300,7 +350,8 @@ function LotView({ lot }: { lot: ListingDetail }) {
               >
                 <div className="flex items-end gap-2">
                   <EmojiBar up onPick={(emoji) => setReason((value) => value + emoji)} />
-                  <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} className={`${fieldClass} min-w-0 flex-1 py-2`} placeholder="Что не так с лотом" />
+                  <FormatBar inputRef={reasonRef} value={reason} onChange={setReason} />
+                  <textarea ref={reasonRef} value={reason} onChange={(e) => setReason(e.target.value)} rows={3} className={`${fieldClass} min-w-0 flex-1 py-2`} placeholder="Что не так с лотом" />
                 </div>
                 <Button type="submit" variant="line" disabled={busy}>
                   отправить
@@ -316,6 +367,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
 
 function Gallery({ lot }: { lot: ListingDetail }) {
   const [active, setActive] = useState(lot.previews[0]?.id ?? "");
+  const [zoom, setZoom] = useState(false);
   useEffect(() => {
     setActive(lot.previews[0]?.id ?? "");
   }, [lot.id, lot.previews]);
@@ -344,14 +396,16 @@ function Gallery({ lot }: { lot: ListingDetail }) {
     <div className="space-y-2">
       <Frame>
         <div className="relative">
-          <PreviewImg
-            id={current.id}
-            src={current.src || current.card}
-            variant="view"
-            alt={lot.title}
-            className="max-h-[70vh] w-full bg-soft object-contain"
-            fallback={fallback}
-          />
+          <button type="button" className="block w-full" onClick={() => setZoom(true)} aria-label="Открыть картинку">
+            <PreviewImg
+              id={current.id}
+              src={current.src || current.card}
+              variant="view"
+              alt={lot.title}
+              className="max-h-[70vh] w-full bg-soft object-contain"
+              fallback={fallback}
+            />
+          </button>
           {lot.previews.length > 1 ? (
             <>
               <button type="button" onClick={() => step(-1)} className="absolute top-1/2 left-2 min-h-11 min-w-11 -translate-y-1/2 border border-ink/30 bg-paper/90 font-mono text-sm" aria-label="Предыдущая">
@@ -364,6 +418,15 @@ function Gallery({ lot }: { lot: ListingDetail }) {
           ) : null}
         </div>
       </Frame>
+      <ImageZoom open={zoom} onClose={() => setZoom(false)}>
+        <PreviewImg
+          id={current.id}
+          src={current.src || current.card}
+          variant="view"
+          alt={lot.title}
+          className="max-h-[90vh] max-w-[90vw] object-contain"
+        />
+      </ImageZoom>
       {lot.previews.length > 1 ? (
         <div className="flex gap-2 overflow-x-auto">
           {lot.previews.map((p) => (

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { ChatPictures } from "@/components/chat-picture";
 import { Button, fieldClass } from "@/components/ui-bits";
 import { EmojiBar } from "@/components/emoji-bar";
+import { FormatBar, RichText } from "@/components/rich-text";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { checkChatImage, pushChatImage } from "@/lib/market/client-upload";
@@ -20,6 +21,7 @@ function DealPage() {
   const { user, isPending } = useCurrentUserState();
   const [deal, setDeal] = useState<DealDetail | null | undefined>(undefined);
   const [draft, setDraft] = useState("");
+  const draftRef = useRef<HTMLInputElement>(null);
   const [pics, setPics] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
@@ -109,7 +111,11 @@ function DealPage() {
                     <span suppressHydrationWarning>{formatWhen(message.createdAt)}</span>
                   </p>
                   <div className={message.senderId === user.id ? "bg-wine px-3 py-2 text-foam" : "border border-ink/20 bg-paper px-3 py-2"}>
-                    {message.body ? <p className="whitespace-pre-wrap">{message.body}</p> : null}
+                    {message.body ? (
+                      <p className="whitespace-pre-wrap">
+                        <RichText text={message.body} />
+                      </p>
+                    ) : null}
                     <ChatPictures images={message.images} />
                   </div>
                 </div>
@@ -182,7 +188,9 @@ function DealPage() {
           </label>
           <div className="flex items-center gap-2">
             <EmojiBar up onPick={(emoji) => setDraft((value) => value + emoji)} />
+            <FormatBar inputRef={draftRef} value={draft} onChange={setDraft} />
             <input
+              ref={draftRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder="Сообщение"

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { PreviewImg } from "@/components/preview-img";
 import { Frame } from "@/components/ui-bits";
 import { formatLeft, formatPrice, type ListingCard } from "@/lib/market/shared";
+import { RichText } from "@/components/rich-text";
 
 function LiveLeft({ endsAt }: { endsAt: string }) {
   const [text, setText] = useState("···");
@@ -69,7 +70,9 @@ export function ListingCardView({
               </div>
             ) : null}
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-paper via-paper/95 to-transparent px-2 pt-10 pb-2 text-ink">
-              <p className={dense ? "truncate font-display text-sm leading-none" : "truncate font-display text-xl leading-none"}>{item.title}</p>
+              <p className={dense ? "truncate font-display text-sm leading-none" : "truncate font-display text-xl leading-none"}>
+                <RichText text={item.title} />
+              </p>
               <p className="mt-1 truncate font-mono text-[11px]">
                 {item.sellerPremium ? <span className="star">★ </span> : null}
                 <span className={item.sellerPremium ? "text-[#e6c36a]" : "text-muted"}>@{item.sellerHandle}</span>
