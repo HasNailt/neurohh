@@ -41,12 +41,16 @@ function PremiumPage() {
           <Kicker>off-site</Kicker>
           <h1 className="mt-3 font-display text-6xl leading-none tracking-tight sm:text-8xl">Premium</h1>
           <p className="mt-5 font-display text-5xl leading-none text-[#e6c36a] tabular-nums">250 ₽</p>
+          <p className="mt-2 font-mono text-sm tracking-wide text-ink">на месяц</p>
           <div className="mx-auto mt-6 h-px w-24 bg-[#e6c36a]/70" />
           <div className="mt-4">
             <Hearts />
           </div>
           <p className="mx-auto mt-5 max-w-md text-sm text-muted">
-            Оплату площадка не принимает. Premium выдаётся после оплаты вне сайта.
+            Для покупки писать:{" "}
+            <a href="https://t.me/Dont_Sleep_Alex" className="text-ink underline" target="_blank" rel="noreferrer">
+              https://t.me/Dont_Sleep_Alex
+            </a>
           </p>
         </div>
         <p className="mt-8 text-center font-mono text-[10px] tracking-[0.22em] text-muted uppercase">HI SCORE // ★</p>
@@ -109,6 +113,9 @@ function PremiumPage() {
           <Row left="В поиске людей Premium тоже выше" right="search" />
         </div>
       </section>
+      <p className="text-center text-xs leading-relaxed text-muted">
+        Вся собранная сумма идёт на поддержание и развитие сайта.
+      </p>
     </article>
   );
 }
