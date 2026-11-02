@@ -203,6 +203,17 @@ function LotView({ lot }: { lot: ListingDetail }) {
                   )}
             </p>
             <p className="font-mono text-xs text-muted">{payLabel(lot.currency)}</p>
+            {lot.status === "sold" && lot.buyerHandles ? (
+              <p className="font-mono text-sm">
+                {lot.buyerHandles.includes(", ") ? "выкупили " : "выкупил "}
+                {lot.buyerHandles.split(", ").map((handle, index) => (
+                  <span key={handle}>
+                    {index > 0 ? ", " : null}
+                    <Nick handle={handle} />
+                  </span>
+                ))}
+              </p>
+            ) : null}
             {lot.kind === "auction" ? (
               <>
                 <p className="font-mono text-xs text-muted">
@@ -298,7 +309,15 @@ function LotView({ lot }: { lot: ListingDetail }) {
                       <span className="font-mono tabular-nums">{formatPrice(slot.price, lot.currency)}</span>
                     </div>
                     {slot.status === "sold" ? (
-                      <p className="mt-2 font-mono text-xs text-muted">Продано</p>
+                      <p className="mt-2 font-mono text-xs text-muted">
+                        Продано
+                        {slot.buyerHandle ? (
+                          <>
+                            {" · выкупил "}
+                            <Nick handle={slot.buyerHandle} premium={slot.buyerPremium} />
+                          </>
+                        ) : null}
+                      </p>
                     ) : live && user && !mine ? (
                       <Button
                         className="mt-2 w-full"

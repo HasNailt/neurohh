@@ -325,7 +325,20 @@ const CARD_SQL = `
     where lt.listing_id = l.id
   ), '[]'::json) as tags,
   (l.boosted_until is not null and l.boosted_until > now()) as boosted,
-  (coalesce(p.premium_forever, false) or (p.premium_until is not null and p.premium_until > now())) as seller_premium
+  (coalesce(p.premium_forever, false) or (p.premium_until is not null and p.premium_until > now())) as seller_premium,
+  coalesce((
+    select string_agg(b.handle, ', ' order by b.handle)
+    from (
+      select distinct p2.handle as handle
+      from listing_items i
+      join profiles p2 on p2.user_id = i.buyer_id
+      where i.listing_id = l.id and i.status = 'sold' and i.buyer_id is not null
+      union
+      select wp.handle
+      from profiles wp
+      where wp.user_id = l.winner_id
+    ) b
+  ), '') as buyer_handles
 `;
 
 type CardRow = {
@@ -351,6 +364,7 @@ type CardRow = {
   pinned: boolean;
   boosted: boolean;
   seller_premium: boolean;
+  buyer_handles: string | null;
 };
 
 function inlineImage(value: unknown): string | null {
@@ -387,6 +401,7 @@ function mapCard(row: CardRow): ListingCard {
     previewId: row.preview_id,
     previewSrc: inlineImage(row.preview_inline),
     tags: asTags(row.tags),
+    buyerHandles: row.buyer_handles ? row.buyer_handles : null,
   };
 }
 
@@ -573,10 +588,15 @@ export const getListing = createServerFn({ method: "GET" })
       status: string;
       buyer_id: string | null;
       deal_id: string | null;
+      buyer_handle: string | null;
+      buyer_premium: boolean;
     }>`
-      select i.id, i.title, i.price, i.status, i.buyer_id, d.id as deal_id
+      select i.id, i.title, i.price, i.status, i.buyer_id, d.id as deal_id,
+        bp.handle as buyer_handle,
+        (coalesce(bp.premium_forever, false) or (bp.premium_until is not null and bp.premium_until > now())) as buyer_premium
       from listing_items i
       left join deals d on d.item_id = i.id
+      left join profiles bp on bp.user_id = i.buyer_id
       where i.listing_id = ${id}
       order by i.position asc
     `;
@@ -589,6 +609,8 @@ export const getListing = createServerFn({ method: "GET" })
             status: item.status === "sold" ? "sold" : "open",
             dealId:
               userId && (isSeller || item.buyer_id === userId) ? (item.deal_id ?? null) : null,
+            buyerHandle: item.buyer_handle,
+            buyerPremium: Boolean(item.buyer_premium),
           }))
         : row.kind === "fixed"
           ? [
@@ -598,6 +620,8 @@ export const getListing = createServerFn({ method: "GET" })
                 price: num(row.price),
                 status: row.status === "sold" ? "sold" : "open",
                 dealId: null,
+                buyerHandle: row.buyer_handles ? row.buyer_handles.split(", ")[0] || null : null,
+                buyerPremium: false,
               },
             ]
           : [];
@@ -1306,6 +1330,7 @@ async function takeListing(
           winner_id = ${userId},
           current_bid = case when coalesce(buy_now_currency, currency) = currency then buy_now else current_bid end,
           current_bidder_id = ${userId},
+          bid_count = bid_count + 1,
           updated_at = now()
       where id = ${listingId}
         and status = 'active'
@@ -1316,6 +1341,14 @@ async function takeListing(
       returning id, title, seller_id, winner_id, buy_now as amount, coalesce(buy_now_currency, currency) as currency
     `;
     if (!updated[0]) fail("Лот уже забрали или он закрыт");
+    await sql`
+      insert into bids (id, listing_id, bidder_id, amount)
+      select ${crypto.randomUUID()}, id, ${userId}, current_bid
+      from listings
+      where id = ${listingId}
+        and current_bid is not null
+        and coalesce(buy_now_currency, currency) = currency
+    `;
     const dealId = await openDeal(sql, updated[0]);
     if (!dealId) fail("Не удалось открыть сделку");
     return { dealId };

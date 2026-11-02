@@ -85,6 +85,11 @@ export function ListingCardView({
               {item.kind === "auction" && item.bidCount > 0 ? (
                 <p className="font-mono text-[11px] text-muted">{item.bidCount} став.</p>
               ) : null}
+              {item.status === "sold" && item.buyerHandles ? (
+                <p className="truncate font-mono text-[11px] text-muted">
+                  {item.buyerHandles.includes(", ") ? "выкупили" : "выкупил"} @{item.buyerHandles}
+                </p>
+              ) : null}
             </div>
           </div>
         </Frame>

@@ -284,6 +284,7 @@ export type ListingCard = {
   previewId: string | null;
   previewSrc: string | null;
   tags: Tag[];
+  buyerHandles: string | null;
 };
 
 export type FeedQuery = {
@@ -306,6 +307,8 @@ export type LotSlot = {
   price: number;
   status: "open" | "sold";
   dealId: string | null;
+  buyerHandle: string | null;
+  buyerPremium: boolean;
 };
 
 export type ListingDetail = ListingCard & {
