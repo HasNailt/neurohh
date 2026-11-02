@@ -152,7 +152,8 @@ create index if not exists bids_listing_idx on bids (listing_id, created_at desc
 
 create table if not exists deals (
   id text primary key,
-  listing_id text not null unique references listings (id),
+  listing_id text unique references listings (id) on delete set null,
+  listing_title text,
   seller_id text not null references profiles (user_id),
   buyer_id text not null references profiles (user_id),
   amount integer not null,

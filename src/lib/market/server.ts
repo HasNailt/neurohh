@@ -224,8 +224,8 @@ async function openDeal(sql: Sql, row: CloseRow): Promise<string | null> {
   if (!row.winner_id) return null;
   const id = crypto.randomUUID();
   const inserted = await sql<{ id: string; public_no: number }>`
-    insert into deals (id, listing_id, seller_id, buyer_id, amount, currency, status)
-    values (${id}, ${row.id}, ${row.seller_id}, ${row.winner_id}, ${num(row.amount)}, ${asPay(row.currency)}, 'awaiting_payment')
+    insert into deals (id, listing_id, seller_id, buyer_id, amount, currency, status, listing_title)
+    values (${id}, ${row.id}, ${row.seller_id}, ${row.winner_id}, ${num(row.amount)}, ${asPay(row.currency)}, 'awaiting_payment', ${row.title})
     on conflict (listing_id) do nothing
     returning id, public_no
   `;
@@ -976,26 +976,19 @@ export const cancelListing = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-/** Erase a lot and everything attached to it: pictures, bids, chat, deal. */
+/** Erase the lot and its pictures. A deal chat stays, with the listing link cleared. */
 async function purgeListing(sql: Sql, id: string) {
-  const deals = await sql<{ id: string }>`select id from deals where listing_id = ${id}`;
-  const dealIds = deals.map((deal) => deal.id);
-  if (dealIds.length > 0) {
-    const hrefs = dealIds.map((dealId) => `/deals/${dealId}`);
-    await sql`delete from notifications where href = any(${hrefs}::text[])`;
-    await sql`
-      delete from message_images
-      where message_id in (select id from messages where deal_id = any(${dealIds}::text[]))
-    `;
-    await sql`delete from messages where deal_id = any(${dealIds}::text[])`;
-    await sql`delete from deals where listing_id = ${id}`;
-  }
+  await sql`
+    update deals
+    set listing_title = coalesce(nullif(listing_title, ''), (select title from listings where id = ${id}))
+    where listing_id = ${id}
+  `;
   await sql`delete from reports where listing_id = ${id}`;
   await sql`delete from notifications where href = ${`/lot/${id}`}`;
   await sql`delete from listings where id = ${id}`;
 }
 
-/** Owner can erase any of their lots. Images, bids and the deal go with it. */
+/** Owner can erase any of their lots. The deal chat is kept. */
 export const deleteListing = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((id: unknown) => {
@@ -1336,14 +1329,14 @@ export const getPublicProfile = createServerFn({ method: "GET" })
         `select ${CARD_SQL}
          from listings l
          left join profiles p on p.user_id = l.seller_id
-         where l.seller_id = $1 and l.status in ('active', 'sold', 'ended')
+         where l.seller_id = $1 and l.status = 'active'
          order by l.pinned desc, l.created_at desc
          limit $2 offset $3`,
         [userId, PROFILE_LOT_PAGE, offset],
       ),
       sql<{ n: number }>`
         select count(*)::int as n from listings
-        where seller_id = ${userId} and status in ('active', 'sold', 'ended')
+        where seller_id = ${userId} and status = 'active'
       `,
       sql<{ kind: string }>`select kind from profile_images where user_id = ${userId}`,
       loadAuthorPosts(sql, userId),
@@ -1399,7 +1392,7 @@ export const listDeals = createServerFn({ method: "GET" })
     const rows = await sql<{
       id: string;
       public_no: number;
-      listing_id: string;
+      listing_id: string | null;
       title: string;
       preview_id: string | null;
       amount: number;
@@ -1412,7 +1405,9 @@ export const listDeals = createServerFn({ method: "GET" })
       buyer_premium: boolean;
       created_at: unknown;
     }>`
-      select d.id, d.public_no, d.listing_id, l.title, d.amount, l.currency, d.status, d.seller_id,
+      select d.id, d.public_no, d.listing_id,
+             coalesce(l.title, d.listing_title, 'Лот удалён') as title,
+             d.amount, coalesce(l.currency, d.currency, 'rub') as currency, d.status, d.seller_id,
              d.created_at, sp.handle as seller_handle, bp.handle as buyer_handle,
              (coalesce(sp.premium_forever, false) or (sp.premium_until is not null and sp.premium_until > now())) as seller_premium,
              (coalesce(bp.premium_forever, false) or (bp.premium_until is not null and bp.premium_until > now())) as buyer_premium,
@@ -1422,7 +1417,7 @@ export const listDeals = createServerFn({ method: "GET" })
                order by m.created_at asc limit 1
              ) as preview_id
       from deals d
-      join listings l on l.id = d.listing_id
+      left join listings l on l.id = d.listing_id
       join profiles sp on sp.user_id = d.seller_id
       join profiles bp on bp.user_id = d.buyer_id
       where d.seller_id = ${context.userId} or d.buyer_id = ${context.userId}
@@ -1504,7 +1499,7 @@ async function loadDeal(sql: Sql, id: string, uid: string): Promise<DealDetail |
   const rows = await sql<{
     id: string;
     public_no: number;
-    listing_id: string;
+    listing_id: string | null;
     title: string;
     amount: number;
     currency: string;
@@ -1522,7 +1517,9 @@ async function loadDeal(sql: Sql, id: string, uid: string): Promise<DealDetail |
     private_description: string;
     preview_id: string | null;
   }>`
-    select d.id, d.public_no, d.listing_id, l.title, d.amount, l.currency, d.status,
+    select d.id, d.public_no, d.listing_id,
+           coalesce(l.title, d.listing_title, 'Лот удалён') as title,
+           d.amount, coalesce(l.currency, d.currency, 'rub') as currency, d.status,
            d.seller_id, d.buyer_id,
            sp.handle as seller_handle, sp.display_name as seller_name,
            bp.handle as buyer_handle, bp.display_name as buyer_name,
@@ -1535,7 +1532,7 @@ async function loadDeal(sql: Sql, id: string, uid: string): Promise<DealDetail |
              order by m.created_at asc limit 1
            ) as preview_id
     from deals d
-    join listings l on l.id = d.listing_id
+    left join listings l on l.id = d.listing_id
     join profiles sp on sp.user_id = d.seller_id
     join profiles bp on bp.user_id = d.buyer_id
     where d.id = ${id}
@@ -1570,6 +1567,7 @@ async function loadDeal(sql: Sql, id: string, uid: string): Promise<DealDetail |
     id: d.id,
     publicNo: num(d.public_no),
     listingId: d.listing_id,
+    listingGone: d.listing_id == null,
     title: d.title,
     previewId: d.preview_id,
     amount: num(d.amount),
@@ -1581,7 +1579,7 @@ async function loadDeal(sql: Sql, id: string, uid: string): Promise<DealDetail |
     sellerConfirmed: d.seller_confirmed_at != null,
     buyerConfirmed: d.buyer_confirmed_at != null,
     privateDescription: showSecret ? d.private_description : null,
-    files: showSecret ? await loadFiles(sql, d.listing_id) : null,
+    files: showSecret && d.listing_id ? await loadFiles(sql, d.listing_id) : null,
     messages: await hydrateMessages(sql, messages),
   };
 }
@@ -1613,6 +1611,7 @@ export const getStaffDeal = createServerFn({ method: "GET" })
       id: string;
       public_no: number;
       title: string;
+      listing_id: string | null;
       amount: number;
       currency: string;
       status: DealStatus;
@@ -1623,13 +1622,15 @@ export const getStaffDeal = createServerFn({ method: "GET" })
       seller_premium: boolean;
       buyer_premium: boolean;
     }>`
-      select d.id, d.public_no, l.title, d.amount, l.currency, d.status,
+      select d.id, d.public_no, d.listing_id,
+             coalesce(l.title, d.listing_title, 'Лот удалён') as title,
+             d.amount, coalesce(l.currency, d.currency, 'rub') as currency, d.status,
              sp.handle as seller_handle, sp.display_name as seller_name,
              bp.handle as buyer_handle, bp.display_name as buyer_name,
              (coalesce(sp.premium_forever, false) or (sp.premium_until is not null and sp.premium_until > now())) as seller_premium,
              (coalesce(bp.premium_forever, false) or (bp.premium_until is not null and bp.premium_until > now())) as buyer_premium
       from deals d
-      join listings l on l.id = d.listing_id
+      left join listings l on l.id = d.listing_id
       join profiles sp on sp.user_id = d.seller_id
       join profiles bp on bp.user_id = d.buyer_id
       where d.public_no = ${publicNo}
@@ -1656,6 +1657,7 @@ export const getStaffDeal = createServerFn({ method: "GET" })
       id: d.id,
       publicNo: num(d.public_no),
       title: d.title,
+      listingGone: d.listing_id == null,
       amount: num(d.amount),
       currency: asPay(d.currency),
       status: d.status,
@@ -1681,8 +1683,9 @@ export const sendMessage = createServerFn({ method: "POST" })
     const profile = await ensureProfile(sql, context.userId);
     assertLive(profile);
     const deal = await sql<{ seller_id: string; buyer_id: string; title: string }>`
-      select d.seller_id, d.buyer_id, l.title
-      from deals d join listings l on l.id = d.listing_id
+      select d.seller_id, d.buyer_id, coalesce(l.title, d.listing_title, 'Лот') as title
+      from deals d
+      left join listings l on l.id = d.listing_id
       where d.id = ${data.dealId}
     `;
     const d = deal[0];
@@ -1796,8 +1799,10 @@ export const confirmPayment = createServerFn({ method: "POST" })
       buyer_confirmed_at: unknown;
       title: string;
     }>`
-      select d.seller_id, d.buyer_id, d.status, d.seller_confirmed_at, d.buyer_confirmed_at, l.title
-      from deals d join listings l on l.id = d.listing_id
+      select d.seller_id, d.buyer_id, d.status, d.seller_confirmed_at, d.buyer_confirmed_at,
+             coalesce(l.title, d.listing_title, 'Лот') as title
+      from deals d
+      left join listings l on l.id = d.listing_id
       where d.id = ${id}
     `;
     const d = rows[0];
@@ -2081,9 +2086,10 @@ export const adminOverview = createServerFn({ method: "GET" })
       seller_handle: string;
       buyer_handle: string;
     }>`
-      select d.id, d.public_no, l.title, d.status, sp.handle as seller_handle, bp.handle as buyer_handle
+      select d.id, d.public_no, coalesce(l.title, d.listing_title, 'Лот удалён') as title, d.status,
+             sp.handle as seller_handle, bp.handle as buyer_handle
       from deals d
-      join listings l on l.id = d.listing_id
+      left join listings l on l.id = d.listing_id
       join profiles sp on sp.user_id = d.seller_id
       join profiles bp on bp.user_id = d.buyer_id
       order by d.public_no desc
@@ -2716,6 +2722,17 @@ async function loadThread(sql: Sql, threadId: string, userId: string): Promise<T
   };
 }
 
+/** Same ordering as dm_threads_order_chk (low_id < high_id), not JavaScript string compare. */
+async function orderedDmIds(sql: Sql, a: string, b: string): Promise<{ low: string; high: string }> {
+  const rows = await sql<{ low: string | null; high: string | null }>`
+    select case when ${a} < ${b} then ${a} when ${b} < ${a} then ${b} else null end as low,
+           case when ${a} < ${b} then ${b} when ${b} < ${a} then ${a} else null end as high
+  `;
+  const pair = rows[0];
+  if (!pair?.low || !pair.high || pair.low === pair.high) fail("Себе написать нельзя");
+  return { low: pair.low, high: pair.high };
+}
+
 export const openThread = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((handle: unknown) => {
@@ -2730,10 +2747,7 @@ export const openThread = createServerFn({ method: "POST" })
     const other = await sql<{ user_id: string }>`select user_id from profiles where handle = ${handle}`;
     if (!other[0]) fail("Такого профиля нет");
     if (other[0].user_id === context.userId) fail("Себе написать нельзя");
-    const [low, high] =
-      context.userId < other[0].user_id
-        ? [context.userId, other[0].user_id]
-        : [other[0].user_id, context.userId];
+    const { low, high } = await orderedDmIds(sql, context.userId, other[0].user_id);
     const existing = await sql<{ id: string }>`
       select id from dm_threads where low_id = ${low} and high_id = ${high}
     `;
@@ -2792,10 +2806,7 @@ export const sendDirect = createServerFn({ method: "POST" })
       const other = await sql<{ user_id: string }>`select user_id from profiles where handle = ${data.handle}`;
       if (!other[0]) fail("Такого профиля нет");
       if (other[0].user_id === context.userId) fail("Себе написать нельзя");
-      const [low, high] =
-        context.userId < other[0].user_id
-          ? [context.userId, other[0].user_id]
-          : [other[0].user_id, context.userId];
+      const { low, high } = await orderedDmIds(sql, context.userId, other[0].user_id);
       const existing = await sql<{ id: string }>`
         select id from dm_threads where low_id = ${low} and high_id = ${high}
       `;
@@ -2917,26 +2928,28 @@ export const listProfileLots = createServerFn({ method: "GET" })
     const handle = typeof o.handle === "string" ? o.handle.trim().toLocaleLowerCase("ru") : "";
     if (!cleanHandle(handle)) fail("Некорректный профиль");
     const page = Number(o.page);
-    return { handle, page: Number.isInteger(page) && page > 0 && page < 500 ? page : 1 };
+    const state = o.state === "closed" ? "closed" : "open";
+    return { handle, page: Number.isInteger(page) && page > 0 && page < 500 ? page : 1, state };
   })
   .handler(async ({ data }): Promise<{ items: ListingCard[]; total: number }> => {
     const sql = await getSql();
     const profile = await sql<{ user_id: string }>`select user_id from profiles where handle = ${data.handle}`;
     if (!profile[0]) return { items: [], total: 0 };
     const offset = (data.page - 1) * PROFILE_LOT_PAGE;
+    const statuses = data.state === "closed" ? ["sold", "ended"] : ["active"];
     const [items, totalRow] = await Promise.all([
       sql.query<CardRow>(
         `select ${CARD_SQL}
          from listings l
          left join profiles p on p.user_id = l.seller_id
-         where l.seller_id = $1 and l.status in ('active', 'sold', 'ended')
+         where l.seller_id = $1 and l.status = any($2::text[])
          order by l.pinned desc, l.created_at desc
-         limit $2 offset $3`,
-        [profile[0].user_id, PROFILE_LOT_PAGE, offset],
+         limit $3 offset $4`,
+        [profile[0].user_id, statuses, PROFILE_LOT_PAGE, offset],
       ),
       sql<{ n: number }>`
         select count(*)::int as n from listings
-        where seller_id = ${profile[0].user_id} and status in ('active', 'sold', 'ended')
+        where seller_id = ${profile[0].user_id} and status = any(${statuses}::text[])
       `,
     ]);
     return { items: items.map(mapCard), total: num(totalRow[0]?.n) };

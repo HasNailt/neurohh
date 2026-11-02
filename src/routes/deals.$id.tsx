@@ -77,10 +77,15 @@ function DealPage() {
     <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
       <div className="space-y-3">
         <h1 className="font-display text-4xl leading-none">
-          <Link to="/lot/$id" params={{ id: deal.listingId }} className="hover:underline">
-            {deal.title}
-          </Link>
+          {deal.listingId ? (
+            <Link to="/lot/$id" params={{ id: deal.listingId }} className="hover:underline">
+              {deal.title}
+            </Link>
+          ) : (
+            deal.title
+          )}
         </h1>
+        {deal.listingGone ? <p className="font-mono text-xs text-muted">Лот удалён. Переписка сохранена.</p> : null}
         <div className="flex h-[70vh] min-h-96 flex-col border border-ink/20 bg-card">
           <div
             ref={scroller}

@@ -19,10 +19,12 @@ export function ListingCardView({
   item,
   showPrice = true,
   dense = false,
+  showSold = false,
 }: {
   item: ListingCard;
   showPrice?: boolean;
   dense?: boolean;
+  showSold?: boolean;
 }) {
   const price = item.kind === "auction" ? (item.currentBid ?? item.price) : item.price;
   const letter = (item.title.trim()[0] || "A").toLocaleUpperCase("ru");
@@ -57,7 +59,11 @@ export function ListingCardView({
               {item.sellerPremium ? <div className="border border-[#e6c36a] bg-[#1a1408]/85 px-1.5 py-0.5 font-mono text-[10px] text-[#e6c36a]">★</div> : null}
               {item.boosted ? <div className="bg-[#e6c36a] px-1.5 py-0.5 font-mono text-[10px] text-[#1a1408]">BOOST</div> : null}
             </div>
-            {item.kind === "auction" && item.endsAt && item.status === "active" ? (
+            {showSold && (item.status === "sold" || item.status === "ended") ? (
+              <div className="absolute top-2 right-2 border border-ink/20 bg-paper/90 px-1.5 py-0.5 font-mono text-[10px] text-ink">
+                Продан
+              </div>
+            ) : item.kind === "auction" && item.endsAt && item.status === "active" ? (
               <div className="absolute top-2 right-2 bg-wine px-1.5 py-0.5 font-mono text-[10px] text-foam">
                 <LiveLeft endsAt={item.endsAt} />
               </div>

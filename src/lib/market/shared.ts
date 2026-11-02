@@ -378,7 +378,7 @@ export type PersonHit = {
 export type DealSummary = {
   id: string;
   publicNo: number;
-  listingId: string;
+  listingId: string | null;
   title: string;
   previewId: string | null;
   amount: number;
@@ -415,7 +415,8 @@ export type ChatMessage = {
 export type DealDetail = {
   id: string;
   publicNo: number;
-  listingId: string;
+  listingId: string | null;
+  listingGone: boolean;
   title: string;
   previewId: string | null;
   amount: number;
@@ -435,6 +436,7 @@ export type StaffDeal = {
   id: string;
   publicNo: number;
   title: string;
+  listingGone: boolean;
   amount: number;
   currency: PayKind;
   status: DealStatus;

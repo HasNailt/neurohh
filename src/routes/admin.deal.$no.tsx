@@ -65,6 +65,7 @@ function StaffDealPage() {
         <h1 className="mt-2 font-display text-4xl leading-none">
           {formatDealNo(deal.publicNo)} {deal.title}
         </h1>
+        {deal.listingGone ? <p className="mt-2 font-mono text-xs text-muted">Лот удалён. Переписка сохранена.</p> : null}
         <p className="mt-2 text-sm text-muted">
           Продавец @{deal.seller.handle} · покупатель @{deal.buyer.handle} · {formatPrice(deal.amount, deal.currency)} · {payLabel(deal.currency)}
         </p>

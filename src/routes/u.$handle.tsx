@@ -53,6 +53,7 @@ function ProfilePage() {
   const { user } = useCurrentUserState();
   const [me, setMe] = useState<Me | null>(null);
   const [tab, setTab] = useState<"lots" | "posts">("lots");
+  const [lotState, setLotState] = useState<"open" | "closed">("open");
   const [page, setPage] = useState(1);
   const [lots, setLots] = useState<ListingCard[]>(loaded?.lots ?? []);
   const [total, setTotal] = useState(loaded?.lotTotal ?? 0);
@@ -71,6 +72,7 @@ function ProfilePage() {
     setLots(loaded.lots);
     setTotal(loaded.lotTotal);
     setPage(1);
+    setLotState("open");
   }, [loaded]);
 
   if (!loaded) {
@@ -87,13 +89,10 @@ function ProfilePage() {
   const banner = profile.hasBanner ? profileImageUrl(profile.handle, "banner") : "";
   const pages = Math.max(1, Math.ceil(total / PROFILE_LOT_PAGE));
 
-  function openPage(next: number) {
+  function openPage(next: number, state: "open" | "closed" = lotState) {
     setPage(next);
-    if (next === 1) {
-      setLots(profile.lots);
-      return;
-    }
-    void listProfileLots({ data: { handle: profile.handle, page: next } })
+    setLotState(state);
+    void listProfileLots({ data: { handle: profile.handle, page: next, state } })
       .then((res) => {
         setLots(res.items);
         setTotal(res.total);
@@ -206,7 +205,7 @@ function ProfilePage() {
                 .filter((item) => item.pinned)
                 .slice(0, 3)
                 .map((item) => (
-                  <ListingCardView key={item.id} item={item} showPrice={false} dense />
+                  <ListingCardView key={item.id} item={item} showPrice={false} showSold dense />
                 ))}
             </div>
           ) : null}
@@ -247,12 +246,30 @@ function ProfilePage() {
       </div>
       {tab === "lots" ? (
         <section className="space-y-4">
+          <div className="flex gap-2">
+            {(
+              [
+                ["open", "Открыт"],
+                ["closed", "Закрыт"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={lotState === id ? "theme-chip min-h-11 border px-4" : "min-h-11 border px-4"}
+                style={lotState === id ? undefined : { borderColor: "var(--p-line)", color: "var(--p-ink)" }}
+                onClick={() => openPage(1, id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           {lots.length === 0 ? (
-            <p className="text-muted">Лотов нет.</p>
+            <p className="text-muted">{lotState === "open" ? "Открытых лотов нет." : "Закрытых лотов нет."}</p>
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
               {lots.map((item) => (
-                <ListingCardView key={item.id} item={item} showPrice={false} dense />
+                <ListingCardView key={item.id} item={item} showPrice={false} showSold dense />
               ))}
             </div>
           )}

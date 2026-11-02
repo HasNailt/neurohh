@@ -60,12 +60,13 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
   const [bio, setBio] = useState(me.bio);
   const [status, setStatus] = useState<ArtistStatus>(me.status);
   const [links, setLinks] = useState<SocialLink[]>(me.links.length ? me.links : [{ label: "", url: "" }]);
-  const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
   const [stamp, setStamp] = useState(Date.now());
 
   async function saveImage(kind: ProfileImageKind, file: File | undefined) {
     if (!file) return;
-    setBusy(true);
+    setImageBusy(true);
     try {
       if (kind === "avatar") await assertAvatar(file);
       const b64 = await fileToB64(file);
@@ -77,36 +78,12 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
     } catch (err) {
       toast.error(errText(err));
     } finally {
-      setBusy(false);
+      setImageBusy(false);
     }
   }
 
   return (
-    <div className="mx-auto grid max-w-xl gap-4">
-    <form
-      className="grid gap-4"
-      onSubmit={(e) => {
-        e.preventDefault();
-        setBusy(true);
-        void updateProfile({
-          data: {
-            handle,
-            displayName,
-            bio,
-            status,
-            links: links.filter((l) => l.label.trim() || l.url.trim()),
-          },
-        })
-          .then(async () => {
-            toast.success("Профиль сохранён");
-            const next = await getMe();
-            onSaved(next);
-            await router.invalidate();
-          })
-          .catch((err) => toast.error(errText(err)))
-          .finally(() => setBusy(false));
-      }}
-    >
+    <div className="mx-auto grid max-w-xl gap-4 pb-24">
       <div>
         <Kicker>you</Kicker>
         <h1 className="mt-2 font-display text-5xl leading-none">профиль</h1>
@@ -123,10 +100,10 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
         has={me.hasAvatar}
         handle={me.handle}
         stamp={stamp}
-        busy={busy}
+        busy={imageBusy}
         onFile={(file) => void saveImage("avatar", file)}
         onClear={() => {
-          setBusy(true);
+          setImageBusy(true);
           void clearProfileImage({ data: "avatar" })
             .then(() => getMe())
             .then((next) => {
@@ -134,7 +111,7 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
               setStamp(Date.now());
             })
             .catch((err) => toast.error(errText(err)))
-            .finally(() => setBusy(false));
+            .finally(() => setImageBusy(false));
         }}
       />
       <ImageSlot
@@ -143,15 +120,15 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
         has={me.hasBanner}
         handle={me.handle}
         stamp={stamp}
-        busy={busy}
+        busy={imageBusy}
         onFile={(file) => void saveImage("banner", file)}
         onClear={() => {
-          setBusy(true);
+          setImageBusy(true);
           void clearProfileImage({ data: "banner" })
             .then(() => getMe())
             .then(onSaved)
             .catch((err) => toast.error(errText(err)))
-            .finally(() => setBusy(false));
+            .finally(() => setImageBusy(false));
         }}
       />
       <ImageSlot
@@ -160,17 +137,41 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
         has={me.hasBackground}
         handle={me.handle}
         stamp={stamp}
-        busy={busy}
+        busy={imageBusy}
         onFile={(file) => void saveImage("background", file)}
         onClear={() => {
-          setBusy(true);
+          setImageBusy(true);
           void clearProfileImage({ data: "background" })
             .then(() => getMe())
             .then(onSaved)
             .catch((err) => toast.error(errText(err)))
-            .finally(() => setBusy(false));
+            .finally(() => setImageBusy(false));
         }}
       />
+      <form
+        className="grid gap-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setSaving(true);
+          void updateProfile({
+            data: {
+              handle,
+              displayName,
+              bio,
+              status,
+              links: links.filter((l) => l.label.trim() || l.url.trim()),
+            },
+          })
+            .then(async () => {
+              toast.success("Профиль сохранён");
+              const next = await getMe();
+              onSaved(next);
+              await router.invalidate();
+            })
+            .catch((err) => toast.error(errText(err)))
+            .finally(() => setSaving(false));
+        }}
+      >
       <label className="block text-sm">
         Ник
         <input value={handle} onChange={(e) => setHandle(e.target.value)} className={`${fieldClass} mt-1`} />
@@ -230,9 +231,11 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
           </button>
         ) : null}
       </fieldset>
-      <Button type="submit" variant="wine" disabled={busy}>
-        Сохранить
-      </Button>
+      <div className="sticky bottom-3 z-[45]">
+        <Button type="submit" variant="wine" disabled={saving} className="w-full touch-manipulation shadow-none">
+          {saving ? "Сохраняем…" : "Сохранить"}
+        </Button>
+      </div>
     </form>
     {me.premium ? <LookForm me={me} onSaved={onSaved} /> : <p className="text-sm text-muted">Темы профиля, цвет акцента, рамка аватарки и GIF — только с Premium.</p>}
     </div>
@@ -307,8 +310,8 @@ function LookForm({ me, onSaved }: { me: Me; onSaved: (next: Me) => void }) {
           ))}
         </select>
       </label>
-      <Button type="submit" variant="line" disabled={busy}>
-        Сохранить оформление
+      <Button type="submit" variant="line" disabled={busy} className="relative z-20 w-full touch-manipulation">
+        {busy ? "Сохраняем…" : "Сохранить оформление"}
       </Button>
     </form>
   );
