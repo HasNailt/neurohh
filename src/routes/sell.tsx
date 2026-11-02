@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { TagField } from "@/components/tag-field";
 import { EmojiBar } from "@/components/emoji-bar";
@@ -34,7 +34,8 @@ function SellForm() {
   const [durationHours, setDurationHours] = useState(24);
   const [antiSnipeMinutes, setAntiSnipeMinutes] = useState(0);
   const [tags, setTags] = useState<string[]>([]);
-  const [previews, setPreviews] = useState<File[]>([]);
+  const [images, setImages] = useState<{ key: string; file: File; url: string }[]>([]);
+  const [coverKey, setCoverKey] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
@@ -46,31 +47,52 @@ function SellForm() {
     void getMe().then((me) => setPremium(me.premium)).catch(() => undefined);
   }, []);
 
+  const imagesRef = useRef(images);
+  imagesRef.current = images;
+  useEffect(() => {
+    return () => {
+      for (const item of imagesRef.current) URL.revokeObjectURL(item.url);
+    };
+  }, []);
+
   async function onPickFiles(list: FileList | null, input: HTMLInputElement) {
-    const files = Array.from(list ?? []).slice(0, previewCap);
-    if (files.length === 0) {
-      setPreviews([]);
-      setFileError(null);
+    const incoming = Array.from(list ?? []);
+    input.value = "";
+    if (incoming.length === 0) return;
+    const room = previewCap - images.length;
+    if (room <= 0) {
+      const message = `Уже ${previewCap} картинок`;
+      setFileError(message);
+      toast.error(message);
       return;
     }
+    const files = incoming.slice(0, room);
     try {
       for (const file of files) await checkPreviewFile(file);
-      setPreviews(files);
-      setFileError(null);
+      const added = files.map((file) => ({ key: crypto.randomUUID(), file, url: URL.createObjectURL(file) }));
+      setImages((prev) => [...prev, ...added]);
+      setCoverKey((current) => current ?? added[0]?.key ?? null);
+      setFileError(incoming.length > room ? `Можно не больше ${previewCap} картинок` : null);
     } catch (err) {
-      input.value = "";
-      setPreviews([]);
       const message = errText(err);
       setFileError(message);
       toast.error(message);
     }
   }
 
+  function removeImage(key: string) {
+    const hit = images.find((item) => item.key === key);
+    if (hit) URL.revokeObjectURL(hit.url);
+    const next = images.filter((item) => item.key !== key);
+    setImages(next);
+    setCoverKey((current) => (current === key ? (next[0]?.key ?? null) : current));
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setNote("");
-    if (previews.length === 0) {
+    if (!coverKey || images.length === 0) {
       setBusy(false);
       toast.error("Нужна обложка");
       return;
@@ -82,7 +104,11 @@ function SellForm() {
     }
     let createdId: string | null = null;
     try {
-      for (const file of previews) await checkPreviewFile(file);
+      const ordered = [
+        ...images.filter((item) => item.key === coverKey),
+        ...images.filter((item) => item.key !== coverKey),
+      ];
+      for (const file of ordered) await checkPreviewFile(file.file);
       const created = await createListing({
         data: {
           title,
@@ -99,9 +125,9 @@ function SellForm() {
         },
       });
       createdId = created.id;
-      for (let i = 0; i < previews.length; i += 1) {
-        setNote(`Файл ${i + 1} из ${previews.length}`);
-        await pushFile(created.id, previews[i], "preview");
+      for (let i = 0; i < ordered.length; i += 1) {
+        setNote(i === 0 ? "Обложка" : `Дополнительная ${i} из ${ordered.length - 1}`);
+        await pushFile(created.id, ordered[i].file, "preview", i === 0);
       }
       await publishListing({ data: created.id });
     } catch (err) {
@@ -124,7 +150,10 @@ function SellForm() {
       </div>
       <div className="border border-ink/30 bg-card p-4">
         <p className="font-display text-2xl leading-none">Картинки</p>
-        <p className="mt-2 text-sm text-muted">До {previewCap} файлов, каждый до 4 МБ, до 4000×4000. PNG, JPG, WEBP или GIF.{premium ? "" : " С Premium — до 8."}</p>
+        <p className="mt-2 text-sm text-muted">
+          Сначала загрузите файлы, потом нажмите на ту, что будет обложкой. Обложку видно в ленте и в карточках. Остальные открываются только на странице лота.
+          До {previewCap} файлов, каждый до 4 МБ, до 4000×4000.{premium ? "" : " С Premium — до 8."}
+        </p>
         <input
           type="file"
           accept="image/png,image/jpeg,image/webp,image/gif"
@@ -132,7 +161,26 @@ function SellForm() {
           className="mt-3 block w-full cursor-pointer text-sm text-ink file:mr-4 file:inline-flex file:min-h-11 file:cursor-pointer file:border-0 file:bg-wine file:px-4 file:py-2 file:font-medium file:text-foam"
           onChange={(e) => void onPickFiles(e.target.files, e.currentTarget)}
         />
-        {previews.length > 0 ? <p className="mt-2 font-mono text-xs text-muted">{previews.map((f) => f.name).join(", ")}</p> : null}
+        {images.length > 0 ? (
+          <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+            {images.map((item) => {
+              const cover = item.key === coverKey;
+              return (
+                <div key={item.key} className={cover ? "border-2 border-wine bg-card" : "border border-ink/25 bg-card"}>
+                  <button type="button" onClick={() => setCoverKey(item.key)} className="block w-full text-left">
+                    <img src={item.url} alt="" className="aspect-[3/4] w-full object-cover" />
+                    <span className="block px-1.5 py-1 font-mono text-[10px] tracking-wide uppercase">{cover ? "Обложка" : "Дополнительная"}</span>
+                  </button>
+                  <button type="button" onClick={() => removeImage(item.key)} className="w-full border-t border-ink/15 px-1.5 py-1 text-left font-mono text-[10px] text-muted">
+                    убрать
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-muted">Без обложки лот не публикуется.</p>
+        )}
         {fileError ? <p className="mt-2 text-sm">{fileError}</p> : null}
       </div>
       <label className="block text-sm">

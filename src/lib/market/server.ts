@@ -8,6 +8,8 @@ import {
   ACTIVE_LOT_LIMIT,
   AVATAR_DIM,
   AVATAR_MAX,
+  PROFILE_DECOR_DIM,
+  PROFILE_DECOR_MAX,
   BLURB_MAX,
   CHAT_IMAGE_COUNT,
   CHAT_IMAGE_DIM,
@@ -289,7 +291,7 @@ const CARD_SQL = `
   (
     select m.id from media m
     where m.listing_id = l.id and m.kind = 'preview'
-    order by m.created_at asc
+    order by m.is_cover desc, m.created_at asc
     limit 1
   ) as preview_id,
   (
@@ -300,7 +302,7 @@ const CARD_SQL = `
     end
     from media m
     where m.listing_id = l.id and m.kind = 'preview'
-    order by m.created_at asc
+    order by m.is_cover desc, m.created_at asc
     limit 1
   ) as preview_inline,
   coalesce((
@@ -414,7 +416,7 @@ export const listListings = createServerFn({ method: "GET" })
     const sql = await getSql();
     await settle(sql);
     const like = data.q ? likeContains(data.q) : "%";
-    const pageSize = data.kind === "auction" || data.kind === "fixed" ? GRID_PAGE : PAGE_SIZE;
+    const pageSize = data.kind === "auction" || data.kind === "fixed" || data.tag ? GRID_PAGE : PAGE_SIZE;
     const offset = (data.page - 1) * pageSize;
     const boostRank = "(l.boosted_until is not null and l.boosted_until > now()) desc";
     const premiumRank =
@@ -530,11 +532,11 @@ export const getListing = createServerFn({ method: "GET" })
     }
     if (row.status === "removed" && !isSeller && !staff) return null;
 
-    const previews = await sql<{ id: string; card_b64: string | null; view_b64: string | null }>`
-      select id, card_b64, view_b64
+    const previews = await sql<{ id: string; card_b64: string | null; view_b64: string | null; is_cover: boolean }>`
+      select id, card_b64, view_b64, is_cover
       from media
       where listing_id = ${id} and kind = 'preview'
-      order by created_at asc
+      order by is_cover desc, created_at asc
     `;
     const bids = await sql<{ id: string; amount: number; handle: string; premium: boolean; created_at: unknown }>`
       select b.id, b.amount, p.handle, b.created_at,
@@ -599,6 +601,7 @@ export const getListing = createServerFn({ method: "GET" })
         id: p.id,
         src: p.view_b64 ? `data:image/jpeg;base64,${p.view_b64}` : p.card_b64 ? `data:image/jpeg;base64,${p.card_b64}` : null,
         card: p.card_b64 ? `data:image/jpeg;base64,${p.card_b64}` : null,
+        cover: Boolean(p.is_cover),
       })),
       bids: bidRows,
       dealId,
@@ -746,7 +749,7 @@ export const publishListing = createServerFn({ method: "POST" })
     const row = owned[0];
     if (!row) fail("Лот не найден");
     const covers = await sql<{ n: number }>`
-      select count(*)::int as n from media where listing_id = ${id} and kind = 'preview'
+      select count(*)::int as n from media where listing_id = ${id} and kind = 'preview' and is_cover
     `;
     if (num(covers[0]?.n) < 1) {
       if (row.status === "draft" || (row.status === "active" && num(row.bid_count) === 0)) {
@@ -777,6 +780,7 @@ type UploadBody = {
   filename: string;
   b64: string;
   cardB64: string | null;
+  cover: boolean;
 };
 
 function parseUpload(input: unknown): UploadBody {
@@ -797,6 +801,7 @@ function parseUpload(input: unknown): UploadBody {
     filename: o.filename,
     b64: o.b64.replace(/^data:[^,]*,/, "").replace(/\s/g, ""),
     cardB64,
+    cover: o.cover === true,
   };
 }
 
@@ -884,8 +889,14 @@ export const uploadMedia = createServerFn({ method: "POST" })
         console.error("[upload] thumb", err instanceof Error ? err.message : err);
       }
     }
+    if (data.cover) {
+      await sql`
+        update media set is_cover = false
+        where listing_id = ${data.listingId} and kind = 'preview' and is_cover
+      `;
+    }
     await sql`
-      insert into media (id, listing_id, kind, filename, mime, data_b64, card_b64, view_b64, width, height, size_bytes)
+      insert into media (id, listing_id, kind, filename, mime, data_b64, card_b64, view_b64, width, height, size_bytes, is_cover)
       values (
         ${id},
         ${data.listingId},
@@ -897,7 +908,8 @@ export const uploadMedia = createServerFn({ method: "POST" })
         ${viewB64},
         ${width},
         ${height},
-        ${buf.length}
+        ${buf.length},
+        ${data.cover}
       )
     `;
     return { id };
@@ -1231,6 +1243,8 @@ export const getMe = createServerFn({ method: "GET" })
       hasAvatar: kinds.has("avatar"),
       hasBanner: kinds.has("banner"),
       hasBackground: kinds.has("background"),
+      hasSideLeft: kinds.has("side_left"),
+      hasSideRight: kinds.has("side_right"),
     };
   });
 
@@ -1367,6 +1381,8 @@ export const getPublicProfile = createServerFn({ method: "GET" })
       hasAvatar: kinds.has("avatar"),
       hasBanner: kinds.has("banner"),
       hasBackground: kinds.has("background"),
+      hasSideLeft: kinds.has("side_left"),
+      hasSideRight: kinds.has("side_right"),
       premium,
       theme: premium ? asTheme(rows[0].theme) : "classic",
       accent: premium ? asAccent(rows[0].accent) : "wine",
@@ -1414,7 +1430,7 @@ export const listDeals = createServerFn({ method: "GET" })
              (
                select m.id from media m
                where m.listing_id = l.id and m.kind = 'preview'
-               order by m.created_at asc limit 1
+               order by m.is_cover desc, m.created_at asc limit 1
              ) as preview_id
       from deals d
       left join listings l on l.id = d.listing_id
@@ -1529,7 +1545,7 @@ async function loadDeal(sql: Sql, id: string, uid: string): Promise<DealDetail |
            (
              select m.id from media m
              where m.listing_id = l.id and m.kind = 'preview'
-             order by m.created_at asc limit 1
+             order by m.is_cover desc, m.created_at asc limit 1
            ) as preview_id
     from deals d
     left join listings l on l.id = d.listing_id
@@ -2443,7 +2459,6 @@ export const updateProfileLook = createServerFn({ method: "POST" })
     if (!input || typeof input !== "object") fail("Пустая форма");
     const o = input as Record<string, unknown>;
     return {
-      theme: asTheme(o.theme),
       accent: asAccent(o.accent),
       avatarFrame: asFrame(o.avatarFrame),
       bannerOverlay: asOverlay(o.bannerOverlay),
@@ -2455,8 +2470,7 @@ export const updateProfileLook = createServerFn({ method: "POST" })
     if (!profile.premium) fail("Оформление профиля доступно с Premium");
     await sql`
       update profiles
-      set theme = ${data.theme},
-          accent = ${data.accent},
+      set accent = ${data.accent},
           avatar_frame = ${data.avatarFrame},
           banner_overlay = ${data.bannerOverlay}
       where user_id = ${context.userId}
@@ -2550,24 +2564,31 @@ export const deleteListingComment = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-const IMAGE_MAX: Record<ProfileImageKind, number> = {
-  avatar: 500_000,
+const IMAGE_MAX: Record<"banner", number> = {
   banner: 1_200_000,
-  background: 1_200_000,
 };
+
+const DECOR_KINDS = new Set<ProfileImageKind>(["background", "side_left", "side_right"]);
+
+function isProfileKind(value: unknown): value is ProfileImageKind {
+  return value === "avatar" || value === "banner" || value === "background" || value === "side_left" || value === "side_right";
+}
 
 export const uploadProfileImage = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: unknown) => {
     if (!input || typeof input !== "object") fail("Пустой файл");
     const o = input as Record<string, unknown>;
-    if (o.kind !== "avatar" && o.kind !== "banner" && o.kind !== "background") fail("Неизвестный кадр");
+    if (!isProfileKind(o.kind)) fail("Неизвестный кадр");
     if (typeof o.b64 !== "string") fail("Файл не прочитан");
     const b64 = o.b64.replace(/^data:[^,]*,/, "").replace(/\s/g, "");
     const kind: ProfileImageKind = o.kind;
     if (kind === "avatar") {
       const approx = Math.floor((b64.length * 3) / 4);
       if (approx > 6_000_000) fail("Аватар не подошёл: вес больше 2 МБ");
+    } else if (DECOR_KINDS.has(kind)) {
+      const approx = Math.floor((b64.length * 3) / 4);
+      if (approx > 6_000_000) fail("Картинка больше 3 МБ");
     } else if (b64.length > 4_500_000) {
       fail("Файл больше лимита");
     }
@@ -2580,7 +2601,8 @@ export const uploadProfileImage = createServerFn({ method: "POST" })
     const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
     const magic = sniffMagic(bytes);
     if (!magic || !isRaster(magic)) fail("Нужны PNG, JPG, WEBP или GIF");
-    if (magic === "image/gif" && !profile.premium) fail("GIF в аватарке, шапке и фоне доступен с Premium");
+    if (DECOR_KINDS.has(data.kind) && !profile.premium) fail("Боковые и центральный фон доступны с Premium");
+    if (magic === "image/gif" && !profile.premium) fail("GIF в аватарке и шапке доступен с Premium");
     const size = decodedImageSize(bytes);
     if (data.kind === "avatar") {
       const problems: string[] = [];
@@ -2592,10 +2614,19 @@ export const uploadProfileImage = createServerFn({ method: "POST" })
         problems.push(`размер ${size.width}×${size.height} px, максимум ${AVATAR_DIM}×${AVATAR_DIM}`);
       }
       if (problems.length) fail(`Аватар не подошёл: ${problems.join(". ")}`);
+    } else if (DECOR_KINDS.has(data.kind)) {
+      const problems: string[] = [];
+      if (buf.length > PROFILE_DECOR_MAX) problems.push(`вес ${(buf.length / (1024 * 1024)).toFixed(1)} МБ, максимум 3 МБ`);
+      if (!size) fail(problems.length ? `Картинка не подошла: ${problems.join(". ")}` : "Не удалось прочитать изображение");
+      if (size.width > PROFILE_DECOR_DIM || size.height > PROFILE_DECOR_DIM) {
+        problems.push(`размер ${size.width}×${size.height} px, максимум ${PROFILE_DECOR_DIM}×${PROFILE_DECOR_DIM}`);
+      }
+      if (problems.length) fail(`Картинка не подошла: ${problems.join(". ")}`);
     } else {
       if (!size) fail("Не удалось прочитать изображение");
-      const max = profile.premium ? 3_000_000 : IMAGE_MAX[data.kind];
-      if (buf.length > max) fail(profile.premium ? "Картинка больше лимита Premium" : "Картинка больше 1.2 МБ");
+      if (buf.length > (profile.premium ? 3_000_000 : IMAGE_MAX.banner)) {
+        fail(profile.premium ? "Картинка больше лимита Premium" : "Картинка больше 1.2 МБ");
+      }
       if (size.width > MAX_DIM || size.height > MAX_DIM) fail(`Слишком большой кадр, максимум ${MAX_DIM}px`);
     }
     await sql`
@@ -2610,7 +2641,7 @@ export const uploadProfileImage = createServerFn({ method: "POST" })
 export const clearProfileImage = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((kind: unknown) => {
-    if (kind !== "avatar" && kind !== "banner" && kind !== "background") fail("Неизвестный кадр");
+    if (!isProfileKind(kind)) fail("Неизвестный кадр");
     return kind;
   })
   .handler(async ({ data: kind, context }) => {

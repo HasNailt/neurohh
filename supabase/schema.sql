@@ -134,11 +134,13 @@ create table if not exists media (
   width integer,
   height integer,
   size_bytes integer not null,
+  is_cover boolean not null default false,
   created_at timestamptz not null default now(),
   constraint media_kind_chk check (kind in ('preview', 'file'))
 );
 
 create index if not exists media_listing_idx on media (listing_id, kind);
+create unique index if not exists media_one_cover_idx on media (listing_id) where kind = 'preview' and is_cover;
 
 create table if not exists bids (
   id text primary key,
@@ -300,7 +302,7 @@ create table if not exists profile_images (
   mime text not null,
   data_b64 text not null,
   primary key (user_id, kind),
-  constraint profile_images_kind_chk check (kind in ('avatar', 'banner', 'background'))
+  constraint profile_images_kind_chk check (kind in ('avatar', 'banner', 'background', 'side_left', 'side_right'))
 );
 
 alter table listings add column if not exists pinned boolean not null default false;

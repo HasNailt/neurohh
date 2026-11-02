@@ -79,13 +79,15 @@ function ProfilePage() {
     return <h1 className="font-display text-4xl">Такого профиля нет</h1>;
   }
   const profile = loaded;
-  const preset = THEMES[profile.theme];
+  const preset = THEMES.classic;
   const theme =
-    profile.theme === "classic" && !profile.premium && site === "light"
+    site === "light"
       ? { ...preset, bg: "#eceae6", ink: "#1c1b19", muted: "#5f5b55", card: "#f7f6f3", line: "rgba(28,27,25,0.16)", foam: "#f7f4ef" }
       : preset;
   const hud = lightSurface(theme.bg) ? theme.ink : theme.foam;
-  const bg = profile.hasBackground ? profileImageUrl(profile.handle, "background") : "";
+  const center = profile.premium && profile.hasBackground ? profileImageUrl(profile.handle, "background") : "";
+  const sideLeft = profile.premium && profile.hasSideLeft ? profileImageUrl(profile.handle, "side_left") : "";
+  const sideRight = profile.premium && profile.hasSideRight ? profileImageUrl(profile.handle, "side_right") : "";
   const banner = profile.hasBanner ? profileImageUrl(profile.handle, "banner") : "";
   const pages = Math.max(1, Math.ceil(total / PROFILE_LOT_PAGE));
 
@@ -115,16 +117,30 @@ function ProfilePage() {
   const bannerStyle = bannerLayer(profile.bannerOverlay, banner, theme.bg);
 
   return (
-    <div className="profile-scope -mx-4 space-y-8 px-4 py-6 sm:-mx-0 sm:px-4" style={scope}>
+    <div className="relative -mx-4 py-6 sm:-mx-0">
+      {sideLeft || sideRight ? (
+        <div className="pointer-events-none absolute inset-0 hidden xl:grid xl:grid-cols-[minmax(0,1fr)_64rem_minmax(0,1fr)]">
+          <div
+            className="bg-cover bg-center"
+            style={sideLeft ? { backgroundImage: `url(${sideLeft})` } : undefined}
+          />
+          <div />
+          <div
+            className="bg-cover bg-center"
+            style={sideRight ? { backgroundImage: `url(${sideRight})` } : undefined}
+          />
+        </div>
+      ) : null}
+      <div className="profile-scope relative z-10 mx-auto max-w-5xl space-y-8 px-4" style={scope}>
       <section
         className="theme-card relative z-0 overflow-hidden border"
         style={
-          bg
-            ? { backgroundImage: `url(${bg})`, backgroundSize: "cover", backgroundPosition: "center" }
+          center
+            ? { backgroundImage: `url(${center})`, backgroundSize: "cover", backgroundPosition: "center" }
             : { background: theme.card }
         }
       >
-        <div style={bg ? { background: `${theme.bg}cc` } : undefined}>
+        <div style={center ? { background: `color-mix(in srgb, ${theme.bg} 58%, transparent)` } : undefined}>
           <div className="relative h-36 border-b sm:h-48" style={{ borderColor: theme.line, ...bannerStyle }}>
             {banner ? null : <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${accent} 0%, ${theme.bg} 55%, ${theme.card} 100%)` }} />}
             <span className="pointer-events-none absolute top-3 left-3 h-3 w-3 border-t border-l" style={{ borderColor: hud }} />
@@ -256,7 +272,7 @@ function ProfilePage() {
               <button
                 key={id}
                 type="button"
-                className={lotState === id ? "theme-chip min-h-11 border px-4" : "min-h-11 border px-4"}
+                className={lotState === id ? "theme-chip inline-flex min-h-8 items-center border px-2.5 font-mono text-xs" : "inline-flex min-h-8 items-center border px-2.5 font-mono text-xs"}
                 style={lotState === id ? undefined : { borderColor: "var(--p-line)", color: "var(--p-ink)" }}
                 onClick={() => openPage(1, id)}
               >
@@ -301,6 +317,7 @@ function ProfilePage() {
           ))}
         </div>
       )}
+    </div>
     </div>
   );
 }

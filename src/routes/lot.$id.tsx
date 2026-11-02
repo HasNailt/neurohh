@@ -335,23 +335,41 @@ function Gallery({ lot }: { lot: ListingDetail }) {
       <span className="font-display text-8xl leading-none text-foam">{letter}</span>
     </div>
   );
+  const index = Math.max(0, lot.previews.findIndex((p) => p.id === current.id));
+  const step = (dir: -1 | 1) => {
+    const next = lot.previews[(index + dir + lot.previews.length) % lot.previews.length];
+    if (next) setActive(next.id);
+  };
   return (
     <div className="space-y-2">
       <Frame>
-        <PreviewImg
-          id={current.id}
-          src={current.src || current.card}
-          variant="view"
-          alt={lot.title}
-          className="max-h-[70vh] w-full bg-soft object-contain"
-          fallback={fallback}
-        />
+        <div className="relative">
+          <PreviewImg
+            id={current.id}
+            src={current.src || current.card}
+            variant="view"
+            alt={lot.title}
+            className="max-h-[70vh] w-full bg-soft object-contain"
+            fallback={fallback}
+          />
+          {lot.previews.length > 1 ? (
+            <>
+              <button type="button" onClick={() => step(-1)} className="absolute top-1/2 left-2 min-h-11 min-w-11 -translate-y-1/2 border border-ink/30 bg-paper/90 font-mono text-sm" aria-label="Предыдущая">
+                ‹
+              </button>
+              <button type="button" onClick={() => step(1)} className="absolute top-1/2 right-2 min-h-11 min-w-11 -translate-y-1/2 border border-ink/30 bg-paper/90 font-mono text-sm" aria-label="Следующая">
+                ›
+              </button>
+            </>
+          ) : null}
+        </div>
       </Frame>
       {lot.previews.length > 1 ? (
         <div className="flex gap-2 overflow-x-auto">
           {lot.previews.map((p) => (
             <button key={p.id} type="button" onClick={() => setActive(p.id)} className={p.id === active ? "border-2 border-ink" : "border border-ink/20"}>
               <PreviewImg id={p.id} src={p.card || p.src} alt="" className="h-16 w-14 object-cover" />
+              <span className="block px-1 py-0.5 text-center font-mono text-[10px]">{p.cover ? "Обложка" : "Ещё"}</span>
             </button>
           ))}
         </div>

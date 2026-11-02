@@ -19,6 +19,8 @@ export const CHAT_IMAGE_DIM = 3000;
 export const CHAT_IMAGE_COUNT = 10;
 export const AVATAR_MAX = 2 * 1024 * 1024;
 export const AVATAR_DIM = 1000;
+export const PROFILE_DECOR_MAX = 3 * 1024 * 1024;
+export const PROFILE_DECOR_DIM = 3000;
 export const PAGE_SIZE = 12;
 export const GRID_PAGE = 60;
 export const TOP_LIMIT = 30;
@@ -43,7 +45,7 @@ export type Role = "user" | "moderator" | "admin";
 export type ArtistStatus = "open" | "busy" | "closed" | "away";
 export type BadgeId = "verified" | "top";
 export type SocialLink = { label: string; url: string };
-export type ProfileImageKind = "avatar" | "banner" | "background";
+export type ProfileImageKind = "avatar" | "banner" | "background" | "side_left" | "side_right";
 
 export type Look = {
   theme: ThemeId;
@@ -279,7 +281,7 @@ export type ListingDetail = ListingCard & {
   winnerId: string | null;
   antiSnipeMinutes: number;
   createdAt: string;
-  previews: { id: string; src: string | null; card: string | null }[];
+  previews: { id: string; src: string | null; card: string | null; cover?: boolean }[];
   bids: BidRow[];
   dealId: string | null;
   privateDescription: string | null;
@@ -308,6 +310,8 @@ export type Me = Profile & {
   hasAvatar: boolean;
   hasBanner: boolean;
   hasBackground: boolean;
+  hasSideLeft: boolean;
+  hasSideRight: boolean;
 };
 
 export type ProfileComment = {
@@ -333,6 +337,8 @@ export type PublicProfile = {
   hasAvatar: boolean;
   hasBanner: boolean;
   hasBackground: boolean;
+  hasSideLeft: boolean;
+  hasSideRight: boolean;
   premium: boolean;
   lots: ListingCard[];
   lotTotal: number;

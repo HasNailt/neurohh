@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-const KINDS = new Set(["avatar", "banner", "background"]);
+const KINDS = new Set(["avatar", "banner", "background", "side_left", "side_right"]);
 
 export const Route = createFileRoute("/api/profile-image/$handle")({
   server: {

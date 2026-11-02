@@ -6,10 +6,12 @@ import { EmojiBar } from "@/components/emoji-bar";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { clearProfileImage, getMe, updateProfile, updateProfileLook, uploadProfileImage } from "@/lib/market/server";
-import { ACCENTS, ACCENT_IDS, FRAME_IDS, FRAME_LABELS, OVERLAY_IDS, OVERLAY_LABELS, THEME_IDS, THEMES } from "@/lib/market/themes";
+import { ACCENTS, ACCENT_IDS, FRAME_IDS, FRAME_LABELS, OVERLAY_IDS, OVERLAY_LABELS } from "@/lib/market/themes";
 import {
   AVATAR_DIM,
   AVATAR_MAX,
+  PROFILE_DECOR_DIM,
+  PROFILE_DECOR_MAX,
   badgeLabel,
   errText,
   profileImageUrl,
@@ -69,6 +71,7 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
     setImageBusy(true);
     try {
       if (kind === "avatar") await assertAvatar(file);
+      if (kind === "background" || kind === "side_left" || kind === "side_right") await assertDecor(file);
       const b64 = await fileToB64(file);
       await uploadProfileImage({ data: { kind, b64 } });
       const next = await getMe();
@@ -125,23 +128,6 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
         onClear={() => {
           setImageBusy(true);
           void clearProfileImage({ data: "banner" })
-            .then(() => getMe())
-            .then(onSaved)
-            .catch((err) => toast.error(errText(err)))
-            .finally(() => setImageBusy(false));
-        }}
-      />
-      <ImageSlot
-        label={me.premium ? "Фон, GIF до 3 МБ" : "Фон профиля, отдельно от баннера, до 1.2 МБ"}
-        kind="background"
-        has={me.hasBackground}
-        handle={me.handle}
-        stamp={stamp}
-        busy={imageBusy}
-        onFile={(file) => void saveImage("background", file)}
-        onClear={() => {
-          setImageBusy(true);
-          void clearProfileImage({ data: "background" })
             .then(() => getMe())
             .then(onSaved)
             .catch((err) => toast.error(errText(err)))
@@ -237,13 +223,47 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
         </Button>
       </div>
     </form>
-    {me.premium ? <LookForm me={me} onSaved={onSaved} /> : <p className="text-sm text-muted">Темы профиля, цвет акцента, рамка аватарки и GIF — только с Premium.</p>}
+    {me.premium ? (
+      <LookForm
+        me={me}
+        stamp={stamp}
+        busy={imageBusy}
+        onFile={(kind, file) => void saveImage(kind, file)}
+        onClear={(kind) => {
+          setImageBusy(true);
+          void clearProfileImage({ data: kind })
+            .then(() => getMe())
+            .then((next) => {
+              onSaved(next);
+              setStamp(Date.now());
+            })
+            .catch((err) => toast.error(errText(err)))
+            .finally(() => setImageBusy(false));
+        }}
+        onSaved={onSaved}
+      />
+    ) : (
+      <p className="text-sm text-muted">Цвет акцента, рамка аватарки, оверлей баннера и свои фоны — только с Premium.</p>
+    )}
     </div>
   );
 }
 
-function LookForm({ me, onSaved }: { me: Me; onSaved: (next: Me) => void }) {
-  const [theme, setTheme] = useState(me.theme);
+function LookForm({
+  me,
+  stamp,
+  busy: imageBusy,
+  onFile,
+  onClear,
+  onSaved,
+}: {
+  me: Me;
+  stamp: number;
+  busy: boolean;
+  onFile: (kind: ProfileImageKind, file: File | undefined) => void;
+  onClear: (kind: ProfileImageKind) => void;
+  onSaved: (next: Me) => void;
+}) {
   const [accent, setAccent] = useState(me.accent);
   const [avatarFrame, setAvatarFrame] = useState(me.avatarFrame);
   const [bannerOverlay, setBannerOverlay] = useState(me.bannerOverlay);
@@ -254,7 +274,7 @@ function LookForm({ me, onSaved }: { me: Me; onSaved: (next: Me) => void }) {
       onSubmit={(e) => {
         e.preventDefault();
         setBusy(true);
-        void updateProfileLook({ data: { theme, accent, avatarFrame, bannerOverlay } })
+        void updateProfileLook({ data: { accent, avatarFrame, bannerOverlay } })
           .then(() => getMe())
           .then((next) => {
             onSaved(next);
@@ -265,16 +285,36 @@ function LookForm({ me, onSaved }: { me: Me; onSaved: (next: Me) => void }) {
       }}
     >
       <p className="font-display text-2xl">Оформление профиля</p>
-      <label className="block text-sm">
-        Тема
-        <select value={theme} onChange={(e) => setTheme(e.target.value as typeof theme)} className={`${fieldClass} mt-1`}>
-          {THEME_IDS.map((id) => (
-            <option key={id} value={id}>
-              {THEMES[id].label}
-            </option>
-          ))}
-        </select>
-      </label>
+      <ImageSlot
+        label="Центр, до 3 МБ и 3000×3000"
+        kind="background"
+        has={me.hasBackground}
+        handle={me.handle}
+        stamp={stamp}
+        busy={imageBusy}
+        onFile={(file) => onFile("background", file)}
+        onClear={() => onClear("background")}
+      />
+      <ImageSlot
+        label="Левый бок, до 3 МБ. На телефоне скрыт"
+        kind="side_left"
+        has={me.hasSideLeft}
+        handle={me.handle}
+        stamp={stamp}
+        busy={imageBusy}
+        onFile={(file) => onFile("side_left", file)}
+        onClear={() => onClear("side_left")}
+      />
+      <ImageSlot
+        label="Правый бок, до 3 МБ. На телефоне скрыт"
+        kind="side_right"
+        has={me.hasSideRight}
+        handle={me.handle}
+        stamp={stamp}
+        busy={imageBusy}
+        onFile={(file) => onFile("side_right", file)}
+        onClear={() => onClear("side_right")}
+      />
       <div>
         <p className="text-sm">Акцент</p>
         <div className="mt-2 flex flex-wrap gap-2">
@@ -315,6 +355,26 @@ function LookForm({ me, onSaved }: { me: Me; onSaved: (next: Me) => void }) {
       </Button>
     </form>
   );
+}
+
+async function assertDecor(file: File): Promise<void> {
+  const problems: string[] = [];
+  if (file.size > PROFILE_DECOR_MAX) problems.push(`вес ${(file.size / (1024 * 1024)).toFixed(1)} МБ, максимум 3 МБ`);
+  if (file.type && !file.type.startsWith("image/")) throw new Error("Нужны PNG, JPG, WEBP или GIF");
+  let width = 0;
+  let height = 0;
+  try {
+    const bmp = await createImageBitmap(file);
+    width = bmp.width;
+    height = bmp.height;
+    bmp.close();
+  } catch {
+    throw new Error(problems.length ? `Картинка не подошла: ${problems.join(". ")}` : "Не удалось прочитать изображение");
+  }
+  if (width > PROFILE_DECOR_DIM || height > PROFILE_DECOR_DIM) {
+    problems.push(`размер ${width}×${height} px, максимум ${PROFILE_DECOR_DIM}×${PROFILE_DECOR_DIM}`);
+  }
+  if (problems.length) throw new Error(`Картинка не подошла: ${problems.join(". ")}`);
 }
 
 async function assertAvatar(file: File): Promise<void> {

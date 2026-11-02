@@ -32,7 +32,7 @@ function Home() {
   const search = Route.useSearch();
   const [feed, tags, recommended, people] = Route.useLoaderData();
   const home = isHome(search);
-  const grid = search.kind === "auction" || search.kind === "fixed";
+  const grid = search.kind === "auction" || search.kind === "fixed" || Boolean(search.tag);
   const pageSize = grid ? GRID_PAGE : 12;
 
   return (

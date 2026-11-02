@@ -86,7 +86,7 @@ export async function pushChatImage(messageId: string, file: File): Promise<void
   await attachDealImage({ data: { messageId, filename: file.name, b64 } });
 }
 
-export async function pushFile(listingId: string, file: File, kind: "preview" | "file") {
+export async function pushFile(listingId: string, file: File, kind: "preview" | "file", cover = false) {
   if (kind !== "preview") {
     if (file.size > FILE_MAX) throw new Error(`«${file.name}» больше 4 МБ`);
     if (file.size < 32) throw new Error("Файл пустой");
@@ -105,6 +105,7 @@ export async function pushFile(listingId: string, file: File, kind: "preview" | 
       filename: view instanceof File ? view.name : file.name.replace(/\.\w+$/, "") + ".jpg",
       b64,
       cardB64,
+      cover,
     },
   });
 }
