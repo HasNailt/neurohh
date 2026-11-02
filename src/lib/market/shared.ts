@@ -119,8 +119,19 @@ export function dealStatusLabel(status: DealStatus): string {
   return "открыта";
 }
 
-export function formatPrice(n: number): string {
-  return `${Math.round(n).toLocaleString("ru-RU")} ₽`;
+export type PayKind = "rub" | "sw";
+
+export function asPay(value: unknown): PayKind {
+  return value === "sw" ? "sw" : "rub";
+}
+
+export function payLabel(kind: PayKind): string {
+  return kind === "sw" ? "Токены SW" : "Денежная ставка";
+}
+
+export function formatPrice(n: number, currency: PayKind = "rub"): string {
+  const value = Math.round(n).toLocaleString("ru-RU");
+  return currency === "sw" ? `${value} SW` : `${value} ₽`;
 }
 
 export function formatWhen(iso: string): string {
@@ -232,6 +243,8 @@ export type ListingCard = {
   buyNow: number | null;
   currentBid: number | null;
   bidCount: number;
+  bidStep: number;
+  currency: PayKind;
   likeCount: number;
   liked: boolean;
   pinned: boolean;
@@ -369,6 +382,7 @@ export type DealSummary = {
   title: string;
   previewId: string | null;
   amount: number;
+  currency: PayKind;
   status: DealStatus;
   sellerHandle: string;
   buyerHandle: string;
@@ -405,6 +419,7 @@ export type DealDetail = {
   title: string;
   previewId: string | null;
   amount: number;
+  currency: PayKind;
   status: DealStatus;
   youAre: "seller" | "buyer";
   seller: { id: string; handle: string; name: string; premium: boolean };
@@ -421,6 +436,7 @@ export type StaffDeal = {
   publicNo: number;
   title: string;
   amount: number;
+  currency: PayKind;
   status: DealStatus;
   seller: { handle: string; name: string; premium: boolean };
   buyer: { handle: string; name: string; premium: boolean };

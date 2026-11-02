@@ -8,7 +8,7 @@ import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { checkChatImage, pushChatImage } from "@/lib/market/client-upload";
 import { discardBlankMessage, getDeal, sendMessage, setDealOpen } from "@/lib/market/server";
-import { CHAT_IMAGE_COUNT, errText, formatDealNo, formatPrice, formatWhen, type DealDetail } from "@/lib/market/shared";
+import { CHAT_IMAGE_COUNT, errText, formatDealNo, formatPrice, formatWhen, payLabel, type DealDetail } from "@/lib/market/shared";
 
 export const Route = createFileRoute("/deals/$id")({
   head: () => ({ meta: [{ title: "Сделка — AdoptAI" }] }),
@@ -203,7 +203,8 @@ function DealPage() {
             </Link>
             <p className="text-sm text-muted">{other.name}</p>
           </div>
-          <p className="font-display text-3xl tabular-nums">{formatPrice(deal.amount)}</p>
+          <p className="font-display text-3xl tabular-nums">{formatPrice(deal.amount, deal.currency)}</p>
+          <p className="font-mono text-xs text-muted">{payLabel(deal.currency)}</p>
           <p className="font-mono text-xs text-muted">{formatDealNo(deal.publicNo)}</p>
           <div className="grid grid-cols-2 border border-ink/25">
               <button

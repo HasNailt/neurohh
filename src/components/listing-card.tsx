@@ -51,6 +51,7 @@ export function ListingCardView({
             <div className="absolute top-2 left-2 flex gap-1">
               <div className="border border-ink/20 bg-paper/85 px-1.5 py-0.5 font-mono text-[10px]">
                 {item.kind === "auction" ? "AUC" : "FIX"}
+                {item.currency === "sw" ? " · SW" : " · ₽"}
                 {item.pinned ? " · PIN" : ""}
               </div>
               {item.sellerPremium ? <div className="border border-[#e6c36a] bg-[#1a1408]/85 px-1.5 py-0.5 font-mono text-[10px] text-[#e6c36a]">★</div> : null}
@@ -69,7 +70,7 @@ export function ListingCardView({
               </p>
               {showPrice ? (
                 <p className={dense ? "mt-1 font-display text-base tabular-nums leading-none" : "mt-1 font-display text-lg tabular-nums leading-none"}>
-                  {formatPrice(price)}
+                  {formatPrice(price, item.currency)}
                 </p>
               ) : null}
               {item.kind === "auction" && item.bidCount > 0 ? (

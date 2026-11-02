@@ -5,7 +5,7 @@ import { Frame, Kicker } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { listDeals } from "@/lib/market/server";
-import { formatPrice, formatDealNo, type DealSummary } from "@/lib/market/shared";
+import { formatPrice, formatDealNo, payLabel, type DealSummary } from "@/lib/market/shared";
 
 export const Route = createFileRoute("/deals/")({
   head: () => ({ meta: [{ title: "Сделки — AdoptAI" }] }),
@@ -104,7 +104,8 @@ function DealsPage() {
                       >
                         {deal.status === "completed" ? "Закрыта" : "Открыта"}
                       </span>
-                      <p className="mt-1 font-mono text-sm tabular-nums">{formatPrice(deal.amount)}</p>
+                      <p className="mt-1 font-mono text-sm tabular-nums">{formatPrice(deal.amount, deal.currency)}</p>
+                      <p className="font-mono text-[11px] text-muted">{payLabel(deal.currency)}</p>
                     </div>
                   </div>
                 </Frame>

@@ -98,7 +98,7 @@ function ChatsPage() {
                         {formatDealNo(deal.publicNo)} {deal.title}
                       </span>
                       <span className="block truncate text-sm text-muted">
-                        @{deal.youAre === "seller" ? deal.buyerHandle : deal.sellerHandle} · {formatPrice(deal.amount)}
+                        @{deal.youAre === "seller" ? deal.buyerHandle : deal.sellerHandle} · {formatPrice(deal.amount, deal.currency)}
                         {(deal.youAre === "seller" ? deal.buyerPremium : deal.sellerPremium) ? " · ★" : ""}
                       </span>
                     </span>

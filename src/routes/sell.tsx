@@ -8,7 +8,7 @@ import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { checkPreviewFile, pushFile } from "@/lib/market/client-upload";
 import { createListing, discardListing, getMe, publishListing } from "@/lib/market/server";
-import { DURATIONS, MAX_PREVIEWS, PREMIUM_BLURB_MAX, PREMIUM_PREVIEWS, errText } from "@/lib/market/shared";
+import { DURATIONS, MAX_PREVIEWS, PREMIUM_BLURB_MAX, PREMIUM_PREVIEWS, errText, payLabel, type PayKind } from "@/lib/market/shared";
 
 export const Route = createFileRoute("/sell")({
   head: () => ({ meta: [{ title: "Новый лот — AdoptAI" }] }),
@@ -27,7 +27,9 @@ function SellForm() {
   const [title, setTitle] = useState("");
   const [blurb, setBlurb] = useState("");
   const [kind, setKind] = useState<"fixed" | "auction">("auction");
+  const [currency, setCurrency] = useState<PayKind>("rub");
   const [price, setPrice] = useState("");
+  const [bidStep, setBidStep] = useState("");
   const [buyNow, setBuyNow] = useState("");
   const [durationHours, setDurationHours] = useState(24);
   const [antiSnipeMinutes, setAntiSnipeMinutes] = useState(0);
@@ -73,6 +75,11 @@ function SellForm() {
       toast.error("Нужна обложка");
       return;
     }
+    if (kind === "auction" && (!Number.isInteger(Number(bidStep)) || Number(bidStep) < 1)) {
+      setBusy(false);
+      toast.error("Шаг ставки — целое число больше 0");
+      return;
+    }
     let createdId: string | null = null;
     try {
       for (const file of previews) await checkPreviewFile(file);
@@ -82,7 +89,9 @@ function SellForm() {
           blurb,
           privateDescription: "",
           kind,
+          currency,
           price: Number(price),
+          bidStep: kind === "auction" ? Number(bidStep) : 1,
           buyNow: kind === "auction" && buyNow.trim() ? Number(buyNow) : null,
           durationHours,
           antiSnipeMinutes,
@@ -146,14 +155,38 @@ function SellForm() {
           Фикс
         </button>
       </div>
+      <div className="flex flex-wrap gap-2">
+        {(["rub", "sw"] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setCurrency(id)}
+            className={currency === id ? "min-h-11 border border-wine bg-wine px-4 text-foam" : "min-h-11 border border-ink/25 px-4"}
+          >
+            {payLabel(id)}
+          </button>
+        ))}
+      </div>
       <label className="block text-sm">
-        {kind === "auction" ? "Стартовая цена, ₽" : "Цена, ₽"}
+        {kind === "auction" ? `Стартовая цена, ${currency === "sw" ? "SW" : "₽"}` : `Цена, ${currency === "sw" ? "SW" : "₽"}`}
         <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="numeric" required placeholder="Введите цену" className={`${fieldClass} mt-1 tabular-nums`} />
       </label>
       {kind === "auction" ? (
         <>
           <label className="block text-sm">
-            Купить сейчас, ₽ — необязательно, выше старта
+            Минимальный шаг ставки, {currency === "sw" ? "SW" : "₽"}
+            <input
+              value={bidStep}
+              onChange={(e) => setBidStep(e.target.value)}
+              inputMode="numeric"
+              required
+              min={1}
+              placeholder="Больше 0"
+              className={`${fieldClass} mt-1 tabular-nums`}
+            />
+          </label>
+          <label className="block text-sm">
+            Купить сейчас, {currency === "sw" ? "SW" : "₽"} — необязательно, выше старта
             <input value={buyNow} onChange={(e) => setBuyNow(e.target.value)} inputMode="numeric" className={`${fieldClass} mt-1 tabular-nums`} />
           </label>
           <fieldset>

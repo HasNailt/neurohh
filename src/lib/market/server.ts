@@ -34,6 +34,8 @@ import {
   parsePrice,
   tagParts,
   asRole,
+  asPay,
+  formatPrice,
   isStaff,
   isNewAccount,
   asBadges,
@@ -215,14 +217,15 @@ type CloseRow = {
   seller_id: string;
   winner_id: string | null;
   amount: number;
+  currency: "rub" | "sw";
 };
 
 async function openDeal(sql: Sql, row: CloseRow): Promise<string | null> {
   if (!row.winner_id) return null;
   const id = crypto.randomUUID();
   const inserted = await sql<{ id: string; public_no: number }>`
-    insert into deals (id, listing_id, seller_id, buyer_id, amount, status)
-    values (${id}, ${row.id}, ${row.seller_id}, ${row.winner_id}, ${num(row.amount)}, 'awaiting_payment')
+    insert into deals (id, listing_id, seller_id, buyer_id, amount, currency, status)
+    values (${id}, ${row.id}, ${row.seller_id}, ${row.winner_id}, ${num(row.amount)}, ${asPay(row.currency)}, 'awaiting_payment')
     on conflict (listing_id) do nothing
     returning id, public_no
   `;
@@ -234,7 +237,7 @@ async function openDeal(sql: Sql, row: CloseRow): Promise<string | null> {
   if (!dealId || !inserted[0]) return dealId ?? null;
   const publicNo = num(inserted[0].public_no);
   const href = `/deals/${dealId}`;
-  const body = `«${row.title}» · #${publicNo} · ${num(row.amount)} ₽`;
+  const body = `«${row.title}» · #${publicNo} · ${formatPrice(num(row.amount), asPay(row.currency))}`;
   await notify(sql, row.seller_id, "deal", "Новая сделка", body, href);
   if (row.winner_id !== row.seller_id) {
     await notify(sql, row.winner_id, "deal", "Вы забрали лот", body, href);
@@ -250,7 +253,7 @@ async function settle(sql: Sql) {
           winner_id = current_bidder_id,
           updated_at = now()
       where status = 'active' and kind = 'auction' and ends_at is not null and ends_at <= now()
-      returning id, title, seller_id, winner_id, coalesce(current_bid, price) as amount
+      returning id, title, seller_id, winner_id, coalesce(current_bid, price) as amount, currency
     `;
     for (const row of closed) {
       if (row.winner_id) {
@@ -267,7 +270,7 @@ async function settle(sql: Sql) {
       }
     }
     const missing = await sql<CloseRow>`
-      select l.id, l.title, l.seller_id, l.winner_id, coalesce(l.current_bid, l.price) as amount
+      select l.id, l.title, l.seller_id, l.winner_id, coalesce(l.current_bid, l.price) as amount, l.currency
       from listings l
       left join deals d on d.listing_id = l.id
       where l.status = 'sold' and l.winner_id is not null and d.id is null
@@ -279,7 +282,7 @@ async function settle(sql: Sql) {
 }
 
 const CARD_SQL = `
-  l.id, l.title, l.kind, l.price, l.buy_now, l.current_bid, l.bid_count,
+  l.id, l.title, l.kind, l.price, l.buy_now, l.current_bid, l.bid_count, l.bid_step, l.currency,
   l.ends_at, l.status, l.seller_id, l.winner_id, l.pinned,
   (select count(*)::int from listing_likes lk where lk.listing_id = l.id) as like_count,
   coalesce(p.handle, '') as seller_handle, coalesce(p.display_name, '') as seller_name,
@@ -318,6 +321,8 @@ type CardRow = {
   buy_now: number | null;
   current_bid: number | null;
   bid_count: number;
+  bid_step: number;
+  currency: string;
   ends_at: unknown;
   status: ListingStatus;
   seller_id: string;
@@ -352,6 +357,8 @@ function mapCard(row: CardRow): ListingCard {
     buyNow: row.buy_now == null ? null : num(row.buy_now),
     currentBid: row.current_bid == null ? null : num(row.current_bid),
     bidCount: num(row.bid_count),
+    bidStep: Math.max(1, num(row.bid_step)),
+    currency: asPay(row.currency),
     likeCount: num(row.like_count),
     liked: false,
     pinned: Boolean(row.pinned),
@@ -634,6 +641,8 @@ type CreateBody = {
   buyNow: number | null;
   durationHours: number;
   antiSnipeMinutes: number;
+  bidStep: number;
+  currency: "rub" | "sw";
   tags: string[];
 };
 
@@ -664,6 +673,10 @@ function parseCreate(input: unknown): CreateBody {
   if (kind === "auction" && !(SNIPE_OPTIONS as readonly number[]).includes(anti)) {
     fail("Выберите антиснайп: выключить, 10 минут, 30 минут или 1 час");
   }
+  const currency = o.currency === "sw" ? "sw" : o.currency === "rub" ? "rub" : null;
+  if (!currency) fail("Выберите денежную ставку или токены SW");
+  const bidStep = kind === "auction" ? parsePrice(o.bidStep) : 1;
+  if (kind === "auction" && bidStep == null) fail("Шаг ставки — целое число больше 0");
   const tags = Array.isArray(o.tags) ? o.tags.filter((t): t is string => typeof t === "string") : [];
   if (tags.length > 8) fail("Не больше 8 тегов");
   return {
@@ -675,6 +688,8 @@ function parseCreate(input: unknown): CreateBody {
     buyNow,
     durationHours: kind === "auction" ? durationHours : 0,
     antiSnipeMinutes: kind === "auction" ? anti : 3,
+    bidStep: bidStep ?? 1,
+    currency,
     tags,
   };
 }
@@ -694,7 +709,7 @@ export const createListing = createServerFn({ method: "POST" })
     await sql`
       insert into listings (
         id, seller_id, title, blurb, private_description, kind, price, buy_now,
-        anti_snipe_minutes, ends_at, status
+        bid_step, currency, anti_snipe_minutes, ends_at, status
       ) values (
         ${id},
         ${context.userId},
@@ -704,6 +719,8 @@ export const createListing = createServerFn({ method: "POST" })
         ${data.kind},
         ${data.price},
         ${data.buyNow},
+        ${data.bidStep},
+        ${data.currency},
         ${data.antiSnipeMinutes},
         case when ${data.kind} = 'auction' then now() + (${hours} * interval '1 hour') else null end,
         'draft'
@@ -1033,17 +1050,26 @@ export const placeBid = createServerFn({ method: "POST" })
     const before = await sql<{
       ends_at: unknown;
       current_bidder_id: string | null;
+      current_bid: number | null;
+      price: number;
+      bid_step: number;
+      currency: string;
       seller_id: string;
       title: string;
       buy_now: number | null;
       status: string;
       kind: string;
     }>`
-      select ends_at, current_bidder_id, seller_id, title, buy_now, status, kind
+      select ends_at, current_bidder_id, current_bid, price, bid_step, currency, seller_id, title, buy_now, status, kind
       from listings where id = ${data.listingId}
     `;
     const lot = before[0];
     if (!lot || lot.kind !== "auction" || lot.status !== "active") fail("Аукцион уже закрыт");
+    const currency = asPay(lot.currency);
+    const step = Math.max(1, num(lot.bid_step));
+    const standing = lot.current_bid == null ? null : num(lot.current_bid);
+    const floor = standing == null ? num(lot.price) : standing + step;
+    if (data.amount < floor) fail(`Минимальная ставка ${formatPrice(floor, currency)}`);
     if (lot.buy_now != null && data.amount >= num(lot.buy_now)) {
       fail("Для этой суммы нажмите «Купить сейчас»");
     }
@@ -1065,8 +1091,7 @@ export const placeBid = createServerFn({ method: "POST" })
         and status = 'active'
         and kind = 'auction'
         and ends_at > now()
-        and ${data.amount} >= price
-        and ${data.amount} > coalesce(current_bid, price - 1)
+        and ${data.amount} >= case when current_bid is null then price else current_bid + bid_step end
         and (buy_now is null or ${data.amount} < buy_now)
       returning ends_at, current_bid, bid_count
     `;
@@ -1084,7 +1109,7 @@ export const placeBid = createServerFn({ method: "POST" })
         lot.seller_id,
         "bid",
         "Новая ставка",
-        `${profile.handle} · ${data.amount} ₽ · «${lot.title}».${note}`,
+        `${profile.handle} · ${formatPrice(data.amount, currency)} · «${lot.title}».${note}`,
         `/lot/${data.listingId}`,
       );
     }
@@ -1094,7 +1119,7 @@ export const placeBid = createServerFn({ method: "POST" })
         prevBidder,
         "outbid",
         "Вашу ставку перебили",
-        `«${lot.title}» теперь ${data.amount} ₽.${note}`,
+        `«${lot.title}» теперь ${formatPrice(data.amount, currency)}.${note}`,
         `/lot/${data.listingId}`,
       );
     }
@@ -1121,7 +1146,7 @@ async function takeListing(
           update listings
           set status = 'sold', winner_id = ${userId}, updated_at = now()
           where id = ${listingId} and status = 'active' and kind = 'fixed' and seller_id <> ${userId}
-          returning id, title, seller_id, winner_id, price as amount
+          returning id, title, seller_id, winner_id, price as amount, currency
         `
       : await sql<CloseRow>`
           update listings
@@ -1136,7 +1161,7 @@ async function takeListing(
             and buy_now is not null
             and ends_at > now()
             and seller_id <> ${userId}
-          returning id, title, seller_id, winner_id, buy_now as amount
+          returning id, title, seller_id, winner_id, buy_now as amount, currency
         `;
   if (!updated[0]) fail("Лот уже забрали или он закрыт");
   const dealId = await openDeal(sql, updated[0]);
@@ -1378,6 +1403,7 @@ export const listDeals = createServerFn({ method: "GET" })
       title: string;
       preview_id: string | null;
       amount: number;
+      currency: string;
       status: DealStatus;
       seller_id: string;
       seller_handle: string;
@@ -1386,7 +1412,7 @@ export const listDeals = createServerFn({ method: "GET" })
       buyer_premium: boolean;
       created_at: unknown;
     }>`
-      select d.id, d.public_no, d.listing_id, l.title, d.amount, d.status, d.seller_id,
+      select d.id, d.public_no, d.listing_id, l.title, d.amount, l.currency, d.status, d.seller_id,
              d.created_at, sp.handle as seller_handle, bp.handle as buyer_handle,
              (coalesce(sp.premium_forever, false) or (sp.premium_until is not null and sp.premium_until > now())) as seller_premium,
              (coalesce(bp.premium_forever, false) or (bp.premium_until is not null and bp.premium_until > now())) as buyer_premium,
@@ -1409,6 +1435,7 @@ export const listDeals = createServerFn({ method: "GET" })
       title: r.title,
       previewId: r.preview_id,
       amount: num(r.amount),
+      currency: asPay(r.currency),
       status: r.status,
       sellerHandle: r.seller_handle,
       buyerHandle: r.buyer_handle,
@@ -1480,6 +1507,7 @@ async function loadDeal(sql: Sql, id: string, uid: string): Promise<DealDetail |
     listing_id: string;
     title: string;
     amount: number;
+    currency: string;
     status: DealStatus;
     seller_id: string;
     buyer_id: string;
@@ -1494,7 +1522,7 @@ async function loadDeal(sql: Sql, id: string, uid: string): Promise<DealDetail |
     private_description: string;
     preview_id: string | null;
   }>`
-    select d.id, d.public_no, d.listing_id, l.title, d.amount, d.status,
+    select d.id, d.public_no, d.listing_id, l.title, d.amount, l.currency, d.status,
            d.seller_id, d.buyer_id,
            sp.handle as seller_handle, sp.display_name as seller_name,
            bp.handle as buyer_handle, bp.display_name as buyer_name,
@@ -1545,6 +1573,7 @@ async function loadDeal(sql: Sql, id: string, uid: string): Promise<DealDetail |
     title: d.title,
     previewId: d.preview_id,
     amount: num(d.amount),
+    currency: asPay(d.currency),
     status: d.status,
     youAre: side,
     seller: { id: d.seller_id, handle: d.seller_handle, name: d.seller_name, premium: Boolean(d.seller_premium) },
@@ -1585,6 +1614,7 @@ export const getStaffDeal = createServerFn({ method: "GET" })
       public_no: number;
       title: string;
       amount: number;
+      currency: string;
       status: DealStatus;
       seller_handle: string;
       seller_name: string;
@@ -1593,7 +1623,7 @@ export const getStaffDeal = createServerFn({ method: "GET" })
       seller_premium: boolean;
       buyer_premium: boolean;
     }>`
-      select d.id, d.public_no, l.title, d.amount, d.status,
+      select d.id, d.public_no, l.title, d.amount, l.currency, d.status,
              sp.handle as seller_handle, sp.display_name as seller_name,
              bp.handle as buyer_handle, bp.display_name as buyer_name,
              (coalesce(sp.premium_forever, false) or (sp.premium_until is not null and sp.premium_until > now())) as seller_premium,
@@ -1627,6 +1657,7 @@ export const getStaffDeal = createServerFn({ method: "GET" })
       publicNo: num(d.public_no),
       title: d.title,
       amount: num(d.amount),
+      currency: asPay(d.currency),
       status: d.status,
       seller: { handle: d.seller_handle, name: d.seller_name, premium: Boolean(d.seller_premium) },
       buyer: { handle: d.buyer_handle, name: d.buyer_name, premium: Boolean(d.buyer_premium) },

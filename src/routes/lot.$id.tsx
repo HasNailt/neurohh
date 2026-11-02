@@ -15,7 +15,7 @@ import {
   reportListing,
   toggleLike,
 } from "@/lib/market/server";
-import { errText, formatPrice, formatWhen, type ListingDetail } from "@/lib/market/shared";
+import { errText, formatPrice, formatWhen, payLabel, type ListingDetail } from "@/lib/market/shared";
 
 function snipeLabel(minutes: number): string {
   if (minutes <= 0) return "антиснайп выключен";
@@ -61,7 +61,8 @@ function LotView({ lot }: { lot: ListingDetail }) {
   const [reportOpen, setReportOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const floor = (lot.currentBid ?? lot.price - 1) + 1;
+  const step = Math.max(1, lot.bidStep || 1);
+  const floor = lot.currentBid == null ? lot.price : lot.currentBid + step;
   const showBuyNow =
     live && !mine && lot.kind === "auction" && lot.buyNow != null && (lot.currentBid == null || lot.currentBid < lot.buyNow);
 
@@ -176,13 +177,15 @@ function LotView({ lot }: { lot: ListingDetail }) {
               </button>
             </div>
             <p className="font-display text-4xl tabular-nums leading-none">
-              {formatPrice(lot.kind === "auction" ? (lot.currentBid ?? lot.price) : lot.price)}
+              {formatPrice(lot.kind === "auction" ? (lot.currentBid ?? lot.price) : lot.price, lot.currency)}
             </p>
+            <p className="font-mono text-xs text-muted">{payLabel(lot.currency)}</p>
             {lot.kind === "auction" ? (
               <p className="font-mono text-xs text-muted">
-                старт {formatPrice(lot.price)}
+                старт {formatPrice(lot.price, lot.currency)}
+                {" · "}шаг {formatPrice(step, lot.currency)}
                 {lot.bidCount > 0 ? ` · ${lot.bidCount} став.` : ""}
-                {lot.buyNow != null ? ` · сразу ${formatPrice(lot.buyNow)}` : ""}
+                {lot.buyNow != null ? ` · сразу ${formatPrice(lot.buyNow, lot.currency)}` : ""}
               </p>
             ) : null}
             {lot.kind === "auction" && lot.endsAt && live ? <Countdown endsAt={lot.endsAt} /> : null}
@@ -208,13 +211,17 @@ function LotView({ lot }: { lot: ListingDetail }) {
                   value={bid}
                   onChange={(e) => setBid(e.target.value)}
                   inputMode="numeric"
-                  placeholder={`от ${floor} ₽`}
+                  placeholder={`от ${formatPrice(floor, lot.currency)}`}
                   className={`${fieldClass} tabular-nums`}
                 />
                 <Button type="submit" disabled={busy} className="w-full">
                   {user && lot.currentBidderId === user.id ? "Перебить свою" : mine ? "Своя ставка" : "Поставить"}
                 </Button>
-                <p className="font-mono text-xs text-muted">Можно перебить свою ставку — сумма должна быть выше текущей.</p>
+                <p className="font-mono text-xs text-muted">
+                  {lot.currentBid == null
+                    ? `Первая ставка не ниже ${formatPrice(floor, lot.currency)}.`
+                    : `Новая ставка не ниже ${formatPrice(floor, lot.currency)} — текущая плюс шаг.`}
+                </p>
               </form>
             ) : null}
             {showBuyNow ? (
@@ -230,7 +237,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
                   })
                 }
               >
-                Купить сейчас · {formatPrice(lot.buyNow ?? 0)}
+                Купить сейчас · {formatPrice(lot.buyNow ?? 0, lot.currency)}
               </Button>
             ) : null}
             {live && lot.kind === "fixed" && user && !mine ? (
@@ -245,7 +252,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
                   })
                 }
               >
-                Забрать за {formatPrice(lot.price)}
+                Забрать за {formatPrice(lot.price, lot.currency)}
               </Button>
             ) : null}
             {!user && live ? (
@@ -266,7 +273,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
                       {row.premium ? <span className="star">★ </span> : null}
                       <span className={row.premium ? "text-[#e6c36a]" : undefined}>@{row.handle}</span>
                     </Link>
-                    <span className="font-mono text-lg tabular-nums">{formatPrice(row.amount)}</span>
+                    <span className="font-mono text-lg tabular-nums">{formatPrice(row.amount, lot.currency)}</span>
                   </li>
                 ))}
               </ul>

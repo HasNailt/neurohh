@@ -6,7 +6,7 @@ import { ChatPictures } from "@/components/chat-picture";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { getStaffDeal } from "@/lib/market/server";
-import { errText, formatDealNo, formatPrice, formatWhen, type StaffDeal } from "@/lib/market/shared";
+import { errText, formatDealNo, formatPrice, formatWhen, payLabel, type StaffDeal } from "@/lib/market/shared";
 
 export const Route = createFileRoute("/admin/deal/$no")({
   head: () => ({ meta: [{ title: "Переписка — AdoptAI" }] }),
@@ -66,7 +66,7 @@ function StaffDealPage() {
           {formatDealNo(deal.publicNo)} {deal.title}
         </h1>
         <p className="mt-2 text-sm text-muted">
-          Продавец @{deal.seller.handle} · покупатель @{deal.buyer.handle} · {formatPrice(deal.amount)}
+          Продавец @{deal.seller.handle} · покупатель @{deal.buyer.handle} · {formatPrice(deal.amount, deal.currency)} · {payLabel(deal.currency)}
         </p>
         <p className="mt-2 text-sm text-muted">Только чтение. Писать в чужой чат отсюда нельзя.</p>
         <button type="button" className="mt-2 text-sm underline" onClick={() => void navigate({ to: "/admin" })}>

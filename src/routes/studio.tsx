@@ -105,7 +105,7 @@ function Shelf({
                       {item.title}
                     </Link>
                     <p className="font-mono text-xs text-muted">
-                      {listingStatusLabel(item.status)} · {formatPrice(item.currentBid ?? item.price)}
+                      {listingStatusLabel(item.status)} · {formatPrice(item.currentBid ?? item.price, item.currency)}
                       {item.boosted ? " · буст" : ""}
                     </p>
                   </div>
