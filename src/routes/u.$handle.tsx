@@ -132,9 +132,9 @@ function ProfilePage() {
           />
         </div>
       ) : null}
-      <div className="relative z-10 mx-auto flex w-full max-w-6xl items-stretch px-4">
-      {sideLeft ? <SideFrame url={sideLeft} accent={accent} /> : null}
-      <div className="profile-scope min-w-0 flex-1 space-y-8" style={scope}>
+      {sideLeft ? <SideFrame url={sideLeft} accent={accent} edge="left" /> : null}
+      {sideRight ? <SideFrame url={sideRight} accent={accent} edge="right" /> : null}
+      <div className="profile-scope relative z-10 mx-auto w-full max-w-6xl space-y-8 px-4" style={scope}>
       <section
         className="theme-card relative z-0 overflow-hidden border"
         style={
@@ -330,15 +330,17 @@ function ProfilePage() {
         </div>
       )}
     </div>
-      {sideRight ? <SideFrame url={sideRight} accent={accent} /> : null}
-      </div>
     </div>
   );
 }
 
-function SideFrame({ url, accent }: { url: string; accent: string }) {
+function SideFrame({ url, accent, edge }: { url: string; accent: string; edge: "left" | "right" }) {
   return (
-    <div className="relative hidden w-24 shrink-0 self-stretch overflow-hidden border xl:block" style={{ borderColor: accent }}>
+    <div
+      aria-hidden
+      className={`pointer-events-none fixed bottom-3 z-20 hidden w-[7.5rem] overflow-hidden border min-[1440px]:block ${edge === "left" ? "left-3" : "right-3"}`}
+      style={{ borderColor: accent, top: "6.25rem" }}
+    >
       <img src={url} alt="" className="absolute inset-0 h-full w-full object-cover" />
       <span className="pointer-events-none absolute top-1 left-1 h-2 w-2 border-t border-l" style={{ borderColor: accent }} />
       <span className="pointer-events-none absolute top-1 right-1 h-2 w-2 border-t border-r" style={{ borderColor: accent }} />

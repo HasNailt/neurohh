@@ -319,7 +319,7 @@ function LookForm({
         onClear={() => onClear("middle")}
       />
       <ImageSlot
-        label="Левая рамка, до 3 МБ. Тонкая полоска у профиля, на телефоне скрыта"
+        label="Левая рамка, до 3 МБ. Тонкая полоска по краю экрана, на телефоне скрыта"
         kind="side_left"
         has={me.hasSideLeft}
         handle={me.handle}
@@ -329,7 +329,7 @@ function LookForm({
         onClear={() => onClear("side_left")}
       />
       <ImageSlot
-        label="Правая рамка, до 3 МБ. Тонкая полоска у профиля, на телефоне скрыта"
+        label="Правая рамка, до 3 МБ. Тонкая полоска по краю экрана, на телефоне скрыта"
         kind="side_right"
         has={me.hasSideRight}
         handle={me.handle}
