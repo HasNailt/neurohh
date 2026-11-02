@@ -8,6 +8,8 @@ import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { clearProfileImage, getMe, updateProfile, updateProfileLook, uploadProfileImage } from "@/lib/market/server";
 import { ACCENTS, ACCENT_IDS, FRAME_IDS, FRAME_LABELS, OVERLAY_IDS, OVERLAY_LABELS, THEME_IDS, THEMES } from "@/lib/market/themes";
 import {
+  AVATAR_DIM,
+  AVATAR_MAX,
   badgeLabel,
   errText,
   profileImageUrl,
@@ -65,6 +67,7 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
     if (!file) return;
     setBusy(true);
     try {
+      if (kind === "avatar") await assertAvatar(file);
       const b64 = await fileToB64(file);
       await uploadProfileImage({ data: { kind, b64 } });
       const next = await getMe();
@@ -115,7 +118,7 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
         </Link>
       </div>
       <ImageSlot
-        label={me.premium ? "Аватар, GIF до 1.5 МБ" : "Аватар, до 500 КБ"}
+        label="Аватар, до 2 МБ и 1000×1000"
         kind="avatar"
         has={me.hasAvatar}
         handle={me.handle}
@@ -309,6 +312,30 @@ function LookForm({ me, onSaved }: { me: Me; onSaved: (next: Me) => void }) {
       </Button>
     </form>
   );
+}
+
+async function assertAvatar(file: File): Promise<void> {
+  const problems: string[] = [];
+  if (file.size > AVATAR_MAX) {
+    problems.push(`вес ${(file.size / (1024 * 1024)).toFixed(1)} МБ, максимум 2 МБ`);
+  }
+  if (file.type && !file.type.startsWith("image/")) {
+    throw new Error("Аватар — только PNG, JPG, WEBP или GIF");
+  }
+  let width = 0;
+  let height = 0;
+  try {
+    const bmp = await createImageBitmap(file);
+    width = bmp.width;
+    height = bmp.height;
+    bmp.close();
+  } catch {
+    throw new Error(problems.length ? `Аватар не подошёл: ${problems.join(". ")}` : "Не удалось прочитать изображение");
+  }
+  if (width > AVATAR_DIM || height > AVATAR_DIM) {
+    problems.push(`размер ${width}×${height} px, максимум ${AVATAR_DIM}×${AVATAR_DIM}`);
+  }
+  if (problems.length) throw new Error(`Аватар не подошёл: ${problems.join(". ")}`);
 }
 
 function ImageSlot({

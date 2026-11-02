@@ -6,6 +6,8 @@ import { decodedImageSize, isRaster, psdSize, sniffMagic } from "@/lib/market/im
 import { asAccent, asFrame, asOverlay, asTheme, premiumActive } from "@/lib/market/themes";
 import {
   ACTIVE_LOT_LIMIT,
+  AVATAR_DIM,
+  AVATAR_MAX,
   BLURB_MAX,
   CHAT_IMAGE_COUNT,
   CHAT_IMAGE_DIM,
@@ -2288,9 +2290,12 @@ export const listRecommendations = createServerFn({ method: "GET" }).handler(asy
     `select ${CARD_SQL}
      from listings l
      left join profiles p on p.user_id = l.seller_id
-     where l.status = 'active' and l.kind = 'auction'
-       and (l.bid_count >= 1 or (l.boosted_until is not null and l.boosted_until > now()))
-     order by (l.boosted_until is not null and l.boosted_until > now()) desc, l.bid_count desc, l.created_at desc
+     where l.status = 'active' and l.kind in ('auction', 'fixed')
+     order by (
+         (select count(*)::int from listing_likes lk where lk.listing_id = l.id) + l.bid_count
+       ) desc,
+       (l.boosted_until is not null and l.boosted_until > now()) desc,
+       l.created_at desc
      limit ${TOP_LIMIT}`,
   );
   return hot.map(mapCard);
@@ -2522,8 +2527,13 @@ export const uploadProfileImage = createServerFn({ method: "POST" })
     if (o.kind !== "avatar" && o.kind !== "banner" && o.kind !== "background") fail("Неизвестный кадр");
     if (typeof o.b64 !== "string") fail("Файл не прочитан");
     const b64 = o.b64.replace(/^data:[^,]*,/, "").replace(/\s/g, "");
-    if (b64.length > 4_500_000) fail("Файл больше лимита");
     const kind: ProfileImageKind = o.kind;
+    if (kind === "avatar") {
+      const approx = Math.floor((b64.length * 3) / 4);
+      if (approx > 6_000_000) fail("Аватар не подошёл: вес больше 2 МБ");
+    } else if (b64.length > 4_500_000) {
+      fail("Файл больше лимита");
+    }
     return { kind, b64 };
   })
   .handler(async ({ data, context }) => {
@@ -2534,18 +2544,23 @@ export const uploadProfileImage = createServerFn({ method: "POST" })
     const magic = sniffMagic(bytes);
     if (!magic || !isRaster(magic)) fail("Нужны PNG, JPG, WEBP или GIF");
     if (magic === "image/gif" && !profile.premium) fail("GIF в аватарке, шапке и фоне доступен с Premium");
-    const max = profile.premium
-      ? data.kind === "avatar"
-        ? 1_500_000
-        : 3_000_000
-      : IMAGE_MAX[data.kind];
-    if (buf.length > max) {
-      fail(profile.premium ? "Картинка больше лимита Premium" : data.kind === "avatar" ? "Аватар больше 500 КБ" : "Картинка больше 1.2 МБ");
-    }
     const size = decodedImageSize(bytes);
-    if (!size) fail("Не удалось прочитать изображение");
-    const cap = data.kind === "avatar" ? 2000 : MAX_DIM;
-    if (size.width > cap || size.height > cap) fail(`Слишком большой кадр, максимум ${cap}px`);
+    if (data.kind === "avatar") {
+      const problems: string[] = [];
+      if (buf.length > AVATAR_MAX) {
+        problems.push(`вес ${(buf.length / (1024 * 1024)).toFixed(1)} МБ, максимум 2 МБ`);
+      }
+      if (!size) fail(problems.length ? `Аватар не подошёл: ${problems.join(". ")}` : "Не удалось прочитать изображение");
+      if (size.width > AVATAR_DIM || size.height > AVATAR_DIM) {
+        problems.push(`размер ${size.width}×${size.height} px, максимум ${AVATAR_DIM}×${AVATAR_DIM}`);
+      }
+      if (problems.length) fail(`Аватар не подошёл: ${problems.join(". ")}`);
+    } else {
+      if (!size) fail("Не удалось прочитать изображение");
+      const max = profile.premium ? 3_000_000 : IMAGE_MAX[data.kind];
+      if (buf.length > max) fail(profile.premium ? "Картинка больше лимита Premium" : "Картинка больше 1.2 МБ");
+      if (size.width > MAX_DIM || size.height > MAX_DIM) fail(`Слишком большой кадр, максимум ${MAX_DIM}px`);
+    }
     await sql`
       insert into profile_images (user_id, kind, mime, data_b64)
       values (${context.userId}, ${data.kind}, ${magic}, ${buf.toString("base64")})

@@ -40,7 +40,7 @@ function Home() {
       <FilterBar search={search} tags={tags} showSort={!home && search.kind !== "fixed"} />
       {home ? (
         <section className="space-y-3">
-          <h2 className="font-display text-3xl leading-none">Топ Аукционов</h2>
+          <h2 className="font-display text-3xl leading-none">Топ</h2>
           {recommended.length === 0 ? (
             <p className="border border-dashed border-ink/30 px-4 py-10 text-center text-muted">Лотов пока нет.</p>
           ) : (
