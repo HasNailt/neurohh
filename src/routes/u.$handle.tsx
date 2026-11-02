@@ -116,25 +116,11 @@ function ProfilePage() {
     ["--p-foam" as string]: theme.foam,
   };
   const bannerStyle = bannerLayer(profile.bannerOverlay, banner, theme.bg);
-  const sidePanel = (url: string, edge: "left" | "right"): CSSProperties => ({
-    backgroundImage: `url(${url})`,
-    backgroundSize: "cover",
-    backgroundPosition: "center",
-    backgroundRepeat: "no-repeat",
-    width: "calc((100% - min(72rem, 100%)) / 2 + 6rem)",
-    [edge]: 0,
-  });
 
   return (
     <div className="relative -mx-4 py-6">
-      {sideLeft || sideRight ? (
-        <div className="pointer-events-none absolute inset-y-0 left-1/2 z-0 hidden w-screen -translate-x-1/2 xl:block">
-          {sideLeft ? <div aria-hidden className="absolute inset-y-0" style={sidePanel(sideLeft, "left")} /> : null}
-          {sideRight ? <div aria-hidden className="absolute inset-y-0" style={sidePanel(sideRight, "right")} /> : null}
-        </div>
-      ) : null}
       {middle ? (
-        <div className="pointer-events-none absolute inset-x-3 top-4 z-[1] h-72 max-md:overflow-hidden md:inset-y-0 md:inset-x-auto md:left-1/2 md:h-auto md:w-screen md:-translate-x-1/2">
+        <div className="pointer-events-none absolute inset-x-3 top-4 z-0 h-72 max-md:overflow-hidden md:inset-y-0 md:inset-x-auto md:left-1/2 md:h-auto md:w-screen md:-translate-x-1/2">
           <div
             aria-hidden
             className="absolute inset-0 bg-cover bg-center"
@@ -146,7 +132,9 @@ function ProfilePage() {
           />
         </div>
       ) : null}
-      <div className="profile-scope relative z-10 mx-auto w-full max-w-6xl space-y-8 px-4" style={scope}>
+      <div className="relative z-10 mx-auto flex w-full max-w-6xl items-stretch px-4">
+      {sideLeft ? <SideFrame url={sideLeft} accent={accent} /> : null}
+      <div className="profile-scope min-w-0 flex-1 space-y-8" style={scope}>
       <section
         className="theme-card relative z-0 overflow-hidden border"
         style={
@@ -342,6 +330,20 @@ function ProfilePage() {
         </div>
       )}
     </div>
+      {sideRight ? <SideFrame url={sideRight} accent={accent} /> : null}
+      </div>
+    </div>
+  );
+}
+
+function SideFrame({ url, accent }: { url: string; accent: string }) {
+  return (
+    <div className="relative hidden w-24 shrink-0 self-stretch overflow-hidden border xl:block" style={{ borderColor: accent }}>
+      <img src={url} alt="" className="absolute inset-0 h-full w-full object-cover" />
+      <span className="pointer-events-none absolute top-1 left-1 h-2 w-2 border-t border-l" style={{ borderColor: accent }} />
+      <span className="pointer-events-none absolute top-1 right-1 h-2 w-2 border-t border-r" style={{ borderColor: accent }} />
+      <span className="pointer-events-none absolute bottom-1 left-1 h-2 w-2 border-b border-l" style={{ borderColor: accent }} />
+      <span className="pointer-events-none absolute right-1 bottom-1 h-2 w-2 border-r border-b" style={{ borderColor: accent }} />
     </div>
   );
 }

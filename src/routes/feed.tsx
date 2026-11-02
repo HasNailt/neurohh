@@ -63,7 +63,7 @@ function FeedPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto w-full max-w-6xl space-y-6">
       <div>
         <Kicker>following</Kicker>
         <h1 className="mt-2 font-display text-5xl leading-none">лента</h1>
@@ -100,7 +100,7 @@ function FeedPage() {
           Пока пусто. Подпишитесь на автора в его профиле.
         </p>
       ) : (
-        <div className="space-y-6">
+        <div className="mx-auto w-full space-y-6">
           {items.map((entry) =>
             entry.kind === "post" ? (
               <PostCard
@@ -110,9 +110,9 @@ function FeedPage() {
                 onChange={reload}
               />
             ) : (
-              <div key={entry.lot.id} className={entry.lot.kind === "auction" ? "mx-auto w-full max-w-sm" : "max-w-sm"}>
+              <div key={entry.lot.id} className="mx-auto w-full [&_.poster]:aspect-[16/9] [&_.poster]:max-h-[28rem]">
                 {entry.authorIsNew ? (
-                  <p className="mb-2 font-mono text-xs">
+                  <p className="mb-2 text-center font-mono text-xs">
                     <Link to="/u/$handle" params={{ handle: entry.lot.sellerHandle }} className="hover:underline">
                       @{entry.lot.sellerHandle}
                     </Link>{" "}
