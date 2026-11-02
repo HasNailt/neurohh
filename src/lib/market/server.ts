@@ -128,9 +128,11 @@ type ProfileRow = {
   banner_overlay: string;
   side_left_shape: string;
   side_right_shape: string;
+  side_left_framed: boolean;
+  side_right_framed: boolean;
 };
 
-const PROFILE_SELECT = `user_id, handle, display_name, bio, role, banned, status, links, badges, premium_forever, premium_until, theme, accent, avatar_frame, banner_overlay, side_left_shape, side_right_shape`;
+const PROFILE_SELECT = `user_id, handle, display_name, bio, role, banned, status, links, badges, premium_forever, premium_until, theme, accent, avatar_frame, banner_overlay, side_left_shape, side_right_shape, side_left_framed, side_right_framed`;
 
 function mapProfile(row: ProfileRow): Profile {
   const until = row.premium_until == null ? null : iso(row.premium_until);
@@ -154,6 +156,8 @@ function mapProfile(row: ProfileRow): Profile {
     bannerOverlay: asOverlay(row.banner_overlay),
     sideLeftShape: asSideShape(row.side_left_shape),
     sideRightShape: asSideShape(row.side_right_shape),
+    sideLeftFramed: row.side_left_framed !== false,
+    sideRightFramed: row.side_right_framed !== false,
   };
 }
 
@@ -1288,10 +1292,24 @@ export const getMe = createServerFn({ method: "GET" })
     const unread = await sql<{ n: number }>`
       select count(*)::int as n from notifications where user_id = ${context.userId} and read_at is null
     `;
-    const images = await sql<{ kind: string }>`
-      select kind from profile_images where user_id = ${context.userId}
+    const images = await sql<{ kind: string; rev: number }>`
+      select kind, floor(extract(epoch from updated_at))::int as rev
+      from profile_images where user_id = ${context.userId}
     `;
     const kinds = new Set(images.map((r) => r.kind));
+    const imageRev: Partial<Record<ProfileImageKind, number>> = {};
+    for (const row of images) {
+      if (
+        row.kind === "avatar" ||
+        row.kind === "banner" ||
+        row.kind === "background" ||
+        row.kind === "side_left" ||
+        row.kind === "side_right" ||
+        row.kind === "middle"
+      ) {
+        imageRev[row.kind] = num(row.rev);
+      }
+    }
     return {
       ...profile,
       unread: num(unread[0]?.n),
@@ -1301,6 +1319,7 @@ export const getMe = createServerFn({ method: "GET" })
       hasSideLeft: kinds.has("side_left"),
       hasSideRight: kinds.has("side_right"),
       hasMiddle: kinds.has("middle"),
+      imageRev,
     };
   });
 
@@ -1388,10 +1407,12 @@ export const getPublicProfile = createServerFn({ method: "GET" })
       banner_overlay: string;
       side_left_shape: string;
       side_right_shape: string;
+      side_left_framed: boolean;
+      side_right_framed: boolean;
     }>`
       select user_id, display_name, bio, role, status, links, badges, created_at,
         premium_forever, premium_until, theme, accent, avatar_frame, banner_overlay,
-        side_left_shape, side_right_shape
+        side_left_shape, side_right_shape, side_left_framed, side_right_framed
       from profiles where handle = ${data.handle}
     `;
     if (!rows[0]) return null;
@@ -1411,7 +1432,10 @@ export const getPublicProfile = createServerFn({ method: "GET" })
         select count(*)::int as n from listings
         where seller_id = ${userId} and status = 'active'
       `,
-      sql<{ kind: string }>`select kind from profile_images where user_id = ${userId}`,
+      sql<{ kind: string; rev: number }>`
+        select kind, floor(extract(epoch from updated_at))::int as rev
+        from profile_images where user_id = ${userId}
+      `,
       loadAuthorPosts(sql, userId),
       context.userId
         ? sql<{ ok: number }>`
@@ -1422,6 +1446,19 @@ export const getPublicProfile = createServerFn({ method: "GET" })
       sql<{ n: number }>`select count(*)::int as n from follows where following_id = ${userId}`,
     ]);
     const kinds = new Set(images.map((r) => r.kind));
+    const imageRev: Partial<Record<ProfileImageKind, number>> = {};
+    for (const row of images) {
+      if (
+        row.kind === "avatar" ||
+        row.kind === "banner" ||
+        row.kind === "background" ||
+        row.kind === "side_left" ||
+        row.kind === "side_right" ||
+        row.kind === "middle"
+      ) {
+        imageRev[row.kind] = num(row.rev);
+      }
+    }
     const createdAt = iso(rows[0].created_at);
     const forever = Boolean(rows[0].premium_forever);
     const until = rows[0].premium_until == null ? null : iso(rows[0].premium_until);
@@ -1443,6 +1480,7 @@ export const getPublicProfile = createServerFn({ method: "GET" })
       hasSideLeft: kinds.has("side_left"),
       hasSideRight: kinds.has("side_right"),
       hasMiddle: kinds.has("middle"),
+      imageRev,
       premium,
       theme: premium ? asTheme(rows[0].theme) : "classic",
       accent: premium ? asAccent(rows[0].accent) : "wine",
@@ -1450,6 +1488,8 @@ export const getPublicProfile = createServerFn({ method: "GET" })
       bannerOverlay: premium ? asOverlay(rows[0].banner_overlay) : "gradient",
       sideLeftShape: premium ? asSideShape(rows[0].side_left_shape) : "rect",
       sideRightShape: premium ? asSideShape(rows[0].side_right_shape) : "rect",
+      sideLeftFramed: premium ? rows[0].side_left_framed !== false : true,
+      sideRightFramed: premium ? rows[0].side_right_framed !== false : true,
       lots: items.map(mapCard),
       lotTotal: num(totalRow[0]?.n),
       posts,
@@ -2526,6 +2566,8 @@ export const updateProfileLook = createServerFn({ method: "POST" })
       bannerOverlay: asOverlay(o.bannerOverlay),
       sideLeftShape: asSideShape(o.sideLeftShape),
       sideRightShape: asSideShape(o.sideRightShape),
+      sideLeftFramed: o.sideLeftFramed !== false,
+      sideRightFramed: o.sideRightFramed !== false,
     };
   })
   .handler(async ({ data, context }) => {
@@ -2538,7 +2580,9 @@ export const updateProfileLook = createServerFn({ method: "POST" })
           avatar_frame = ${data.avatarFrame},
           banner_overlay = ${data.bannerOverlay},
           side_left_shape = ${data.sideLeftShape},
-          side_right_shape = ${data.sideRightShape}
+          side_right_shape = ${data.sideRightShape},
+          side_left_framed = ${data.sideLeftFramed},
+          side_right_framed = ${data.sideRightFramed}
       where user_id = ${context.userId}
     `;
     return { ok: true };
@@ -2706,10 +2750,10 @@ export const uploadProfileImage = createServerFn({ method: "POST" })
       if (size.width > MAX_DIM || size.height > MAX_DIM) fail(`Слишком большой кадр, максимум ${MAX_DIM}px`);
     }
     await sql`
-      insert into profile_images (user_id, kind, mime, data_b64)
-      values (${context.userId}, ${data.kind}, ${magic}, ${buf.toString("base64")})
+      insert into profile_images (user_id, kind, mime, data_b64, updated_at)
+      values (${context.userId}, ${data.kind}, ${magic}, ${buf.toString("base64")}, now())
       on conflict (user_id, kind) do update
-        set mime = excluded.mime, data_b64 = excluded.data_b64
+        set mime = excluded.mime, data_b64 = excluded.data_b64, updated_at = now()
     `;
     return { ok: true };
   });

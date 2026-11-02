@@ -75,7 +75,7 @@ export const OVERLAY_LABELS: Record<BannerOverlay, string> = {
   none: "Без оверлея",
 };
 
-export const SIDE_SHAPES = ["rect", "wide", "square-top", "square-bottom", "none"] as const;
+export const SIDE_SHAPES = ["rect", "wide", "square-top", "square-bottom"] as const;
 export type SideShape = (typeof SIDE_SHAPES)[number];
 
 export const SIDE_SHAPE_LABELS: Record<SideShape, string> = {
@@ -83,7 +83,6 @@ export const SIDE_SHAPE_LABELS: Record<SideShape, string> = {
   wide: "Прямоугольник шире",
   "square-top": "Квадрат сверху",
   "square-bottom": "Квадрат снизу",
-  none: "Без рамки",
 };
 
 export function asSideShape(value: unknown): SideShape {

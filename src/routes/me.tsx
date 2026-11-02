@@ -292,6 +292,8 @@ function LookForm({
   const [bannerOverlay, setBannerOverlay] = useState(me.bannerOverlay);
   const [sideLeftShape, setSideLeftShape] = useState<SideShape>(me.sideLeftShape);
   const [sideRightShape, setSideRightShape] = useState<SideShape>(me.sideRightShape);
+  const [sideLeftFramed, setSideLeftFramed] = useState(me.sideLeftFramed);
+  const [sideRightFramed, setSideRightFramed] = useState(me.sideRightFramed);
   const [busy, setBusy] = useState(false);
   return (
     <form
@@ -299,7 +301,9 @@ function LookForm({
       onSubmit={(e) => {
         e.preventDefault();
         setBusy(true);
-        void updateProfileLook({ data: { accent, avatarFrame, bannerOverlay, sideLeftShape, sideRightShape } })
+        void updateProfileLook({
+          data: { accent, avatarFrame, bannerOverlay, sideLeftShape, sideRightShape, sideLeftFramed, sideRightFramed },
+        })
           .then(() => getMe())
           .then((next) => {
             onSaved(next);
@@ -376,7 +380,7 @@ function LookForm({
         </select>
       </label>
       <label className="block text-sm">
-        Левая рамка
+        Левая картинка
         <select value={sideLeftShape} onChange={(e) => setSideLeftShape(e.target.value as SideShape)} className={`${fieldClass} mt-1`}>
           {SIDE_SHAPES.map((id) => (
             <option key={id} value={id}>
@@ -385,8 +389,12 @@ function LookForm({
           ))}
         </select>
       </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={sideLeftFramed} onChange={(e) => setSideLeftFramed(e.target.checked)} />
+        Тонкая рамка слева
+      </label>
       <label className="block text-sm">
-        Правая рамка
+        Правая картинка
         <select value={sideRightShape} onChange={(e) => setSideRightShape(e.target.value as SideShape)} className={`${fieldClass} mt-1`}>
           {SIDE_SHAPES.map((id) => (
             <option key={id} value={id}>
@@ -394,6 +402,10 @@ function LookForm({
             </option>
           ))}
         </select>
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={sideRightFramed} onChange={(e) => setSideRightFramed(e.target.checked)} />
+        Тонкая рамка справа
       </label>
       <Button type="submit" variant="line" disabled={busy} className="relative z-20 w-full touch-manipulation">
         {busy ? "Сохраняем…" : "Сохранить оформление"}

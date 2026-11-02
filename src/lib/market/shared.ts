@@ -71,6 +71,8 @@ export type Look = {
   bannerOverlay: BannerOverlay;
   sideLeftShape: SideShape;
   sideRightShape: SideShape;
+  sideLeftFramed: boolean;
+  sideRightFramed: boolean;
 };
 
 export function asRole(value: unknown): Role {
@@ -239,8 +241,9 @@ export function asLinks(value: unknown): SocialLink[] {
   return out;
 }
 
-export function profileImageUrl(handle: string, kind: ProfileImageKind): string {
-  return `/api/profile-image/${encodeURIComponent(handle)}?kind=${kind}`;
+export function profileImageUrl(handle: string, kind: ProfileImageKind, version?: number): string {
+  const base = `/api/profile-image/${encodeURIComponent(handle)}?kind=${kind}`;
+  return version == null ? base : `${base}&v=${version}`;
 }
 
 export function isNewAccount(createdAt: string, now = Date.now()): boolean {
@@ -336,6 +339,7 @@ export type Me = Profile & {
   hasSideLeft: boolean;
   hasSideRight: boolean;
   hasMiddle: boolean;
+  imageRev: Partial<Record<ProfileImageKind, number>>;
 };
 
 export type ProfileComment = {
@@ -364,6 +368,7 @@ export type PublicProfile = {
   hasSideLeft: boolean;
   hasSideRight: boolean;
   hasMiddle: boolean;
+  imageRev: Partial<Record<ProfileImageKind, number>>;
   premium: boolean;
   lots: ListingCard[];
   lotTotal: number;

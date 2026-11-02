@@ -86,11 +86,12 @@ function ProfilePage() {
       ? { ...preset, bg: "#eceae6", ink: "#1c1b19", muted: "#5f5b55", card: "#f7f6f3", line: "rgba(28,27,25,0.16)", foam: "#f7f4ef" }
       : preset;
   const hud = lightSurface(theme.bg) ? theme.ink : theme.foam;
-  const blockBg = profile.hasBackground ? profileImageUrl(profile.handle, "background") : "";
-  const middle = profile.premium && profile.hasMiddle ? profileImageUrl(profile.handle, "middle") : "";
-  const sideLeft = profile.premium && profile.hasSideLeft ? profileImageUrl(profile.handle, "side_left") : "";
-  const sideRight = profile.premium && profile.hasSideRight ? profileImageUrl(profile.handle, "side_right") : "";
-  const banner = profile.hasBanner ? profileImageUrl(profile.handle, "banner") : "";
+  const rev = profile.imageRev;
+  const blockBg = profile.hasBackground ? profileImageUrl(profile.handle, "background", rev.background) : "";
+  const middle = profile.premium && profile.hasMiddle ? profileImageUrl(profile.handle, "middle", rev.middle) : "";
+  const sideLeft = profile.premium && profile.hasSideLeft ? profileImageUrl(profile.handle, "side_left", rev.side_left) : "";
+  const sideRight = profile.premium && profile.hasSideRight ? profileImageUrl(profile.handle, "side_right", rev.side_right) : "";
+  const banner = profile.hasBanner ? profileImageUrl(profile.handle, "banner", rev.banner) : "";
   const pages = Math.max(1, Math.ceil(total / PROFILE_LOT_PAGE));
 
   function openPage(next: number, state: "open" | "closed" = lotState) {
@@ -132,8 +133,12 @@ function ProfilePage() {
           />
         </div>
       ) : null}
-      {sideLeft ? <SideFrame url={sideLeft} accent={accent} edge="left" shape={profile.sideLeftShape} /> : null}
-      {sideRight ? <SideFrame url={sideRight} accent={accent} edge="right" shape={profile.sideRightShape} /> : null}
+      {sideLeft ? (
+        <SideFrame url={sideLeft} accent={accent} edge="left" shape={profile.sideLeftShape} framed={profile.sideLeftFramed} />
+      ) : null}
+      {sideRight ? (
+        <SideFrame url={sideRight} accent={accent} edge="right" shape={profile.sideRightShape} framed={profile.sideRightFramed} />
+      ) : null}
       <div className="profile-scope relative z-10 mx-auto w-full max-w-6xl space-y-8 px-4" style={scope}>
       <section
         className="theme-card relative z-0 overflow-hidden border"
@@ -165,7 +170,7 @@ function ProfilePage() {
                   style={{ borderColor: profile.avatarFrame === "gold" ? "#e6c36a" : accent, background: theme.card }}
                 >
                   {profile.hasAvatar ? (
-                    <img src={profileImageUrl(profile.handle, "avatar")} alt="" className="h-full w-full object-cover" />
+                    <img src={profileImageUrl(profile.handle, "avatar", rev.avatar)} alt="" className="h-full w-full object-cover" />
                   ) : null}
                 </div>
                 <div className="pb-1">
@@ -339,34 +344,34 @@ function SideFrame({
   accent,
   edge,
   shape,
+  framed,
 }: {
   url: string;
   accent: string;
   edge: "left" | "right";
   shape: SideShape;
+  framed: boolean;
 }) {
   const square = shape === "square-top" || shape === "square-bottom";
-  const framed = shape !== "none";
-  const gutter = "max(0px, calc((100vw - min(72rem, 100vw)) / 2 - 1rem))";
-  const style: CSSProperties = {
-    borderColor: framed ? accent : "transparent",
-    ...(square
-      ? {
-          width: gutter,
-          height: gutter,
-          top: shape === "square-top" ? "6.25rem" : undefined,
-          bottom: shape === "square-bottom" ? "0.75rem" : undefined,
-        }
-      : {
-          top: "6.25rem",
-          bottom: "0.75rem",
-          width: shape === "wide" ? "12rem" : "7.5rem",
-        }),
-  };
+  const gutter = "max(5.5rem, calc((100vw - min(72rem, 100vw)) / 2 - 1.25rem))";
+  const style: CSSProperties = framed
+    ? { borderColor: accent, borderWidth: 1, borderStyle: "solid" }
+    : { border: "none" };
+  if (square) {
+    style.width = gutter;
+    style.height = gutter;
+    style.top = shape === "square-top" ? "6.25rem" : "auto";
+    style.bottom = shape === "square-bottom" ? "0.75rem" : "auto";
+  } else {
+    style.top = "6.25rem";
+    style.bottom = "0.75rem";
+    style.width = shape === "wide" ? "min(18rem, calc((100vw - 72rem) / 2 - 1.25rem))" : "7.5rem";
+  }
   return (
     <div
+      key={`${edge}-${shape}-${framed}-${url}`}
       aria-hidden
-      className={`pointer-events-none fixed z-20 hidden overflow-hidden bg-transparent min-[1440px]:block ${framed ? "border" : ""} ${edge === "left" ? "left-3" : "right-3"}`}
+      className={`pointer-events-none fixed z-20 overflow-hidden bg-transparent max-xl:hidden ${edge === "left" ? "left-3" : "right-3"}`}
       style={style}
     >
       <img src={url} alt="" className="absolute inset-0 h-full w-full object-contain" />
