@@ -298,7 +298,16 @@ export type FeedQuery = {
 
 export type FeedResult = { items: ListingCard[]; total: number; hasMore: boolean };
 
-export type BidRow = { id: string; amount: number; handle: string; premium: boolean; createdAt: string };
+export type BidRow = {
+  id: string;
+  amount: number;
+  handle: string;
+  premium: boolean;
+  createdAt: string;
+  note: string;
+  sellerNote: string;
+  bidderId: string;
+};
 
 export type MediaMeta = { id: string; filename: string; mime: string; sizeBytes: number };
 

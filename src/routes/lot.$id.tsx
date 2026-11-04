@@ -15,10 +15,42 @@ import {
   closeAuctionEarly,
   getListing,
   placeBid,
+  setBidNote as saveBidNote,
   reportListing,
   toggleLike,
 } from "@/lib/market/server";
 import { engineLabel, errText, formatPrice, formatWhen, payLabel, type ListingDetail } from "@/lib/market/shared";
+
+function BidNoteBox({ onSave }: { onSave: (note: string) => Promise<void> }) {
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="mt-2 flex gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const note = value.trim();
+        if (!note || busy) return;
+        setBusy(true);
+        void onSave(note)
+          .then(() => setValue(""))
+          .catch((err) => toast.error(errText(err)))
+          .finally(() => setBusy(false));
+      }}
+    >
+      <input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        maxLength={200}
+        placeholder="Комментарий к ставке"
+        className={`${fieldClass} min-h-9 flex-1 text-sm`}
+      />
+      <Button type="submit" variant="line" disabled={busy || !value.trim()} className="min-h-9 px-3">
+        Ок
+      </Button>
+    </form>
+  );
+}
 
 function snipeLabel(minutes: number): string {
   if (minutes <= 0) return "антиснайп выключен";
@@ -60,6 +92,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
   const [liked, setLiked] = useState(lot.liked);
   const [likes, setLikes] = useState(lot.likeCount);
   const [bid, setBid] = useState("");
+  const [bidNote, setBidNote] = useState("");
   const [comment, setComment] = useState("");
   const [reason, setReason] = useState("");
   const commentRef = useRef<HTMLInputElement>(null);
@@ -71,7 +104,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
   const floor = lot.currentBid == null ? lot.price : lot.currentBid + step;
   const mixed = lot.currency === "sw" && lot.buyNowCurrency === "rub";
   const showBuyNow =
-    live && !mine && lot.kind === "auction" && lot.buyNow != null && (mixed || lot.currentBid == null || lot.currentBid < lot.buyNow);
+    live && lot.kind === "auction" && lot.buyNow != null && (mixed || lot.currentBid == null || lot.currentBid < lot.buyNow);
 
   async function run(job: () => Promise<void>) {
     setBusy(true);
@@ -238,9 +271,10 @@ function LotView({ lot }: { lot: ListingDetail }) {
                   event.preventDefault();
                   const amount = Number(bid);
                   void run(async () => {
-                    const res = await placeBid({ data: { listingId: lot.id, amount } });
+                    const res = await placeBid({ data: { listingId: lot.id, amount, note: bidNote } });
                     toast.success(res.extended ? "Ставка принята, аукцион продлён" : "Ставка принята");
                     setBid("");
+                    setBidNote("");
                   });
                 }}
               >
@@ -250,6 +284,13 @@ function LotView({ lot }: { lot: ListingDetail }) {
                   inputMode="numeric"
                   placeholder={`от ${formatPrice(floor, lot.currency)}`}
                   className={`${fieldClass} tabular-nums`}
+                />
+                <input
+                  value={bidNote}
+                  onChange={(e) => setBidNote(e.target.value)}
+                  maxLength={200}
+                  placeholder="Комментарий, необязательно"
+                  className={fieldClass}
                 />
                 <Button type="submit" disabled={busy} className="w-full">
                   {user && lot.currentBidderId === user.id ? "Перебить свою" : mine ? "Своя ставка" : "Поставить"}
@@ -289,8 +330,12 @@ function LotView({ lot }: { lot: ListingDetail }) {
                 onClick={() =>
                   void run(async () => {
                     const res = await buyNow({ data: lot.id });
-                    toast.success("Лот ваш");
-                    await navigate({ to: "/deals/$id", params: { id: res.dealId } });
+                    if (res.dealId) {
+                      toast.success("Лот ваш");
+                      await navigate({ to: "/deals/$id", params: { id: res.dealId } });
+                    } else {
+                      toast.success("Лот закрыт");
+                    }
                   })
                 }
               >
@@ -318,7 +363,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
                           </>
                         ) : null}
                       </p>
-                    ) : live && user && !mine ? (
+                    ) : live && user ? (
                       <Button
                         className="mt-2 w-full"
                         disabled={busy}
@@ -327,8 +372,12 @@ function LotView({ lot }: { lot: ListingDetail }) {
                             const res = await buyFixed({
                               data: slot.id === lot.id ? lot.id : { id: lot.id, itemId: slot.id },
                             });
-                            toast.success("Позиция ваша");
-                            await navigate({ to: "/deals/$id", params: { id: res.dealId } });
+                            if (res.dealId) {
+                              toast.success("Позиция ваша");
+                              await navigate({ to: "/deals/$id", params: { id: res.dealId } });
+                            } else {
+                              toast.success("Позиция закрыта");
+                            }
                           })
                         }
                       >
@@ -359,12 +408,34 @@ function LotView({ lot }: { lot: ListingDetail }) {
               <Kicker>bids</Kicker>
               <ul className="mt-3 space-y-2 text-base">
                 {lot.bids.map((row) => (
-                  <li key={row.id} className="flex items-baseline justify-between gap-3 border-b border-ink/10 pb-2 last:border-0">
-                    <Link to="/u/$handle" params={{ handle: row.handle }} className="hover:text-ink">
-                      {row.premium ? <span className="star">★ </span> : null}
-                      <span className={row.premium ? "text-[#e6c36a]" : undefined}>@{row.handle}</span>
-                    </Link>
-                    <span className="font-mono text-lg tabular-nums">{formatPrice(row.amount, lot.currency)}</span>
+                  <li key={row.id} className="border-b border-ink/10 pb-2 last:border-0">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <Link to="/u/$handle" params={{ handle: row.handle }} className="hover:text-ink">
+                        {row.premium ? <span className="star">★ </span> : null}
+                        <span className={row.premium ? "text-[#e6c36a]" : undefined}>@{row.handle}</span>
+                      </Link>
+                      <span className="font-mono text-lg tabular-nums">{formatPrice(row.amount, lot.currency)}</span>
+                    </div>
+                    {row.note ? <p className="mt-1 text-sm text-muted">{row.note}</p> : null}
+                    {row.sellerNote ? <p className="mt-1 text-sm text-muted">автор: {row.sellerNote}</p> : null}
+                    {user && user.id === row.bidderId && !row.note ? (
+                      <BidNoteBox
+                        onSave={async (note) => {
+                          await saveBidNote({ data: { bidId: row.id, note } });
+                          toast.success("Комментарий сохранён");
+                          await router.invalidate();
+                        }}
+                      />
+                    ) : null}
+                    {user && mine && user.id !== row.bidderId && !row.sellerNote ? (
+                      <BidNoteBox
+                        onSave={async (note) => {
+                          await saveBidNote({ data: { bidId: row.id, note } });
+                          toast.success("Комментарий сохранён");
+                          await router.invalidate();
+                        }}
+                      />
+                    ) : null}
                   </li>
                 ))}
               </ul>

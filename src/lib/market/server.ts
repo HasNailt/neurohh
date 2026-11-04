@@ -236,7 +236,7 @@ type CloseRow = {
 };
 
 async function openDeal(sql: Sql, row: CloseRow): Promise<string | null> {
-  if (!row.winner_id) return null;
+  if (!row.winner_id || row.winner_id === row.seller_id) return null;
   const id = crypto.randomUUID();
   const inserted = await sql<{ id: string; public_no: number }>`
     insert into deals (id, listing_id, seller_id, buyer_id, amount, currency, status, listing_title)
@@ -271,7 +271,7 @@ async function settle(sql: Sql) {
       returning id, title, seller_id, winner_id, coalesce(current_bid, price) as amount, currency
     `;
     for (const row of closed) {
-      if (row.winner_id) {
+      if (row.winner_id && row.winner_id !== row.seller_id) {
         await openDeal(sql, row);
       } else {
         await notify(
@@ -279,7 +279,7 @@ async function settle(sql: Sql) {
           row.seller_id,
           "auction_end",
           "Аукцион завершён",
-          `«${row.title}» закрыт без ставок`,
+          row.winner_id ? `«${row.title}» закрыт без сделки` : `«${row.title}» закрыт без ставок`,
           `/lot/${row.id}`,
         );
       }
@@ -287,8 +287,9 @@ async function settle(sql: Sql) {
     const missing = await sql<CloseRow>`
       select l.id, l.title, l.seller_id, l.winner_id, coalesce(l.current_bid, l.price) as amount, l.currency
       from listings l
-      left join deals d on d.listing_id = l.id
-      where l.kind = 'auction' and l.status = 'sold' and l.winner_id is not null and d.id is null and d.item_id is null
+      left join deals d on d.listing_id = l.id and d.item_id is null
+      where l.kind = 'auction' and l.status = 'sold' and l.winner_id is not null
+        and l.winner_id <> l.seller_id and d.id is null
     `;
     for (const row of missing) await openDeal(sql, row);
   } catch (err) {
@@ -572,8 +573,17 @@ export const getListing = createServerFn({ method: "GET" })
       where listing_id = ${id} and kind = 'preview'
       order by is_cover desc, created_at asc
     `;
-    const bids = await sql<{ id: string; amount: number; handle: string; premium: boolean; created_at: unknown }>`
-      select b.id, b.amount, p.handle, b.created_at,
+    const bids = await sql<{
+      id: string;
+      amount: number;
+      handle: string;
+      premium: boolean;
+      created_at: unknown;
+      note: string;
+      seller_note: string;
+      bidder_id: string;
+    }>`
+      select b.id, b.amount, p.handle, b.created_at, b.note, b.seller_note, b.bidder_id,
         (coalesce(p.premium_forever, false) or (p.premium_until is not null and p.premium_until > now())) as premium
       from bids b
       join profiles p on p.user_id = b.bidder_id
@@ -672,6 +682,9 @@ export const getListing = createServerFn({ method: "GET" })
       handle: b.handle,
       premium: Boolean(b.premium),
       createdAt: iso(b.created_at),
+      note: b.note ?? "",
+      sellerNote: b.seller_note ?? "",
+      bidderId: b.bidder_id,
     }));
     return {
       ...likedCards[0],
@@ -1172,7 +1185,7 @@ export const discardListing = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-type BidBody = { listingId: string; amount: number };
+type BidBody = { listingId: string; amount: number; note: string };
 
 export const placeBid = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -1182,7 +1195,8 @@ export const placeBid = createServerFn({ method: "POST" })
     if (typeof o.listingId !== "string" || !UUID_RE.test(o.listingId)) fail("Некорректный лот");
     const amount = parsePrice(o.amount);
     if (amount == null) fail("Ставка — целое число");
-    return { listingId: o.listingId, amount };
+    const note = cleanText(typeof o.note === "string" ? o.note : "", 200);
+    return { listingId: o.listingId, amount, note };
   })
   .handler(async ({ data, context }) => {
     const sql = await getSql();
@@ -1245,8 +1259,8 @@ export const placeBid = createServerFn({ method: "POST" })
     `;
     if (!updated[0]) fail("Ставка не принята — кто-то успел раньше или сумма слишком мала");
     await sql`
-      insert into bids (id, listing_id, bidder_id, amount)
-      values (${crypto.randomUUID()}, ${data.listingId}, ${context.userId}, ${data.amount})
+      insert into bids (id, listing_id, bidder_id, amount, note)
+      values (${crypto.randomUUID()}, ${data.listingId}, ${context.userId}, ${data.amount}, ${data.note})
     `;
     const endsAt = iso(updated[0].ends_at);
     const extended = prevEnd != null && new Date(endsAt).getTime() - new Date(prevEnd).getTime() > 1000;
@@ -1279,6 +1293,37 @@ export const placeBid = createServerFn({ method: "POST" })
     };
   });
 
+export const setBidNote = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    if (!input || typeof input !== "object") fail("Пустой комментарий");
+    const o = input as Record<string, unknown>;
+    if (typeof o.bidId !== "string" || !UUID_RE.test(o.bidId)) fail("Некорректная ставка");
+    const note = cleanText(typeof o.note === "string" ? o.note : "", 200);
+    if (!note) fail("Напишите комментарий");
+    return { bidId: o.bidId, note };
+  })
+  .handler(async ({ data, context }) => {
+    const sql = await getSql();
+    const rows = await sql<{ bidder_id: string; seller_id: string }>`
+      select b.bidder_id, l.seller_id
+      from bids b
+      join listings l on l.id = b.listing_id
+      where b.id = ${data.bidId}
+    `;
+    const row = rows[0];
+    if (!row) fail("Ставка не найдена");
+    const ownBid = row.bidder_id === context.userId;
+    const seller = row.seller_id === context.userId;
+    if (!ownBid && !seller) fail("Комментарий может оставить участник ставки или автор лота");
+    if (ownBid) {
+      await sql`update bids set note = ${data.note} where id = ${data.bidId}`;
+    } else {
+      await sql`update bids set seller_note = ${data.note} where id = ${data.bidId}`;
+    }
+    return { ok: true };
+  });
+
 async function openItemDeal(
   sql: Sql,
   row: {
@@ -1292,6 +1337,7 @@ async function openItemDeal(
     currency: "rub" | "sw";
   },
 ): Promise<string | null> {
+  if (row.buyerId === row.sellerId) return null;
   const id = crypto.randomUUID();
   const title = `${row.lotTitle} — ${row.itemTitle}`.slice(0, 180);
   const inserted = await sql<{ id: string; public_no: number }>`
@@ -1320,7 +1366,7 @@ async function takeListing(
   listingId: string,
   mode: "fixed" | "buy-now",
   itemId: string | null,
-): Promise<{ dealId: string }> {
+): Promise<{ dealId: string | null }> {
   await settle(sql);
   const profile = await ensureProfile(sql, userId);
   assertLive(profile);
@@ -1338,7 +1384,6 @@ async function takeListing(
         and kind = 'auction'
         and buy_now is not null
         and ends_at > now()
-        and seller_id <> ${userId}
       returning id, title, seller_id, winner_id, buy_now as amount, coalesce(buy_now_currency, currency) as currency
     `;
     if (!updated[0]) fail("Лот уже забрали или он закрыт");
@@ -1351,7 +1396,7 @@ async function takeListing(
         and coalesce(buy_now_currency, currency) = currency
     `;
     const dealId = await openDeal(sql, updated[0]);
-    if (!dealId) fail("Не удалось открыть сделку");
+    if (!dealId && updated[0].winner_id !== updated[0].seller_id) fail("Не удалось открыть сделку");
     return { dealId };
   }
 
@@ -1360,7 +1405,7 @@ async function takeListing(
   `;
   const listing = lot[0];
   if (!listing || listing.kind !== "fixed" || listing.status !== "active") fail("Лот уже забрали или он закрыт");
-  if (listing.seller_id === userId) fail("Это ваш лот");
+  const own = listing.seller_id === userId;
   const currency = asPay(listing.currency);
   const items = await sql<{ id: string; title: string; price: number; status: string }>`
     select id, title, price, status from listing_items where listing_id = ${listingId} order by position asc
@@ -1369,12 +1414,12 @@ async function takeListing(
     const updated = await sql<CloseRow>`
       update listings
       set status = 'sold', winner_id = ${userId}, updated_at = now()
-      where id = ${listingId} and status = 'active' and kind = 'fixed' and seller_id <> ${userId}
+      where id = ${listingId} and status = 'active' and kind = 'fixed'
       returning id, title, seller_id, winner_id, price as amount, currency
     `;
     if (!updated[0]) fail("Лот уже забрали или он закрыт");
-    const dealId = await openDeal(sql, updated[0]);
-    if (!dealId) fail("Не удалось открыть сделку");
+    const dealId = own ? null : await openDeal(sql, updated[0]);
+    if (!own && !dealId) fail("Не удалось открыть сделку");
     return { dealId };
   }
   const target = itemId ? items.find((item) => item.id === itemId) : items.find((item) => item.status === "open");
@@ -1396,7 +1441,7 @@ async function takeListing(
     amount: num(taken[0].price),
     currency,
   });
-  if (!dealId) fail("Не удалось открыть сделку");
+  if (!dealId && !own) fail("Не удалось открыть сделку");
   const left = await sql<{ n: number }>`
     select count(*)::int as n from listing_items where listing_id = ${listingId} and status = 'open'
   `;
