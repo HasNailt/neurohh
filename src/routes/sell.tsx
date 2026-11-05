@@ -111,9 +111,9 @@ function SellForm() {
       return;
     }
     if (kind === "fixed") {
-      if (slots.length < 1 || slots.length > 9) {
+      if (slots.length < 1 || slots.length > 10) {
         setBusy(false);
-        toast.error("В фиксе от 1 до 9 позиций");
+        toast.error("В фиксе от 1 до 10 позиций");
         return;
       }
       if (slots.some((slot) => slot.title.trim().length < 1 || !Number.isInteger(Number(slot.price)) || Number(slot.price) < 1)) {
@@ -312,8 +312,8 @@ function SellForm() {
       ) : (
         <div className="grid gap-3 border border-ink/20 p-3">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm">Позиции — до 9. У каждой своё название и цена.</p>
-            {slots.length < 9 ? (
+            <p className="text-sm">Позиции — до 10. У каждой своё название и цена.</p>
+            {slots.length < 10 ? (
               <button
                 type="button"
                 className="font-mono text-xs underline"
@@ -333,18 +333,10 @@ function SellForm() {
                   </button>
                 ) : null}
               </div>
-              <label className="block text-sm">
-                Название
-                <input
-                  value={slot.title}
-                  onChange={(e) =>
-                    setSlots((current) => current.map((item) => (item.key === slot.key ? { ...item, title: e.target.value } : item)))
-                  }
-                  maxLength={80}
-                  placeholder="Персонаж или предмет"
-                  className={`${fieldClass} mt-1`}
-                />
-              </label>
+              <SlotTitle
+                value={slot.title}
+                onChange={(title) => setSlots((current) => current.map((item) => (item.key === slot.key ? { ...item, title } : item)))}
+              />
               <label className="block text-sm">
                 Цена, {currency === "sw" ? "SW" : "₽"}
                 <input
@@ -385,5 +377,25 @@ function SellForm() {
         {busy ? "Публикуем…" : "Опубликовать"}
       </Button>
     </form>
+  );
+}
+
+function SlotTitle({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  return (
+    <label className="block text-sm">
+      Название
+      <div className="mt-1 flex items-end gap-2">
+        <FormatBar inputRef={ref} value={value} onChange={onChange} />
+        <input
+          ref={ref}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          maxLength={80}
+          placeholder="Персонаж или предмет"
+          className={`${fieldClass} min-w-0 flex-1`}
+        />
+      </div>
+    </label>
   );
 }

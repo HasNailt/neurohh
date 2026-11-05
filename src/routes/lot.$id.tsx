@@ -13,6 +13,7 @@ import {
   buyFixed,
   buyNow,
   closeAuctionEarly,
+  cancelBid,
   getListing,
   placeBid,
   setBidNote as saveBidNote,
@@ -24,6 +25,7 @@ import { engineLabel, errText, formatPrice, formatWhen, payLabel, type ListingDe
 function BidNoteBox({ onSave }: { onSave: (note: string) => Promise<void> }) {
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
   return (
     <form
       className="mt-2 flex gap-2"
@@ -38,7 +40,9 @@ function BidNoteBox({ onSave }: { onSave: (note: string) => Promise<void> }) {
           .finally(() => setBusy(false));
       }}
     >
+      <FormatBar inputRef={ref} value={value} onChange={setValue} />
       <input
+        ref={ref}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         maxLength={200}
@@ -416,8 +420,31 @@ function LotView({ lot }: { lot: ListingDetail }) {
                       </Link>
                       <span className="font-mono text-lg tabular-nums">{formatPrice(row.amount, lot.currency)}</span>
                     </div>
-                    {row.note ? <p className="mt-1 text-sm text-muted">{row.note}</p> : null}
-                    {row.sellerNote ? <p className="mt-1 text-sm text-muted">автор: {row.sellerNote}</p> : null}
+                    {row.note ? (
+                      <p className="mt-1 text-sm text-muted">
+                        <RichText text={row.note} />
+                      </p>
+                    ) : null}
+                    {row.sellerNote ? (
+                      <p className="mt-1 text-sm text-muted">
+                        автор: <RichText text={row.sellerNote} />
+                      </p>
+                    ) : null}
+                    {mine && live ? (
+                      <button
+                        type="button"
+                        className="mt-1 font-mono text-xs text-wine hover:underline"
+                        onClick={() => {
+                          if (!window.confirm("Снять эту ставку?")) return;
+                          void run(async () => {
+                            await cancelBid({ data: row.id });
+                            toast.success("Ставка снята");
+                          });
+                        }}
+                      >
+                        Отменить ставку
+                      </button>
+                    ) : null}
                     {user && user.id === row.bidderId && !row.note ? (
                       <BidNoteBox
                         onSave={async (note) => {

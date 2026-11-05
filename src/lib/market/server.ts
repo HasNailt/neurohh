@@ -752,7 +752,7 @@ type CreateBody = {
 
 function parseSlots(value: unknown): { title: string; price: number }[] {
   if (!Array.isArray(value) || value.length < 1) fail("Добавьте хотя бы одну позицию");
-  if (value.length > 9) fail("Не больше 9 позиций");
+  if (value.length > 10) fail("Не больше 10 позиций");
   const items: { title: string; price: number }[] = [];
   for (const raw of value) {
     if (!raw || typeof raw !== "object") fail("Позиция указана неверно");
@@ -1320,6 +1320,54 @@ export const setBidNote = createServerFn({ method: "POST" })
       await sql`update bids set note = ${data.note} where id = ${data.bidId}`;
     } else {
       await sql`update bids set seller_note = ${data.note} where id = ${data.bidId}`;
+    }
+    return { ok: true };
+  });
+
+export const cancelBid = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((id: unknown) => {
+    if (typeof id !== "string" || !UUID_RE.test(id)) fail("Некорректная ставка");
+    return id;
+  })
+  .handler(async ({ data: bidId, context }) => {
+    const sql = await getSql();
+    const rows = await sql<{ listing_id: string; seller_id: string; status: string }>`
+      select b.listing_id, l.seller_id, l.status
+      from bids b
+      join listings l on l.id = b.listing_id
+      where b.id = ${bidId}
+    `;
+    const row = rows[0];
+    if (!row) fail("Ставка не найдена");
+    if (row.seller_id !== context.userId) fail("Отменять ставки может только автор лота");
+    if (row.status !== "active") fail("Лот уже закрыт");
+    await sql`delete from bids where id = ${bidId}`;
+    const left = await sql<{ n: number }>`
+      select count(*)::int as n from bids where listing_id = ${row.listing_id}
+    `;
+    const top = await sql<{ amount: number; bidder_id: string }>`
+      select amount, bidder_id from bids
+      where listing_id = ${row.listing_id}
+      order by amount desc, created_at desc
+      limit 1
+    `;
+    const count = num(left[0]?.n);
+    if (top[0]) {
+      await sql`
+        update listings
+        set current_bid = ${num(top[0].amount)},
+            current_bidder_id = ${top[0].bidder_id},
+            bid_count = ${count},
+            updated_at = now()
+        where id = ${row.listing_id}
+      `;
+    } else {
+      await sql`
+        update listings
+        set current_bid = null, current_bidder_id = null, bid_count = 0, updated_at = now()
+        where id = ${row.listing_id}
+      `;
     }
     return { ok: true };
   });
