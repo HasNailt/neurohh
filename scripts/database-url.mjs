@@ -158,19 +158,16 @@ export function sessionSecretMaterial(env = process.env) {
 
 /** @param {string} connectionString @param {number} [max] */
 export function postgresPoolConfig(connectionString, max = 2) {
-  const supabase = isSupabaseUrl(connectionString);
   return {
-    connectionString: withSslMode(connectionString, supabase),
-    // One client per isolate. Session mode only allowed 15, and a pool of 2
-    // on every Vercel instance filled it.
+    connectionString: connectionString.replace(/[?&]sslmode=[^&]*/gi, "").replace(/\?$/, ""),
     max: 1,
-    idleTimeoutMillis: 5_000,
-    connectionTimeoutMillis: 8_000,
-    query_timeout: 10_000,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 30_000,
+    query_timeout: 30_000,
     keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,
     allowExitOnIdle: true,
     application_name: "adoptai",
-    ...(supabase ? { ssl: { rejectUnauthorized: false } } : {}),
+    ssl: false,
   };
 }

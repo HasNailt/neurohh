@@ -14,13 +14,7 @@ function readB64(file: Blob): Promise<string> {
   });
 }
 
-async function canvasJpeg(file: Blob, edge: number, quality: number): Promise<Blob | null> {
-  let bmp: ImageBitmap;
-  try {
-    bmp = await createImageBitmap(file);
-  } catch {
-    return null;
-  }
+function drawJpeg(bmp: ImageBitmap, edge: number, quality: number): Promise<Blob | null> {
   const scale = Math.min(1, edge / Math.max(bmp.width, bmp.height, 1));
   const width = Math.max(1, Math.round(bmp.width * scale));
   const height = Math.max(1, Math.round(bmp.height * scale));
@@ -28,15 +22,60 @@ async function canvasJpeg(file: Blob, edge: number, quality: number): Promise<Bl
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    bmp.close();
-    return null;
-  }
+  if (!ctx) return Promise.resolve(null);
   ctx.fillStyle = "#131211";
   ctx.fillRect(0, 0, width, height);
   ctx.drawImage(bmp, 0, 0, width, height);
-  bmp.close();
   return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), "image/jpeg", quality));
+}
+
+/** Cover for the feed: about 800–1200 px and 200–400 KB. Does not upscale. */
+async function compressCover(file: Blob): Promise<Blob | null> {
+  let bmp: ImageBitmap;
+  try {
+    bmp = await createImageBitmap(file);
+  } catch {
+    return null;
+  }
+  try {
+    const long = Math.max(bmp.width, bmp.height, 1);
+    const edges = [Math.min(1200, long)];
+    if (long > 1000) edges.push(1000);
+    if (long > 800) edges.push(800);
+    const maxBytes = 400 * 1024;
+    const qualities = [0.9, 0.84, 0.78, 0.72, 0.66, 0.6, 0.54, 0.48, 0.4, 0.32];
+    let smallest: Blob | null = null;
+    for (const edge of edges) {
+      let under: Blob | null = null;
+      for (const quality of qualities) {
+        const blob = await drawJpeg(bmp, edge, quality);
+        if (!blob) continue;
+        if (!smallest || blob.size < smallest.size) smallest = blob;
+        if (blob.size <= maxBytes) {
+          under = blob;
+          break;
+        }
+      }
+      if (under) return under;
+    }
+    return smallest;
+  } finally {
+    bmp.close();
+  }
+}
+
+async function canvasJpeg(file: Blob, edge: number, quality: number): Promise<Blob | null> {
+  let bmp: ImageBitmap;
+  try {
+    bmp = await createImageBitmap(file);
+  } catch {
+    return null;
+  }
+  try {
+    return await drawJpeg(bmp, edge, quality);
+  } finally {
+    bmp.close();
+  }
 }
 
 /** Reject a preview before a lot exists. Throws instead of uploading. */
@@ -100,6 +139,23 @@ export async function pushFile(listingId: string, file: File, kind: "preview" | 
     throw new Error("Полные файлы через площадку больше не принимаются");
   }
   await checkPreviewFile(file);
+  if (cover) {
+    const packed = (await compressCover(file)) ?? (await canvasJpeg(file, 1200, 0.72)) ?? file;
+    const b64 = await readB64(packed);
+    if (b64.length < 32) throw new Error("Не удалось прочитать файл");
+    const jpegName = file.name.replace(/\.\w+$/, "") + ".jpg";
+    await uploadMedia({
+      data: {
+        listingId,
+        kind,
+        filename: packed instanceof File ? packed.name : jpegName,
+        b64,
+        cardB64: packed.type === "image/jpeg" || !(packed instanceof File) ? b64 : null,
+        cover: true,
+      },
+    });
+    return;
+  }
   const card = await canvasJpeg(file, 640, 0.64);
   const keepGif = file.type === "image/gif" && file.size <= 700_000;
   const view = keepGif ? file : ((await canvasJpeg(file, 1200, 0.72)) ?? file);

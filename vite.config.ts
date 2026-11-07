@@ -152,20 +152,11 @@ export default defineConfig(({ command, isPreview }) => ({
     strictPort: true,
   },
   preview: {
-    host: "0.0.0.0",
-    port: Number(process.env.PORT) || 8081,
+    host: "127.0.0.1",
+    port: 8081,
     strictPort: true,
-    allowedHosts: ["neurohh.onrender.com", "neurohh.ru", "www.neurohh.ru"],
   },
   resolve: { tsconfigPaths: true },
-  // Bake deploy-time broker credentials into the server bundle. The runtime
-  // function often does not see GROK_AUTH_* (build-only injection); a dynamic
-  // process.env read then falls back to the sandbox client and auth.grok.me
-  // rejects https://neurohh.ru as a redirect.
-  define: {
-    __GROK_AUTH_CLIENT_ID_BUILD__: JSON.stringify(process.env.GROK_AUTH_CLIENT_ID ?? ""),
-    __GROK_AUTH_CLIENT_SECRET_BUILD__: JSON.stringify(process.env.GROK_AUTH_CLIENT_SECRET ?? ""),
-  },
   plugins: [
     pgliteBootstrapPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.
@@ -180,21 +171,10 @@ export default defineConfig(({ command, isPreview }) => ({
       ? [
           nitro({
             preset: "vercel",
-            // Source directory for server/middleware (PWA install page).
+            // Auto-registers server/middleware/* (the PWA install page +
+            // manifest + head-tag middleware). Nitro v3 defaults serverDir to
+            // false, so removing this silently unwires /?install=1 on deploys.
             serverDir: "./server",
-            vercel: {
-              // Pin document requests to this deployment so hashed /assets
-              // are not loaded from a newer deploy that no longer has them.
-              skewProtection: true,
-            },
-            // Canonical Build Output API paths. Relative overrides can land
-            // outside `.vercel/output` on Vercel, and the deploy then 404s
-            // because functions/static/services are missing.
-            output: {
-              dir: "{{ rootDir }}/.vercel/output",
-              serverDir: "{{ output.dir }}/functions/__server.func",
-              publicDir: "{{ output.dir }}/static/{{ baseURL }}",
-            },
           }),
         ]
       : []),

@@ -260,8 +260,27 @@ async function openDeal(sql: Sql, row: CloseRow): Promise<string | null> {
   return dealId;
 }
 
+async function retainChats(sql: Sql) {
+  try {
+    await sql`delete from dm_message_images where created_at < now() - interval '30 days'`;
+    await sql`delete from message_images where created_at < now() - interval '30 days'`;
+    await sql`
+      delete from messages
+      where deal_id in (
+        select id from deals
+        where status = 'completed'
+          and completed_at is not null
+          and completed_at < now() - interval '2 months'
+      )
+    `;
+  } catch (err) {
+    console.error("[chat] retain failed", err);
+  }
+}
+
 async function settle(sql: Sql) {
   try {
+    await retainChats(sql);
     const closed = await sql<CloseRow>`
       update listings
       set status = case when current_bidder_id is null then 'ended' else 'sold' end,
@@ -1024,15 +1043,51 @@ export const uploadMedia = createServerFn({ method: "POST" })
     let cardB64: string | null = null;
     if (data.cardB64) {
       const card = Buffer.from(data.cardB64, "base64");
-      if (card.length > 32 && card.length < 400_000 && card[0] === 0xff && card[1] === 0xd8) {
+      if (card.length > 32 && card.length <= 400 * 1024 && card[0] === 0xff && card[1] === 0xd8) {
         cardB64 = card.toString("base64");
       }
     }
     let viewB64: string | null = null;
-    if (data.kind === "preview") {
+    let outBuf = buf;
+    let outMime = magic;
+    let outW = width;
+    let outH = height;
+    let outName = filename;
+    const coverLong = Math.max(width ?? 0, height ?? 0);
+    const coverReady =
+      data.cover && magic === "image/jpeg" && coverLong > 0 && coverLong <= 1200 && buf.length <= 400 * 1024;
+    if (coverReady) {
+      viewB64 = buf.toString("base64");
+    } else if (data.cover && isRaster(magic)) {
+      try {
+        const { compressCoverImage } = await import("@/lib/preview-thumb.server");
+        const made = compressCoverImage(buf, magic);
+        if (made) {
+          outBuf = Buffer.from(made.jpeg);
+          outMime = "image/jpeg";
+          outW = made.width;
+          outH = made.height;
+          outName = filename.replace(/\.[^.]+$/, "") + ".jpg";
+          viewB64 = made.jpeg.toString("base64");
+        }
+      } catch (err) {
+        console.error("[upload] cover", err instanceof Error ? err.message : err);
+      }
+    }
+    if (viewB64 && data.cover) {
+      cardB64 = null;
+      try {
+        const { jpegThumb } = await import("@/lib/preview-thumb.server");
+        const small = jpegThumb(outBuf, "image/jpeg", 640);
+        if (small) cardB64 = small.toString("base64");
+      } catch (err) {
+        console.error("[upload] cover card", err instanceof Error ? err.message : err);
+      }
+    }
+    if (data.kind === "preview" && !viewB64) {
       try {
         const { thumbsFromOriginal } = await import("@/lib/market/preview-store");
-        const made = thumbsFromOriginal(buf, magic);
+        const made = thumbsFromOriginal(outBuf, outMime);
         cardB64 = cardB64 ?? made.card;
         viewB64 = made.view;
       } catch (err) {
@@ -1051,14 +1106,14 @@ export const uploadMedia = createServerFn({ method: "POST" })
         ${id},
         ${data.listingId},
         ${data.kind},
-        ${filename},
-        ${magic},
-        ${buf.toString("base64")},
+        ${outName},
+        ${outMime},
+        ${outBuf.toString("base64")},
         ${cardB64},
         ${viewB64},
-        ${width},
-        ${height},
-        ${buf.length},
+        ${outW},
+        ${outH},
+        ${outBuf.length},
         ${data.cover}
       )
     `;
@@ -2031,6 +2086,7 @@ export const getStaffDeal = createServerFn({ method: "GET" })
   .handler(async ({ data: publicNo, context }): Promise<StaffDeal | null> => {
     const sql = await getSql();
     await requireStaff(sql, context.userId);
+    await retainChats(sql);
     const rows = await sql<{
       id: string;
       public_no: number;
@@ -3080,6 +3136,7 @@ export const listThreads = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }): Promise<ThreadPreview[]> => {
     const sql = await getSql();
+    await retainChats(sql);
     await ensureProfile(sql, context.userId);
     const rows = await sql<{
       id: string;
@@ -3260,6 +3317,7 @@ export const getThread = createServerFn({ method: "GET" })
   })
   .handler(async ({ data: id, context }): Promise<ThreadDetail | null> => {
     const sql = await getSql();
+    await retainChats(sql);
     await ensureProfile(sql, context.userId);
     return loadThread(sql, id, context.userId);
   });

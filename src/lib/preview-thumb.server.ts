@@ -36,6 +36,48 @@ function decode(input: Buffer, mime: string): Rgba | null {
   return null;
 }
 
+/** JPEG cover for lists: long edge 800–1200 when the source allows, about 200–400 KB. */
+export function compressCoverImage(
+  input: Buffer,
+  mime: string,
+): { jpeg: Buffer; width: number; height: number } | null {
+  if (input.length < 32 || input.length > 4_200_000) return null;
+  let image: Rgba | null = null;
+  try {
+    image = decode(input, mime);
+  } catch {
+    return null;
+  }
+  if (!image || image.width < 1 || image.height < 1) return null;
+  if (image.width * image.height > 17_000_000) return null;
+
+  const long = Math.max(image.width, image.height);
+  const edges = [Math.min(1200, long)];
+  if (long > 1000) edges.push(1000);
+  if (long > 800) edges.push(800);
+  const qualities = [88, 82, 76, 70, 64, 58, 52, 46, 40, 34];
+  const maxBytes = 400 * 1024;
+  let smallest: { jpeg: Buffer; width: number; height: number } | null = null;
+
+  for (const edge of edges) {
+    const fitted = fit(image, edge);
+    let under: { jpeg: Buffer; width: number; height: number } | null = null;
+    for (const quality of qualities) {
+      const jpegBuf = Buffer.from(
+        jpeg.encode({ data: fitted.data, width: fitted.width, height: fitted.height }, quality).data,
+      );
+      const made = { jpeg: jpegBuf, width: fitted.width, height: fitted.height };
+      if (!smallest || jpegBuf.length < smallest.jpeg.length) smallest = made;
+      if (jpegBuf.length <= maxBytes) {
+        under = made;
+        break;
+      }
+    }
+    if (under) return under;
+  }
+  return smallest && smallest.jpeg.length <= 450 * 1024 ? smallest : null;
+}
+
 /** Small JPEG. Null when the file is too large or not a PNG/JPEG. */
 export function jpegThumb(input: Buffer, mime: string, maxEdge: number): Buffer | null {
   if (input.length < 32 || input.length > 4_200_000) return null;

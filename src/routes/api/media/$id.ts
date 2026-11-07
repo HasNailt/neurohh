@@ -23,7 +23,7 @@ export const Route = createFileRoute("/api/media/$id")({
             return new Response("not found", { status: 404, headers: { "cache-control": "no-store" } });
           }
           const b64 = variant === "view" ? row.view_b64 || row.card_b64 : row.card_b64 || row.view_b64;
-          if (!b64 || b64.length < 32 || b64.length > 400_000) {
+          if (!b64 || b64.length < 32 || b64.length > 620_000) {
             return new Response("not found", { status: 404, headers: { "cache-control": "no-store" } });
           }
           return imageResponse(asBody(Buffer.from(b64, "base64")), "image/jpeg", 86400);

@@ -8,6 +8,7 @@
 import pg from "pg";
 import { postgresPoolConfig, resolveDatabaseUrl } from "./database-url.mjs";
 
+/** @type {any} */
 const globalRef = globalThis;
 
 export function getSharedPool() {

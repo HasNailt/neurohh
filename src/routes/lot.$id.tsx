@@ -509,6 +509,7 @@ function Gallery({ lot }: { lot: ListingDetail }) {
   const [zoom, setZoom] = useState(false);
   useEffect(() => {
     setActive(lot.previews[0]?.id ?? "");
+    setZoom(false);
   }, [lot.id, lot.previews]);
   const letter = (lot.title.trim()[0] || "A").toLocaleUpperCase("ru");
   const current = lot.previews.find((p) => p.id === active) ?? lot.previews[0];
@@ -531,11 +532,23 @@ function Gallery({ lot }: { lot: ListingDetail }) {
     const next = lot.previews[(index + dir + lot.previews.length) % lot.previews.length];
     if (next) setActive(next.id);
   };
+  const zoomable = !current.cover;
   return (
     <div className="space-y-2">
       <Frame>
         <div className="relative">
-          <button type="button" className="block w-full" onClick={() => setZoom(true)} aria-label="Открыть картинку">
+          {zoomable ? (
+            <button type="button" className="block w-full" onClick={() => setZoom(true)} aria-label="Открыть картинку">
+              <PreviewImg
+                id={current.id}
+                src={current.src || current.card}
+                variant="view"
+                alt={lot.title}
+                className="max-h-[70vh] w-full bg-soft object-contain"
+                fallback={fallback}
+              />
+            </button>
+          ) : (
             <PreviewImg
               id={current.id}
               src={current.src || current.card}
@@ -544,7 +557,7 @@ function Gallery({ lot }: { lot: ListingDetail }) {
               className="max-h-[70vh] w-full bg-soft object-contain"
               fallback={fallback}
             />
-          </button>
+          )}
           {lot.previews.length > 1 ? (
             <>
               <button type="button" onClick={() => step(-1)} className="absolute top-1/2 left-2 min-h-11 min-w-11 -translate-y-1/2 border border-ink/30 bg-paper/90 font-mono text-sm" aria-label="Предыдущая">
@@ -557,15 +570,17 @@ function Gallery({ lot }: { lot: ListingDetail }) {
           ) : null}
         </div>
       </Frame>
-      <ImageZoom open={zoom} onClose={() => setZoom(false)}>
-        <PreviewImg
-          id={current.id}
-          src={current.src || current.card}
-          variant="view"
-          alt={lot.title}
-          className="max-h-[90vh] max-w-[90vw] object-contain"
-        />
-      </ImageZoom>
+      {zoomable ? (
+        <ImageZoom open={zoom} onClose={() => setZoom(false)}>
+          <PreviewImg
+            id={current.id}
+            src={current.src || current.card}
+            variant="view"
+            alt={lot.title}
+            className="max-h-[90vh] max-w-[90vw] object-contain"
+          />
+        </ImageZoom>
+      ) : null}
       {lot.previews.length > 1 ? (
         <div className="flex gap-2 overflow-x-auto">
           {lot.previews.map((p) => (

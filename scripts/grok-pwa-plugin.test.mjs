@@ -23,31 +23,30 @@ const TEMPLATE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 test("injects before </head>", () => {
   const out = injectGrokPwaHead("<html><head><title>x</title></head><body></body></html>");
-  assert.doesNotMatch(out, /rel="manifest"/);
-  assert.doesNotMatch(out, /apple-touch-icon/);
-  assert.doesNotMatch(out, /grok-app-builder\/extensions\.js/);
-  assert.doesNotMatch(out, /fonts\.googleapis\.com/);
+  assert.match(out, /rel="manifest"/);
+  assert.match(out, /apple-touch-icon/);
+  assert.match(out, /grok-app-builder\/extensions\.js/);
+  assert.ok(out.indexOf("manifest") < out.indexOf("</head>"));
 });
 
-test("does not inject the extensions script", () => {
+test("injects the extensions script without a project id", () => {
   const out = injectGrokPwaHead("<html><head></head></html>", {
     appName: "Demo",
     projectId: "",
   });
-  assert.doesNotMatch(out, /grok-app-builder\/extensions\.js/);
+  assert.match(out, /src="https:\/\/grok\.com\/grok-app-builder\/extensions\.js" defer/);
   assert.doesNotMatch(out, /grok-project-id/);
   assert.doesNotMatch(out, /data-project-id/);
   assert.doesNotMatch(out, /property="grok:app_id"/);
 });
 
-test("injects project id meta without the extensions script", () => {
+test("injects project id on the script and meta when provided", () => {
   const out = injectGrokPwaHead("<html><head></head></html>", {
     appName: "Demo",
     projectId: "proj-123",
   });
   assert.match(out, /name="grok-project-id" content="proj-123"/);
-  assert.doesNotMatch(out, /data-project-id/);
-  assert.doesNotMatch(out, /grok-app-builder\/extensions\.js/);
+  assert.match(out, /data-project-id="proj-123"/);
   assert.match(out, /property="grok:app_id" content="proj-123"/);
 });
 
@@ -391,7 +390,7 @@ test("omits the extensions script when the deployer disables it", () => {
     assert.doesNotMatch(out, /grok-app-builder\/extensions\.js/);
     assert.match(out, /name="grok-project-id" content="proj-123"/);
     assert.match(out, /property="grok:app_id" content="proj-123"/);
-    assert.doesNotMatch(out, /rel="manifest"/);
+    assert.match(out, /rel="manifest"/);
     const twice = injectGrokPwaHead(out, { appName: "Demo", projectId: "proj-123" });
     assert.equal(out, twice);
   } finally {
@@ -400,7 +399,7 @@ test("omits the extensions script when the deployer disables it", () => {
   }
 });
 
-test("never injects the extensions script, even if the deployer asks for it", () => {
+test("keeps the extensions script on commercial when the deployer enables it", () => {
   const previous = process.env.VITE_GROK_EXTENSIONS;
   process.env.VITE_GROK_EXTENSIONS = "1";
   try {
@@ -408,23 +407,20 @@ test("never injects the extensions script, even if the deployer asks for it", ()
       appName: "Demo",
       projectId: "proj-123",
     });
-    assert.doesNotMatch(out, /grok-app-builder\/extensions\.js/);
-    assert.doesNotMatch(out, /data-project-id/);
-    assert.match(out, /name="grok-project-id" content="proj-123"/);
+    assert.match(out, /src="https:\/\/grok\.com\/grok-app-builder\/extensions\.js"/);
+    assert.match(out, /data-project-id="proj-123"/);
   } finally {
     if (previous === undefined) delete process.env.VITE_GROK_EXTENSIONS;
     else process.env.VITE_GROK_EXTENSIONS = previous;
   }
 });
 
-test("strips a baked extensions script and does not put it back", () => {
+test("does not duplicate the extensions script", () => {
   const ctx = { appName: "Demo", projectId: "proj-123" };
-  const baked =
-    '<html><head><script src="https://grok.com/grok-app-builder/extensions.js" defer></script></head></html>';
-  const once = injectGrokPwaHead(baked, ctx);
+  const once = injectGrokPwaHead("<html><head></head></html>", ctx);
   const twice = injectGrokPwaHead(once, ctx);
   assert.equal(once, twice);
-  assert.equal(twice.split("extensions.js").length - 1, 0);
+  assert.equal(twice.split("extensions.js").length - 1, 1);
 });
 
 test("is idempotent", () => {
@@ -445,7 +441,8 @@ test("streaming injector handles </head> split across chunks", () => {
     ...injector.push("ad><body>hello</body></html>"),
   ];
   const out = Buffer.concat(chunks).toString("utf8");
-  assert.doesNotMatch(out, /\/__grok\/manifest/);
+  assert.match(out, /rel="manifest"/);
+  assert.ok(out.indexOf("manifest") < out.indexOf("</head>"));
   assert.match(out, /<body>hello<\/body>/);
   assert.deepEqual(injector.flush(), []);
 });
@@ -461,7 +458,7 @@ test("streaming injector falls back when no </head> is seen", () => {
   const injector = createHeadInjector();
   assert.deepEqual(injector.push("<html><head>"), []);
   const out = Buffer.concat(injector.flush()).toString("utf8");
-  assert.doesNotMatch(out, /rel="manifest"/);
+  assert.match(out, /rel="manifest"/);
 });
 
 test("detects install query", () => {

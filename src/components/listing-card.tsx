@@ -37,8 +37,9 @@ export function ListingCardView({
             {item.previewId || item.previewSrc ? (
               <PreviewImg
                 id={item.previewId}
-                src={item.previewSrc}
+                src={item.previewId ? `/api/media/${item.previewId}?s=view` : item.previewSrc}
                 alt=""
+                variant="view"
                 className="h-full w-full object-cover"
                 fallback={
                   <div className="grid h-full place-items-center bg-wine-deep">

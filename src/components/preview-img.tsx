@@ -72,5 +72,5 @@ export function PreviewImg({
   }, [id, src, variant]);
   if (!url && pending) return <div className="h-full w-full animate-pulse bg-soft" />;
   if (!url) return <>{fallback ?? null}</>;
-  return <img src={url} alt={alt} className={className} loading="lazy" decoding="async" />;
+  return <img src={url} alt={alt} className={className} loading="lazy" decoding="async" onError={() => setUrl(null)} />;
 }

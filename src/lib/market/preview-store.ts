@@ -12,7 +12,7 @@ type PreviewMeta = {
   status: string;
 };
 
-function dataUrl(mime: string, b64: string | null, limit = 520_000): string | null {
+function dataUrl(mime: string, b64: string | null, limit = 620_000): string | null {
   if (!b64 || b64.length < 32 || b64.length > limit) return null;
   return `data:${mime};base64,${b64}`;
 }
