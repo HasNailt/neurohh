@@ -161,17 +161,20 @@ export function sessionSecretMaterial(env = process.env) {
  *
  * On a VPS the path to Supabase's transaction pooler (6543) drops idle
  * sockets with `read ETIMEDOUT`. The next `pg.Pool` checkout then hangs
- * until the TCP timeout, and with `max: 1` every other request fails with
- * "timeout exceeded when trying to connect". A fresh `pg.Client` connects
- * in about half a second. Default is fresh. Set `PG_POOL=1` or
- * `DB_CONNECTION_MODE=pool` to keep the shared pool.
+ * until the TCP timeout. A fresh `pg.Client` connects in about half a second.
+ *
+ * Safe mode is the default. Turn it on explicitly with
+ * `DB_CONNECTION_MODE=unstable` or `VPS_MODE=1`. Restore the shared pool
+ * with `PG_POOL=1` or `DB_CONNECTION_MODE=pool`. The URL stays on port 6543.
  *
  * @param {NodeJS.ProcessEnv} [env]
  */
 export function prefersFreshConnections(env = process.env) {
   const mode = String(read(env, "DB_CONNECTION_MODE") || "").toLowerCase();
-  if (mode === "pool" || mode === "long") return false;
-  if (mode === "fresh" || mode === "vps") return true;
+  if (mode === "pool" || mode === "long" || mode === "stable") return false;
+  if (mode === "fresh" || mode === "vps" || mode === "unstable") return true;
+  const vps = String(read(env, "VPS_MODE") || "").toLowerCase();
+  if (vps === "1" || vps === "true" || vps === "unstable") return true;
   const poolFlag = String(read(env, "PG_POOL") || "").toLowerCase();
   if (poolFlag === "1" || poolFlag === "true" || poolFlag === "pool") return false;
   if (poolFlag === "0" || poolFlag === "false" || poolFlag === "fresh") return true;

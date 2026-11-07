@@ -1,10 +1,12 @@
 /**
  * Postgres access for auth and the app.
  *
- * Default: no long-lived pool. Each checkout is a new `pg.Client` (or one
- * returned a moment ago, still inside a short warm window). Idle sockets to
- * the Supabase transaction pooler die on a VPS with `read ETIMEDOUT`; reusing
- * them makes pages hang. Set `PG_POOL=1` to restore a shared `pg.Pool`.
+ * Default: no long-lived pool (`DB_CONNECTION_MODE=unstable` / `VPS_MODE=1`).
+ * Each checkout is a new `pg.Client`, reused for at most a few hundred
+ * milliseconds so one page does not reconnect per statement. Idle sockets to
+ * the Supabase transaction pooler (port 6543) die on a VPS with
+ * `read ETIMEDOUT`; reusing them makes pages hang. Set `PG_POOL=1` or
+ * `DB_CONNECTION_MODE=pool` to restore a shared `pg.Pool`.
  */
 import pg from "pg";
 import { postgresPoolConfig, prefersFreshConnections, resolveDatabaseUrl } from "./database-url.mjs";
@@ -76,7 +78,7 @@ function destroyClient(client, warm) {
     // Already gone.
   }
   try {
-    client.end(() => {});
+    void Promise.resolve(/** @type {Promise<void> | void} */ (client.end())).catch(() => {});
   } catch {
     // end() after a destroyed stream can throw; the socket is already dead.
   }
@@ -315,7 +317,7 @@ export function getSharedPool() {
   const config = postgresPoolConfig(url, 1);
   const pool = prefersFreshConnections() ? createFreshPool(config) : createLongPool(config);
   if (prefersFreshConnections()) {
-    console.log("[db] fresh connections (no idle pool). Set PG_POOL=1 to use a shared pool.");
+    console.log("[db] unstable path: short connections, no idle pool (port 6543). PG_POOL=1 restores a shared pool.");
   }
   globalRef.__appPgPool = pool;
   return pool;

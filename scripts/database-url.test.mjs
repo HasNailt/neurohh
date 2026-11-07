@@ -111,7 +111,9 @@ test("the runtime pool stays small and times out instead of hanging", () => {
 
 test("fresh connections are the default, the shared pool is opt-in", () => {
   assert.equal(prefersFreshConnections({}), true);
+  assert.equal(prefersFreshConnections({ DB_CONNECTION_MODE: "unstable" }), true);
   assert.equal(prefersFreshConnections({ DB_CONNECTION_MODE: "vps" }), true);
+  assert.equal(prefersFreshConnections({ VPS_MODE: "1" }), true);
   assert.equal(prefersFreshConnections({ PG_FRESH: "1" }), true);
   assert.equal(prefersFreshConnections({ PG_POOL: "0" }), true);
   assert.equal(prefersFreshConnections({ PG_POOL: "1" }), false);
