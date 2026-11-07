@@ -152,9 +152,10 @@ export default defineConfig(({ command, isPreview }) => ({
     strictPort: true,
   },
   preview: {
-    host: "127.0.0.1",
-    port: 8081,
+    host: "0.0.0.0",
+    port: 3000,
     strictPort: true,
+    allowedHosts: ["neurohh.ru", "www.neurohh.ru", "155.212.247.118"],
   },
   resolve: { tsconfigPaths: true },
   plugins: [
