@@ -156,18 +156,46 @@ export function sessionSecretMaterial(env = process.env) {
   return read(env, "SUPABASE_URL") || resolveDatabaseUrl(env) || "";
 }
 
+/**
+ * Short-lived clients instead of a long-lived pool.
+ *
+ * On a VPS the path to Supabase's transaction pooler (6543) drops idle
+ * sockets with `read ETIMEDOUT`. The next `pg.Pool` checkout then hangs
+ * until the TCP timeout, and with `max: 1` every other request fails with
+ * "timeout exceeded when trying to connect". A fresh `pg.Client` connects
+ * in about half a second. Default is fresh. Set `PG_POOL=1` or
+ * `DB_CONNECTION_MODE=pool` to keep the shared pool.
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+export function prefersFreshConnections(env = process.env) {
+  const mode = String(read(env, "DB_CONNECTION_MODE") || "").toLowerCase();
+  if (mode === "pool" || mode === "long") return false;
+  if (mode === "fresh" || mode === "vps") return true;
+  const poolFlag = String(read(env, "PG_POOL") || "").toLowerCase();
+  if (poolFlag === "1" || poolFlag === "true" || poolFlag === "pool") return false;
+  if (poolFlag === "0" || poolFlag === "false" || poolFlag === "fresh") return true;
+  const fresh = String(read(env, "PG_FRESH") || "").toLowerCase();
+  if (fresh === "0" || fresh === "false") return false;
+  if (fresh === "1" || fresh === "true") return true;
+  return true;
+}
+
 /** @param {string} connectionString @param {number} [max] */
 export function postgresPoolConfig(connectionString, max = 2) {
+  const supabase = isSupabaseUrl(connectionString);
   return {
-    connectionString: connectionString.replace(/[?&]sslmode=[^&]*/gi, "").replace(/\?$/, ""),
+    connectionString: withSslMode(connectionString, supabase),
+    // One client per isolate. Session mode only allowed 15, and a pool of 2
+    // on every Vercel instance filled it.
     max: 1,
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 30_000,
-    query_timeout: 30_000,
+    idleTimeoutMillis: 5_000,
+    connectionTimeoutMillis: 8_000,
+    query_timeout: 10_000,
     keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,
     allowExitOnIdle: true,
     application_name: "adoptai",
-    ssl: false,
+    ...(supabase ? { ssl: { rejectUnauthorized: false } } : {}),
   };
 }

@@ -43,8 +43,12 @@ async function main() {
     return;
   }
 
-  const pool = new pg.Pool(postgresPoolConfig(databaseUrl, 1));
-  const client = await pool.connect();
+  const client = new pg.Client({
+    ...postgresPoolConfig(databaseUrl, 1),
+    connectionTimeoutMillis: 15_000,
+    query_timeout: 60_000,
+  });
+  await client.connect();
   try {
     await client.query(
       "CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())",
@@ -76,8 +80,15 @@ async function main() {
     }
     console.log(count ? `[migrate] done — ${count} migration(s) applied.` : "[migrate] up to date.");
   } finally {
-    client.release();
-    await pool.end();
+    try {
+      client.connection?.stream?.destroy();
+    } catch {
+      // The socket is already closed.
+    }
+    await Promise.race([
+      client.end().catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, 500)),
+    ]);
   }
 }
 

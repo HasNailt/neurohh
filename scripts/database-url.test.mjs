@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   isSupabaseUrl,
   postgresPoolConfig,
+  prefersFreshConnections,
   resolveDatabaseUrl,
   resolveMigrationUrl,
   sessionSecretMaterial,
@@ -106,6 +107,16 @@ test("the runtime pool stays small and times out instead of hanging", () => {
   assert.equal(pool.query_timeout, 10_000);
   assert.equal(pool.allowExitOnIdle, true);
   assert.equal(pool.keepAlive, true);
+});
+
+test("fresh connections are the default, the shared pool is opt-in", () => {
+  assert.equal(prefersFreshConnections({}), true);
+  assert.equal(prefersFreshConnections({ DB_CONNECTION_MODE: "vps" }), true);
+  assert.equal(prefersFreshConnections({ PG_FRESH: "1" }), true);
+  assert.equal(prefersFreshConnections({ PG_POOL: "0" }), true);
+  assert.equal(prefersFreshConnections({ PG_POOL: "1" }), false);
+  assert.equal(prefersFreshConnections({ DB_CONNECTION_MODE: "pool" }), false);
+  assert.equal(prefersFreshConnections({ PG_FRESH: "0" }), false);
 });
 
 function withNoDoubleSsl(url) {
