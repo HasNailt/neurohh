@@ -4288,46 +4288,117 @@ export const listStaffNews = createServerFn({ method: "GET" })
     return loadNews(sql, true);
   });
 
+function parseNewsWrite(input: unknown): { title: string; body: string; images: string[] } {
+  if (!input || typeof input !== "object") fail("Пустая новость");
+  const o = input as Record<string, unknown>;
+  const title = cleanText(typeof o.title === "string" ? o.title : "", 120);
+  const body = cleanText(typeof o.body === "string" ? o.body : "", 4000);
+  if (title.length < 3) fail("Заголовок — хотя бы 3 символа");
+  const images = Array.isArray(o.images) ? o.images.filter((item): item is string => typeof item === "string") : [];
+  if (images.length > 4) fail("Не больше 4 картинок");
+  return {
+    title,
+    body,
+    images: images.map((item) => item.replace(/^data:[^,]*,/, "").replace(/\s/g, "")),
+  };
+}
+
+function newsJpeg(images: string[]): string[] {
+  const ready: string[] = [];
+  for (const raw of images) {
+    if (raw.length < 32 || raw.length > 280_000) fail("Картинка новости слишком большая");
+    const buf = Buffer.from(raw, "base64");
+    if (buf.length < 32 || buf[0] !== 0xff || buf[1] !== 0xd8) fail("Картинка новости должна быть JPEG");
+    ready.push(buf.toString("base64"));
+  }
+  return ready;
+}
+
+async function saveNewsImages(sql: Sql, id: string, images: string[]) {
+  await sql`delete from news_images where news_id = ${id}`;
+  for (let sort = 0; sort < images.length; sort += 1) {
+    await sql`
+      insert into news_images (id, news_id, card_b64, sort)
+      values (${crypto.randomUUID()}, ${id}, ${images[sort]}, ${sort})
+    `;
+  }
+}
+
+async function notifyNewsMentions(sql: Sql, actorId: string, actorHandle: string, id: string, title: string, body: string) {
+  const href = `/#news-${id}`;
+  const source = `news:${id}`;
+  await mentionPeople(sql, actorId, actorHandle, source, href, [title, body]);
+  try {
+    await sql`update mentions set href = ${href} where source = ${source}`;
+    await sql`
+      update notifications
+      set href = ${href}
+      where kind = 'mention' and href = '/' and user_id in (select user_id from mentions where source = ${source})
+    `;
+  } catch (err) {
+    console.error("[mention] news href", source, err);
+  }
+}
+
 export const publishNews = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((input: unknown) => {
-    if (!input || typeof input !== "object") fail("Пустая новость");
-    const o = input as Record<string, unknown>;
-    const title = cleanText(typeof o.title === "string" ? o.title : "", 120);
-    const body = cleanText(typeof o.body === "string" ? o.body : "", 4000);
-    if (title.length < 3) fail("Заголовок — хотя бы 3 символа");
-    const images = Array.isArray(o.images) ? o.images.filter((item): item is string => typeof item === "string") : [];
-    if (images.length > 4) fail("Не больше 4 картинок");
-    return {
-      title,
-      body,
-      images: images.map((item) => item.replace(/^data:[^,]*,/, "").replace(/\s/g, "")),
-    };
-  })
+  .validator(parseNewsWrite)
   .handler(async ({ data, context }) => {
     const sql = await getSql();
     const me = await requireStaff(sql, context.userId);
     if (me.role !== "admin") fail("Новости сайта публикует администратор");
-    const ready: string[] = [];
-    for (const raw of data.images) {
-      if (raw.length < 32 || raw.length > 280_000) fail("Картинка новости слишком большая");
-      const buf = Buffer.from(raw, "base64");
-      if (buf.length < 32 || buf[0] !== 0xff || buf[1] !== 0xd8) fail("Картинка новости должна быть JPEG");
-      ready.push(buf.toString("base64"));
-    }
+    const ready = newsJpeg(data.images);
     const id = crypto.randomUUID();
     await sql`
       insert into news_posts (id, author_id, title, body, published)
       values (${id}, ${me.userId}, ${data.title}, ${data.body}, true)
     `;
-    for (let sort = 0; sort < ready.length; sort += 1) {
-      await sql`
-        insert into news_images (id, news_id, card_b64, sort)
-        values (${crypto.randomUUID()}, ${id}, ${ready[sort]}, ${sort})
-      `;
-    }
-    await mentionPeople(sql, context.userId, me.handle, `news:${id}`, "/", [data.title, data.body]);
+    await saveNewsImages(sql, id, ready);
+    await notifyNewsMentions(sql, context.userId, me.handle, id, data.title, data.body);
     return { id };
+  });
+
+export const updateNews = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    if (!input || typeof input !== "object") fail("Пустая новость");
+    const o = input as Record<string, unknown>;
+    if (typeof o.id !== "string" || !UUID_RE.test(o.id)) fail("Некорректная новость");
+    return { id: o.id, ...parseNewsWrite(input) };
+  })
+  .handler(async ({ data, context }) => {
+    const sql = await getSql();
+    const me = await requireStaff(sql, context.userId);
+    if (me.role !== "admin") fail("Новости сайта публикует администратор");
+    const ready = newsJpeg(data.images);
+    const rows = await sql<{ published: boolean }>`
+      update news_posts
+      set title = ${data.title}, body = ${data.body}
+      where id = ${data.id}
+      returning published
+    `;
+    if (!rows[0]) fail("Новость не найдена");
+    await saveNewsImages(sql, data.id, ready);
+    if (rows[0].published === true) {
+      await notifyNewsMentions(sql, context.userId, me.handle, data.id, data.title, data.body);
+    }
+    return { id: data.id };
+  });
+
+export const deleteNews = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((id: unknown) => {
+    if (typeof id !== "string" || !UUID_RE.test(id)) fail("Некорректная новость");
+    return id;
+  })
+  .handler(async ({ data: id, context }) => {
+    const sql = await getSql();
+    const me = await requireStaff(sql, context.userId);
+    if (me.role !== "admin") fail("Новости сайта публикует администратор");
+    await sql`delete from mentions where source = ${`news:${id}`}`;
+    const removed = await sql`delete from news_posts where id = ${id} returning id`;
+    if (!removed[0]) fail("Новость не найдена");
+    return { ok: true };
   });
 
 export const setNewsPublished = createServerFn({ method: "POST" })
@@ -4343,10 +4414,14 @@ export const setNewsPublished = createServerFn({ method: "POST" })
     const sql = await getSql();
     const me = await requireStaff(sql, context.userId);
     if (me.role !== "admin") fail("Новости сайта публикует администратор");
-    const updated = await sql`
-      update news_posts set published = ${data.published} where id = ${data.id} returning id
+    const updated = await sql<{ id: string; title: string; body: string }>`
+      update news_posts set published = ${data.published} where id = ${data.id}
+      returning id, title, body
     `;
     if (!updated[0]) fail("Новость не найдена");
+    if (data.published) {
+      await notifyNewsMentions(sql, context.userId, me.handle, data.id, updated[0].title, updated[0].body);
+    }
     return { ok: true };
   });
 

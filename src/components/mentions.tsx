@@ -76,6 +76,7 @@ export function MentionLink({ handle, raw }: { handle: string; raw: string }) {
   const navigate = useNavigate();
   return (
     <span
+      data-mention=""
       role="link"
       tabIndex={0}
       className="cursor-pointer text-wine underline decoration-wine/40 underline-offset-2"

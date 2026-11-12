@@ -3,9 +3,10 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { toast } from "sonner";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
 import { MentionSuggest } from "@/components/mentions";
+import { RichText } from "@/components/rich-text";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { adminModerate, adminOverview, listStaffNews, publishNews, setNewsPublished } from "@/lib/market/server";
+import { adminModerate, adminOverview, deleteNews, listStaffNews, publishNews, setNewsPublished, updateNews } from "@/lib/market/server";
 import {
   errText,
   formatWhen,
@@ -114,9 +115,11 @@ function NewsDesk() {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [images, setImages] = useState<string[]>([]);
+  const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   function reload() {
     void listStaffNews()
@@ -124,33 +127,49 @@ function NewsDesk() {
       .catch((err) => toast.error(errText(err)));
   }
 
+  function resetForm() {
+    setEditing(null);
+    setTitle("");
+    setBody("");
+    setImages([]);
+  }
+
+  function beginEdit(item: NewsPost) {
+    setEditing(item.id);
+    setTitle(item.title);
+    setBody(item.body);
+    setImages(item.images.map((image) => image.src.replace(/^data:[^,]*,/, "")));
+    window.requestAnimationFrame(() => formRef.current?.scrollIntoView({ block: "nearest" }));
+  }
+
   useEffect(() => {
     reload();
   }, []);
 
   return (
-    <section className="space-y-3 border border-ink/20 bg-card p-4">
-      <h2 className="font-display text-2xl">Новости сайта</h2>
+    <div className="space-y-3">
       <p className="max-w-prose text-sm text-muted">
-        Это объявления площадки, не лоты и не посты профиля. Пока нет ни одной опубликованной новости, блока на главной нет. На ленте виден только заголовок — текст и картинки открываются по нажатию.
+        Это объявления площадки, не лоты и не посты профиля. Пока нет ни одной опубликованной новости, блока на главной нет. На ленте виден только заголовок — текст и картинки открываются по нажатию. @ник в заголовке и тексте работает как в постах: существующий профиль получит сигнал и станет ссылкой.
       </p>
       <form
+        ref={formRef}
         className="grid gap-3"
         onSubmit={(e) => {
           e.preventDefault();
           setBusy(true);
-          void publishNews({ data: { title, body, images } })
+          const payload = { title, body, images };
+          const task = editing ? updateNews({ data: { id: editing, ...payload } }) : publishNews({ data: payload });
+          void task
             .then(() => {
-              setTitle("");
-              setBody("");
-              setImages([]);
-              toast.success("Новость опубликована");
+              resetForm();
+              toast.success(editing ? "Новость обновлена" : "Новость опубликована");
               reload();
             })
             .catch((err) => toast.error(errText(err)))
             .finally(() => setBusy(false));
         }}
       >
+        {editing ? <p className="font-mono text-xs text-muted">Редактирование новости. Сохранение обновит заголовок, текст, картинки и упоминания.</p> : null}
         <label className="block text-sm">
           Заголовок
           <MentionSuggest inputRef={titleRef} value={title} onChange={setTitle} />
@@ -170,11 +189,17 @@ function NewsDesk() {
             className="mt-1 block w-full text-sm"
             onChange={(e) => {
               const input = e.currentTarget;
-              const files = Array.from(input.files ?? []).slice(0, 4);
+              const room = 4 - images.length;
+              const picked = Array.from(input.files ?? []);
+              const files = picked.slice(0, Math.max(0, room));
               input.value = "";
+              if (files.length === 0) {
+                if (picked.length > 0) toast.error("Не больше 4 картинок");
+                return;
+              }
               setBusy(true);
               void Promise.all(files.map((file) => jpegNews(file)))
-                .then((next) => setImages(next))
+                .then((next) => setImages((current) => [...current, ...next].slice(0, 4)))
                 .catch((err) => toast.error(errText(err)))
                 .finally(() => setBusy(false));
             }}
@@ -196,9 +221,16 @@ function NewsDesk() {
             ))}
           </div>
         ) : null}
-        <Button type="submit" variant="wine" disabled={busy}>
-          Опубликовать
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button type="submit" variant="wine" disabled={busy}>
+            {editing ? "Сохранить" : "Опубликовать"}
+          </Button>
+          {editing ? (
+            <Button type="button" variant="line" disabled={busy} onClick={resetForm}>
+              Отмена
+            </Button>
+          ) : null}
+        </div>
       </form>
       {items == null ? <div className="h-16 animate-pulse bg-soft" /> : null}
       {items && items.length === 0 ? <p className="text-sm text-muted">Новостей ещё нет.</p> : null}
@@ -207,33 +239,59 @@ function NewsDesk() {
           {items.map((item) => (
             <li key={item.id} className="border border-ink/15 p-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <p className="font-display text-xl leading-none">{item.title}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="font-display text-xl leading-none">
+                    <RichText text={item.title} />
+                  </p>
                   <p className="mt-1 font-mono text-xs text-muted">
                     {formatWhen(item.createdAt)} · {item.published ? "на главной" : "скрыта"}
                     {item.images.length > 0 ? ` · ${item.images.length} фото` : ""}
                   </p>
                 </div>
-                <Button
-                  type="button"
-                  variant="line"
-                  disabled={busy}
-                  onClick={() => {
-                    setBusy(true);
-                    void setNewsPublished({ data: { id: item.id, published: !item.published } })
-                      .then(() => reload())
-                      .catch((err) => toast.error(errText(err)))
-                      .finally(() => setBusy(false));
-                  }}
-                >
-                  {item.published ? "Снять" : "Вернуть"}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="line" disabled={busy} onClick={() => beginEdit(item)}>
+                    Изменить
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="line"
+                    disabled={busy}
+                    onClick={() => {
+                      setBusy(true);
+                      void setNewsPublished({ data: { id: item.id, published: !item.published } })
+                        .then(() => reload())
+                        .catch((err) => toast.error(errText(err)))
+                        .finally(() => setBusy(false));
+                    }}
+                  >
+                    {item.published ? "Снять" : "Вернуть"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="wine"
+                    disabled={busy}
+                    onClick={() => {
+                      if (!window.confirm("Удалить эту новость?")) return;
+                      setBusy(true);
+                      void deleteNews({ data: item.id })
+                        .then(() => {
+                          if (editing === item.id) resetForm();
+                          toast.success("Новость удалена");
+                          reload();
+                        })
+                        .catch((err) => toast.error(errText(err)))
+                        .finally(() => setBusy(false));
+                    }}
+                  >
+                    Удалить
+                  </Button>
+                </div>
               </div>
             </li>
           ))}
         </ul>
       ) : null}
-    </section>
+    </div>
   );
 }
 
@@ -385,7 +443,11 @@ function AdminPage() {
           </p>
         )}
       </div>
-      {admin ? <NewsDesk /> : null}
+      {admin ? (
+        <Fold title="Новости сайта">
+          <NewsDesk />
+        </Fold>
+      ) : null}
       {admin ? (
         <Fold title="Инвайт-коды">
           <InvitePanel data={data} act={act} />

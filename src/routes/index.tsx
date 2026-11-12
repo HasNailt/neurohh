@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ListingCardView } from "@/components/listing-card";
 import { RichText } from "@/components/rich-text";
 import { listListings, listNews, listPopularTags, listRecommendations, searchPeople } from "@/lib/market/server";
@@ -118,6 +118,21 @@ function Home() {
 
 function NewsBlock({ items }: { items: NewsPost[] }) {
   const [openId, setOpenId] = useState<string | null>(null);
+  useEffect(() => {
+    const openFromHash = () => {
+      const hash = window.location.hash;
+      if (!hash.startsWith("#news-")) return;
+      const id = decodeURIComponent(hash.slice("#news-".length));
+      if (!items.some((item) => item.id === id)) return;
+      setOpenId(id);
+      window.requestAnimationFrame(() => {
+        document.getElementById(`news-${id}`)?.scrollIntoView({ block: "start" });
+      });
+    };
+    openFromHash();
+    window.addEventListener("hashchange", openFromHash);
+    return () => window.removeEventListener("hashchange", openFromHash);
+  }, [items]);
   if (items.length === 0) return null;
   return (
     <section className="space-y-3">
@@ -126,23 +141,29 @@ function NewsBlock({ items }: { items: NewsPost[] }) {
         {items.map((item) => {
           const open = openId === item.id;
           return (
-            <li key={item.id} className="border-b border-ink/15 last:border-b-0">
+            <li key={item.id} id={`news-${item.id}`} className="border-b border-ink/15 last:border-b-0">
               <div
-                role="button"
-                tabIndex={0}
                 className="flex min-h-11 w-full cursor-pointer items-center justify-between gap-3 px-4 py-3 text-left"
-                aria-expanded={open}
-                onClick={() => setOpenId(open ? null : item.id)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter") return;
-                  event.preventDefault();
+                onClick={(event) => {
+                  const target = event.target;
+                  if (target instanceof Element && target.closest("[data-mention]")) return;
                   setOpenId(open ? null : item.id);
                 }}
               >
                 <span className="font-display text-2xl leading-none">
                   <RichText text={item.title} />
                 </span>
-                <span className="shrink-0 font-mono text-xs text-muted">{open ? "свернуть" : "открыть"}</span>
+                <button
+                  type="button"
+                  className="shrink-0 font-mono text-xs text-muted"
+                  aria-expanded={open}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setOpenId(open ? null : item.id);
+                  }}
+                >
+                  {open ? "свернуть" : "открыть"}
+                </button>
               </div>
               {open ? (
                 <div className="space-y-3 px-4 pb-4">
