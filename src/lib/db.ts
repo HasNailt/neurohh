@@ -3,7 +3,7 @@ import {
   isSupabaseUrl,
   resolveDatabaseUrl,
 } from "../../scripts/database-url.mjs";
-import { getSharedPool } from "../../scripts/pg-pool.mjs";
+import { describeDbTarget, getSharedPool } from "../../scripts/pg-pool.mjs";
 
 /** Which database backend is active. */
 export type DbSource = "supabase" | "postgres" | "pglite";
@@ -30,6 +30,10 @@ if (typeof process !== "undefined" && typeof window === "undefined") {
     console.error(
       "[db] SUPABASE_URL is set, but there is no Supabase Postgres URI. Set SUPABASE_DB_URL to the connection string from Supabase → Database (or SUPABASE_DB_PASSWORD). Accounts and lots stay on the previous database until then.",
     );
+  } else if (dbSource === "pglite") {
+    console.error("[db] no Postgres URL — using empty embedded PGLite, not Supabase");
+  } else {
+    console.log(`[db] backend=${dbSource} target=${describeDbTarget(databaseUrl)}`);
   }
 }
 
@@ -170,7 +174,18 @@ function createPgSql(): Promise<Sql> {
     types.setTypeParser(OID_INTERVAL, identity);
     if (!databaseUrl) throw new Error("Postgres URL is not configured");
     const pool = getSharedPool();
-    await migratePostgres(pool);
+    try {
+      await migratePostgres(pool);
+    } catch (err) {
+      const error = err as { code?: string; message?: string };
+      console.error(
+        "[db] migration failed, reading the existing schema anyway:",
+        error?.code || "",
+        error?.message || err,
+      );
+    }
+    const probe = await pool.query("select 1 as ok");
+    console.log(`[db] ${dbSource} probe ok`, probe.rows?.[0]?.ok ?? "no-row");
     return toSql(async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);
       return res.rows as T[];

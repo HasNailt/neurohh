@@ -21,6 +21,7 @@ import {
   type ArtistStatus,
   type Me,
   type ProfileImageKind,
+  type Showcase,
   type SocialLink,
 } from "@/lib/market/shared";
 
@@ -63,6 +64,7 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
   const [bio, setBio] = useState(me.bio);
   const bioRef = useRef<HTMLTextAreaElement>(null);
   const [status, setStatus] = useState<ArtistStatus>(me.status);
+  const [showcase, setShowcase] = useState<Showcase>(me.showcase);
   const [links, setLinks] = useState<SocialLink[]>(me.links.length ? me.links : [{ label: "", url: "" }]);
   const [saving, setSaving] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
@@ -167,6 +169,7 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
               displayName,
               bio,
               status,
+              showcase,
               links: links.filter((l) => l.label.trim() || l.url.trim()),
             },
           })
@@ -196,6 +199,14 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
               {statusLabel(item)}
             </option>
           ))}
+        </select>
+      </label>
+      <label className="block text-sm">
+        Что показывать первым на странице
+        <select value={showcase} onChange={(e) => setShowcase(e.target.value as Showcase)} className={`${fieldClass} mt-1`}>
+          <option value="lots">Лоты — аукционы и фиксы</option>
+          <option value="lotteries">Лотереи</option>
+          <option value="posts">Посты</option>
         </select>
       </label>
       <label className="block text-sm">

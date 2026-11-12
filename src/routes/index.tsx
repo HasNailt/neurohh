@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ListingCardView } from "@/components/listing-card";
-import { listListings, listPopularTags, listRecommendations, searchPeople } from "@/lib/market/server";
-import { GRID_PAGE, parseFeedQuery, type FeedQuery, type FeedResult, type PersonHit } from "@/lib/market/shared";
+import { listListings, listNews, listPopularTags, listRecommendations, searchPeople } from "@/lib/market/server";
+import { GRID_PAGE, formatWhen, parseFeedQuery, type FeedQuery, type FeedResult, type PersonHit } from "@/lib/market/shared";
 
 const emptyFeed: FeedResult = { items: [], total: 0, hasMore: false };
 
@@ -12,13 +12,14 @@ export const Route = createFileRoute("/")({
     const home = isHome(deps);
     const peopleQuery = deps.q.startsWith("@") ? deps.q : "";
     const listingQuery = peopleQuery ? { ...deps, q: peopleQuery.replace(/^@+/, "") } : deps;
-    const [feed, tags, recommended, people] = await Promise.all([
+    const [feed, tags, recommended, people, news] = await Promise.all([
       home ? Promise.resolve(emptyFeed) : listListings({ data: listingQuery }),
       listPopularTags().catch(() => []),
       home ? listRecommendations().catch(() => []) : Promise.resolve([]),
       peopleQuery ? searchPeople({ data: peopleQuery }).catch(() => []) : Promise.resolve([] as PersonHit[]),
+      listNews().catch(() => []),
     ]);
-    return [feed, tags, recommended, people] as const;
+    return [feed, tags, recommended, people, news] as const;
   },
   head: () => ({ meta: [{ title: "AdoptAI — открытые лоты" }] }),
   component: Home,
@@ -30,13 +31,34 @@ function isHome(search: FeedQuery): boolean {
 
 function Home() {
   const search = Route.useSearch();
-  const [feed, tags, recommended, people] = Route.useLoaderData();
+  const [feed, tags, recommended, people, news] = Route.useLoaderData();
   const home = isHome(search);
-  const grid = search.kind === "auction" || search.kind === "fixed" || Boolean(search.tag) || Boolean(search.pay);
+  const grid = search.kind === "auction" || search.kind === "fixed" || search.kind === "lottery" || Boolean(search.tag) || Boolean(search.pay);
   const pageSize = grid ? GRID_PAGE : 12;
 
   return (
     <div className="space-y-8">
+      {news.length > 0 ? (
+        <section className="space-y-3">
+          <h2 className="font-display text-3xl leading-none">Новости</h2>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {news.map((item) => (
+              <article key={item.id} className="border border-ink/20 bg-card p-4">
+                <p className="font-mono text-[11px] text-muted">{formatWhen(item.createdAt)}</p>
+                <h3 className="mt-1 font-display text-2xl leading-none">{item.title}</h3>
+                {item.body ? <p className="mt-2 whitespace-pre-wrap text-sm">{item.body}</p> : null}
+                {item.images.length > 0 ? (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {item.images.map((image) => (
+                      <img key={image.id} src={image.src} alt="" className="max-h-64 w-full object-cover" />
+                    ))}
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
       <FilterBar search={search} tags={tags} showSort={!home && search.kind !== "fixed"} />
       {home ? (
         <section className="space-y-3">
@@ -122,6 +144,7 @@ function FilterBar({
     ["all", "Топ"],
     ["auction", "Аукцион"],
     ["fixed", "Фикс"],
+    ["lottery", "Лотереи"],
   ] as const;
   const pays = [
     ["rub", "За рубли"],

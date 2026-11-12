@@ -27,7 +27,7 @@ function SellForm() {
   const navigate = useNavigate();
   const [title, setTitle] = useState("");
   const [blurb, setBlurb] = useState("");
-  const [kind, setKind] = useState<"fixed" | "auction">("auction");
+  const [kind, setKind] = useState<"fixed" | "auction" | "lottery">("auction");
   const [currency, setCurrency] = useState<PayKind>("rub");
   const [price, setPrice] = useState("");
   const [bidStep, setBidStep] = useState("");
@@ -44,6 +44,13 @@ function SellForm() {
   const [coverKey, setCoverKey] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [rules, setRules] = useState("");
+  const [endsDate, setEndsDate] = useState("");
+  const [endsTime, setEndsTime] = useState("");
+  const [winnerCount, setWinnerCount] = useState("1");
+  const [requireFollow, setRequireFollow] = useState(false);
+  const [requireLike, setRequireLike] = useState(false);
+  const [requireComment, setRequireComment] = useState(false);
   const [note, setNote] = useState("");
   const [premium, setPremium] = useState(false);
   const previewCap = premium ? PREMIUM_PREVIEWS : MAX_PREVIEWS;
@@ -110,6 +117,20 @@ function SellForm() {
       toast.error("Шаг ставки — целое число больше 0");
       return;
     }
+    if (kind === "lottery") {
+      const ends = new Date(`${endsDate}T${endsTime}`);
+      const count = Number(winnerCount);
+      if (!endsDate || !endsTime || !Number.isFinite(ends.getTime())) {
+        setBusy(false);
+        toast.error("Укажите дату и время окончания");
+        return;
+      }
+      if (!Number.isInteger(count) || count < 1 || count > 20) {
+        setBusy(false);
+        toast.error("Победителей — от 1 до 20");
+        return;
+      }
+    }
     if (kind === "fixed") {
       if (slots.length < 1 || slots.length > 10) {
         setBusy(false);
@@ -136,7 +157,7 @@ function SellForm() {
           privateDescription: "",
           kind,
           currency,
-          price: kind === "auction" ? Number(price) : Number(slots[0]?.price),
+          price: kind === "auction" ? Number(price) : kind === "lottery" ? 0 : Number(slots[0]?.price),
           bidStep: kind === "auction" ? Number(bidStep) : 1,
           buyNow: kind === "auction" && buyNow.trim() ? Number(buyNow) : null,
           durationHours,
@@ -145,6 +166,12 @@ function SellForm() {
           engine,
           mixed: kind === "auction" && currency === "sw" && mixed,
           items: kind === "fixed" ? slots.map((slot) => ({ title: slot.title.trim(), price: Number(slot.price) })) : [],
+          endsAt: kind === "lottery" ? new Date(`${endsDate}T${endsTime}`).toISOString() : null,
+          winnerCount: kind === "lottery" ? Number(winnerCount) : null,
+          rules: kind === "lottery" ? rules : "",
+          requireFollow: kind === "lottery" && requireFollow,
+          requireLike: kind === "lottery" && requireLike,
+          requireComment: kind === "lottery" && requireComment,
         },
       });
       createdId = created.id;
@@ -229,7 +256,61 @@ function SellForm() {
         <button type="button" onClick={() => setKind("fixed")} className={kind === "fixed" ? "min-h-11 border border-wine bg-wine px-4 text-foam" : "min-h-11 border border-ink/25 px-4"}>
           Фикс
         </button>
+        <button type="button" onClick={() => setKind("lottery")} className={kind === "lottery" ? "min-h-11 border border-wine bg-wine px-4 text-foam" : "min-h-11 border border-ink/25 px-4"}>
+          Лотерея
+        </button>
       </div>
+      {kind === "lottery" ? (
+        <div className="grid gap-3 border border-ink/20 p-3">
+          <label className="block text-sm">
+            Дата окончания
+            <input type="date" value={endsDate} onChange={(e) => setEndsDate(e.target.value)} required className={`${fieldClass} mt-1`} />
+          </label>
+          <label className="block text-sm">
+            Время окончания
+            <input type="time" value={endsTime} onChange={(e) => setEndsTime(e.target.value)} required className={`${fieldClass} mt-1`} />
+          </label>
+          <label className="block text-sm">
+            Количество победителей
+            <input
+              value={winnerCount}
+              onChange={(e) => setWinnerCount(e.target.value)}
+              inputMode="numeric"
+              min={1}
+              max={20}
+              required
+              className={`${fieldClass} mt-1 tabular-nums`}
+            />
+          </label>
+          <fieldset className="space-y-2 text-sm">
+            <legend>Условия участия — все отмеченные должны быть выполнены</legend>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={requireFollow} onChange={(e) => setRequireFollow(e.target.checked)} />
+              Подписка на автора
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={requireLike} onChange={(e) => setRequireLike(e.target.checked)} />
+              Лайк на эту запись
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={requireComment} onChange={(e) => setRequireComment(e.target.checked)} />
+              Комментарий под этой записью
+            </label>
+          </fieldset>
+          <label className="block text-sm">
+            Правила
+            <textarea
+              value={rules}
+              onChange={(e) => setRules(e.target.value)}
+              rows={4}
+              maxLength={2000}
+              placeholder="Правила на персонажа и любые условия, которые вы хотите обозначить"
+              className={`${fieldClass} mt-1 py-2`}
+            />
+          </label>
+        </div>
+      ) : (
+        <>
       <div className="flex flex-wrap gap-2">
         {(["rub", "sw"] as const).map((id) => (
           <button
@@ -352,6 +433,8 @@ function SellForm() {
             </div>
           ))}
         </div>
+      )}
+        </>
       )}
       <fieldset>
         <legend className="text-sm">Нейросеть</legend>

@@ -1,12 +1,13 @@
 /**
  * Postgres access for auth and the app.
  *
- * Default: no long-lived pool (`DB_CONNECTION_MODE=unstable` / `VPS_MODE=1`).
- * Each checkout is a new `pg.Client`, reused for at most a few hundred
- * milliseconds so one page does not reconnect per statement. Idle sockets to
- * the Supabase transaction pooler (port 6543) die on a VPS with
- * `read ETIMEDOUT`; reusing them makes pages hang. Set `PG_POOL=1` or
- * `DB_CONNECTION_MODE=pool` to restore a shared `pg.Pool`.
+ * The VPS path to Supabase's transaction pooler (port 6543) drops idle
+ * sockets with `read ETIMEDOUT`. A long-lived `pg.Pool` then hangs the next
+ * page. Default: one `pg.Client` per query, closed as soon as it finishes.
+ * Same pattern as a manual client that connects in about half a second.
+ *
+ * `DB_CONNECTION_MODE=unstable` or `VPS_MODE=1` selects this mode (also the
+ * default). `PG_POOL=1` or `DB_CONNECTION_MODE=pool` restores a shared pool.
  */
 import pg from "pg";
 import { postgresPoolConfig, prefersFreshConnections, resolveDatabaseUrl } from "./database-url.mjs";
@@ -14,23 +15,11 @@ import { postgresPoolConfig, prefersFreshConnections, resolveDatabaseUrl } from 
 /** @type {any} */
 const globalRef = globalThis;
 
-const CONNECT_MS = 6_000;
-const QUERY_MS = 12_000;
-const WARM_MS = 800;
-const WARM_MAX = 4;
+const CONNECT_MS = 8_000;
+const QUERY_MS = 20_000;
 
 /**
- * @typedef {import("pg").Client & {
- *   __destroyed?: boolean,
- *   __expires?: number,
- *   __originalQuery?: (text: string, values?: unknown[]) => Promise<import("pg").QueryResult>,
- *   _queryable?: boolean,
- *   release?: (err?: unknown) => void,
- * }} LiveClient
- */
-
-/**
- * @typedef {{ client: LiveClient, timer: NodeJS.Timeout }} WarmSlot
+ * @typedef {import("pg").Client & { __destroyed?: boolean, release?: (err?: unknown) => void }} LiveClient
  */
 
 /** @param {unknown} err */
@@ -46,31 +35,40 @@ export function isTransientDbError(err) {
     code === "EAI_AGAIN" ||
     code === "EHOSTUNREACH" ||
     code === "ESOCKET" ||
+    code === "ECONNABORTED" ||
     code === "08000" ||
     code === "08001" ||
     code === "08003" ||
+    code === "08004" ||
     code === "08006" ||
-    code === "57P01"
+    code === "08007" ||
+    code === "57P01" ||
+    code === "57P02" ||
+    code === "57P03" ||
+    code === "53300"
   ) {
     return true;
   }
-  return /timeout exceeded when trying to connect|Query read timeout|Connection terminated|socket hang up|read ETIMEDOUT|connect ETIMEDOUT|Connection ended unexpectedly/i.test(
+  return /timeout exceeded when trying to connect|Query read timeout|Connection terminated|socket hang up|read ETIMEDOUT|connect ETIMEDOUT|Connection ended unexpectedly|server closed the connection|Client has encountered a connection error|not queryable|too many clients|remaining connection slots|ECONNRESET/i.test(
     message,
   );
 }
 
-/**
- * @param {LiveClient} client
- * @param {WarmSlot[]} warm
- */
-function destroyClient(client, warm) {
+/** @param {string | undefined} connectionString */
+export function describeDbTarget(connectionString) {
+  if (!connectionString) return "unset";
+  try {
+    const url = new URL(connectionString);
+    return `${url.hostname}:${url.port || "5432"}`;
+  } catch {
+    return "unparsed";
+  }
+}
+
+/** @param {LiveClient | null | undefined} client */
+function destroyClient(client) {
   if (!client || client.__destroyed) return;
   client.__destroyed = true;
-  const index = warm.findIndex((item) => item.client === client);
-  if (index >= 0) {
-    clearTimeout(warm[index].timer);
-    warm.splice(index, 1);
-  }
   try {
     const stream = client.connection?.stream;
     if (stream && !stream.destroyed) stream.destroy();
@@ -80,156 +78,80 @@ function destroyClient(client, warm) {
   try {
     void Promise.resolve(/** @type {Promise<void> | void} */ (client.end())).catch(() => {});
   } catch {
-    // end() after a destroyed stream can throw; the socket is already dead.
+    // end() after a destroyed stream can throw.
   }
 }
 
 /**
+ * @param {(text: string, values?: unknown[]) => Promise<import("pg").QueryResult>} run
  * @param {LiveClient} client
  * @param {string} text
  * @param {unknown[] | undefined} values
- * @param {number} ms
- * @param {WarmSlot[]} warm
  */
-function queryDeadline(client, text, values, ms, warm) {
-  const run = client.__originalQuery;
-  if (!run) return Promise.reject(new Error("Postgres client is not open"));
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
+function queryWithin(run, client, text, values, ms = QUERY_MS) {
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let timer;
+  const pending = run(text, values);
+  pending.catch(() => {});
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
       const error = /** @type {Error & { code?: string }} */ (new Error("Query read timeout"));
       error.code = "ETIMEDOUT";
-      destroyClient(client, warm);
+      destroyClient(client);
       reject(error);
     }, ms);
     if (typeof timer.unref === "function") timer.unref();
-    run(text, values).then(
-      (res) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(res);
-      },
-      (err) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        reject(err);
-      },
-    );
   });
+  return Promise.race([pending, timeout]).finally(() => clearTimeout(timer));
 }
 
 /**
- * Pool-shaped object: `connect()`, `query()`, `end()`. Connections are not
- * kept idle. A client released in the last {@link WARM_MS} may be reused so
- * one page does not pay a handshake per statement.
+ * @param {ReturnType<typeof postgresPoolConfig>} config
+ */
+function clientOptions(config) {
+  return {
+    connectionString: config.connectionString,
+    ssl: config.ssl,
+    application_name: config.application_name || "adoptai",
+    connectionTimeoutMillis: CONNECT_MS,
+    query_timeout: QUERY_MS,
+    keepAlive: false,
+  };
+}
+
+/**
+ * Pool-shaped object (`connect`, `query`, `end`) that never keeps an idle
+ * connection. Each checkout is a new `pg.Client`.
  *
  * @param {ReturnType<typeof postgresPoolConfig>} config
  */
 export function createFreshPool(config) {
-  /** @type {WarmSlot[]} */
-  const warm = [];
-  /** @type {Array<(err: Error) => void>} */
-  const errorHandlers = [];
-
-  /** @param {LiveClient} client */
-  function drop(client) {
-    destroyClient(client, warm);
-  }
+  const target = describeDbTarget(config.connectionString);
+  let loggedOpen = false;
 
   async function openClient() {
-    const client = /** @type {LiveClient} */ (
-      new pg.Client({
-        ...config,
-        connectionTimeoutMillis: CONNECT_MS,
-        query_timeout: QUERY_MS,
-        keepAlive: true,
-        keepAliveInitialDelayMillis: 1_000,
-      })
-    );
+    const client = /** @type {LiveClient} */ (new pg.Client(clientOptions(config)));
     client.on("error", (err) => {
-      for (const handler of errorHandlers) {
-        try {
-          handler(err);
-        } catch {
-          // A listener must not crash the process.
-        }
-      }
-      drop(client);
+      if (client.__destroyed) return;
+      console.error(`[db] ${target} socket error:`, /** @type {{ code?: string }} */ (err)?.code || "", err?.message || err);
+      destroyClient(client);
     });
+    const started = Date.now();
     try {
       await client.connect();
     } catch (err) {
-      drop(client);
+      destroyClient(client);
+      const error = /** @type {{ code?: string, message?: string }} */ (err);
+      console.error(
+        `[db] ${target} connect failed in ${Date.now() - started}ms:`,
+        error?.code || "",
+        error?.message || err,
+      );
       throw err;
     }
-    if (!client.__originalQuery) {
-      const original = client.query.bind(client);
-      client.__originalQuery = (text, values) => original(text, values);
-    }
-    return client;
-  }
-
-  function takeWarm() {
-    const now = Date.now();
-    while (warm.length > 0) {
-      const item = warm.pop();
-      if (!item) break;
-      clearTimeout(item.timer);
-      const stream = item.client.connection?.stream;
-      const alive =
-        !item.client.__destroyed &&
-        item.client._queryable !== false &&
-        Boolean(stream) &&
-        !stream.destroyed &&
-        (item.client.__expires || 0) > now;
-      if (alive) return item.client;
-      drop(item.client);
-    }
-    return null;
-  }
-
-  /** @param {LiveClient} client */
-  function park(client) {
-    if (client.__destroyed || client._queryable === false) {
-      drop(client);
-      return;
-    }
-    while (warm.length >= WARM_MAX) {
-      const old = warm.shift();
-      if (!old) break;
-      clearTimeout(old.timer);
-      drop(old.client);
-    }
-    const timer = setTimeout(() => drop(client), WARM_MS);
-    if (typeof timer.unref === "function") timer.unref();
-    client.__expires = Date.now() + WARM_MS;
-    warm.push({ client, timer });
-  }
-
-  /**
-   * Kysely calls `client.query` itself, so the deadline has to live on the
-   * client. The original method is kept so a warm client is not wrapped twice.
-   * @param {LiveClient} client
-   */
-  function attachRelease(client) {
-    let released = false;
-    client.release = (err) => {
-      if (released) return;
-      released = true;
-      if (err || client.__destroyed || client._queryable === false) drop(client);
-      else park(client);
-    };
-    const original = client.__originalQuery;
-    if (original) {
-      const wrapped = /** @type {any} */ (client);
-      wrapped.query = (/** @type {any} */ text, /** @type {any} */ values) => {
-        if (typeof text !== "string") return original(text, values);
-        return queryDeadline(client, text, values, QUERY_MS, warm);
-      };
+    if (!loggedOpen) {
+      loggedOpen = true;
+      console.log(`[db] ${target} connected in ${Date.now() - started}ms (new client per query, no idle pool)`);
     }
     return client;
   }
@@ -239,12 +161,28 @@ export function createFreshPool(config) {
       let lastError;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
-          const client = (attempt === 0 ? takeWarm() : null) || (await openClient());
-          return attachRelease(client);
+          const client = await openClient();
+          let released = false;
+          client.release = (err) => {
+            if (released) return;
+            released = true;
+            if (err) {
+              const error = /** @type {{ code?: string, message?: string }} */ (err);
+              console.error(`[db] ${target} connection closed:`, error?.code || "", error?.message || err);
+            }
+            destroyClient(client);
+          };
+          const rawQuery = client.query.bind(client);
+          const wrapped = /** @type {any} */ (client);
+          wrapped.query = (/** @type {any} */ text, /** @type {any} */ values) => {
+            if (typeof text !== "string") return rawQuery(text, values);
+            return queryWithin(rawQuery, client, text, values);
+          };
+          return client;
         } catch (err) {
           lastError = err;
           if (attempt === 0 && isTransientDbError(err)) {
-            console.error("[db] connect failed, retrying:", /** @type {Error} */ (err)?.message || err);
+            console.error(`[db] ${target} connect retry`);
             continue;
           }
           throw err;
@@ -263,21 +201,19 @@ export function createFreshPool(config) {
         /** @type {LiveClient | null} */
         let client = null;
         try {
-          client = await this.connect();
-          const result = await client.query(text, values);
-          client.release?.();
+          client = await openClient();
+          const run = client.query.bind(client);
+          const result = await queryWithin(run, client, text, values);
+          destroyClient(client);
           return result;
         } catch (err) {
-          if (client) {
-            try {
-              client.release?.(err);
-            } catch {
-              drop(client);
-            }
-          }
+          if (client) destroyClient(client);
           lastError = err;
+          const error = /** @type {{ code?: string, message?: string }} */ (err);
+          const preview = String(text || "").replace(/\s+/g, " ").slice(0, 140);
+          console.error(`[db] ${target} query failed:`, error?.code || "", error?.message || err, "|", preview);
           if (attempt === 0 && isTransientDbError(err)) {
-            console.error("[db] query failed, retrying:", /** @type {Error} */ (err)?.message || err);
+            console.error(`[db] ${target} query retry`);
             continue;
           }
           throw err;
@@ -286,19 +222,12 @@ export function createFreshPool(config) {
       throw lastError;
     },
 
-    /** @param {string} event @param {(err: Error) => void} fn */
-    on(event, fn) {
-      if (event === "error" && typeof fn === "function") errorHandlers.push(fn);
+    /** @param {string} _event @param {Function} [_fn] */
+    on(_event, _fn) {
       return this;
     },
 
-    async end() {
-      const leftover = warm.splice(0, warm.length);
-      for (const item of leftover) {
-        clearTimeout(item.timer);
-        drop(item.client);
-      }
-    },
+    async end() {},
   };
 }
 
@@ -315,10 +244,10 @@ export function getSharedPool() {
   const url = resolveDatabaseUrl();
   if (!url) throw new Error("Postgres URL is not configured");
   const config = postgresPoolConfig(url, 1);
-  const pool = prefersFreshConnections() ? createFreshPool(config) : createLongPool(config);
-  if (prefersFreshConnections()) {
-    console.log("[db] unstable path: short connections, no idle pool (port 6543). PG_POOL=1 restores a shared pool.");
-  }
+  const fresh = prefersFreshConnections();
+  const target = describeDbTarget(config.connectionString);
+  console.log(`[db] ${target} mode=${fresh ? "unstable" : "pool"}`);
+  const pool = fresh ? createFreshPool(config) : createLongPool(config);
   globalRef.__appPgPool = pool;
   return pool;
 }

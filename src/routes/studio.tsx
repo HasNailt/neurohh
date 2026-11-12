@@ -37,6 +37,7 @@ function StudioPage() {
 
   const auctions = (items ?? []).filter((item) => item.kind === "auction");
   const fixed = (items ?? []).filter((item) => item.kind === "fixed");
+  const lotteries = (items ?? []).filter((item) => item.kind === "lottery");
 
   return (
     <div className="space-y-8">
@@ -52,6 +53,7 @@ function StudioPage() {
       {items == null ? <div className="h-40 animate-pulse bg-soft" /> : null}
       <Shelf title="Аукционы" items={auctions} onEdit={setEditId} onPin={reload} />
       <Shelf title="Фикс" items={fixed} onEdit={setEditId} onPin={reload} />
+      <Shelf title="Лотереи" items={lotteries} onEdit={setEditId} onPin={reload} />
       {editId ? (
         <EditSheet
           id={editId}
@@ -102,7 +104,11 @@ function Shelf({
                       {item.title}
                     </Link>
                     <p className="font-mono text-xs text-muted">
-                      {listingStatusLabel(item.status)} · {formatPrice(item.currentBid ?? item.price, item.currency)}
+                      {listingStatusLabel(item.status)}
+                      {" · "}
+                      {item.kind === "lottery"
+                        ? `${item.winnerCount} приз. · ${item.entryCount} участ.`
+                        : formatPrice(item.currentBid ?? item.price, item.currency)}
                       {item.boosted ? " · буст" : ""}
                     </p>
                   </div>

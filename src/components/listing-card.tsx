@@ -54,8 +54,8 @@ export function ListingCardView({
             )}
             <div className="absolute top-2 left-2 flex gap-1">
               <div className="border border-ink/20 bg-paper/85 px-1.5 py-0.5 font-mono text-[10px]">
-                {item.kind === "auction" ? "AUC" : "FIX"}
-                {item.currency === "sw" ? " · SW" : " · ₽"}
+                {item.kind === "lottery" ? "LOT" : item.kind === "auction" ? "AUC" : "FIX"}
+                {item.kind === "lottery" ? "" : item.currency === "sw" ? " · SW" : " · ₽"}
                 {item.pinned ? " · PIN" : ""}
               </div>
               {item.sellerPremium ? <div className="border border-[#e6c36a] bg-[#1a1408]/85 px-1.5 py-0.5 font-mono text-[10px] text-[#e6c36a]">★</div> : null}
@@ -65,7 +65,7 @@ export function ListingCardView({
               <div className="absolute top-2 right-2 border border-ink/20 bg-paper/90 px-1.5 py-0.5 font-mono text-[10px] text-ink">
                 Продан
               </div>
-            ) : item.kind === "auction" && item.endsAt && item.status === "active" ? (
+            ) : (item.kind === "auction" || item.kind === "lottery") && item.endsAt && item.status === "active" ? (
               <div className="absolute top-2 right-2 bg-wine px-1.5 py-0.5 font-mono text-[10px] text-foam">
                 <LiveLeft endsAt={item.endsAt} />
               </div>
@@ -78,9 +78,14 @@ export function ListingCardView({
                 {item.sellerPremium ? <span className="star">★ </span> : null}
                 <span className={item.sellerPremium ? "text-[#e6c36a]" : "text-muted"}>@{item.sellerHandle}</span>
               </p>
-              {showPrice ? (
+              {showPrice && item.kind !== "lottery" ? (
                 <p className={dense ? "mt-1 font-display text-base tabular-nums leading-none" : "mt-1 font-display text-lg tabular-nums leading-none"}>
                   {formatPrice(price, item.currency)}
+                </p>
+              ) : null}
+              {item.kind === "lottery" ? (
+                <p className="mt-1 font-mono text-[11px] text-muted">
+                  {item.winnerCount} приз. · {item.entryCount} участ. · {item.likeCount} лайк.
                 </p>
               ) : null}
               {item.kind === "auction" && item.bidCount > 0 ? (

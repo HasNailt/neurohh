@@ -53,9 +53,12 @@ function ProfilePage() {
   const router = useRouter();
   const { user } = useCurrentUserState();
   const [me, setMe] = useState<Me | null>(null);
-  const [tab, setTab] = useState<"lots" | "posts">("lots");
+  const [tab, setTab] = useState<"lots" | "lotteries" | "posts">(
+    loaded?.showcase === "posts" ? "posts" : loaded?.showcase === "lotteries" ? "lotteries" : "lots",
+  );
   const [lotState, setLotState] = useState<"open" | "closed">("open");
   const [page, setPage] = useState(1);
+  const [shelf, setShelf] = useState<"lots" | "lotteries">(loaded?.showcase === "lotteries" ? "lotteries" : "lots");
   const [lots, setLots] = useState<ListingCard[]>(loaded?.lots ?? []);
   const [total, setTotal] = useState(loaded?.lotTotal ?? 0);
   const site = useSyncExternalStore(subscribeSiteTheme, siteThemeSnapshot, () => "dark" as const);
@@ -74,6 +77,8 @@ function ProfilePage() {
     setTotal(loaded.lotTotal);
     setPage(1);
     setLotState("open");
+    setTab(loaded.showcase === "posts" ? "posts" : loaded.showcase === "lotteries" ? "lotteries" : "lots");
+    setShelf(loaded.showcase === "lotteries" ? "lotteries" : "lots");
   }, [loaded]);
 
   if (!loaded) {
@@ -94,10 +99,11 @@ function ProfilePage() {
   const banner = profile.hasBanner ? profileImageUrl(profile.handle, "banner", rev.banner) : "";
   const pages = Math.max(1, Math.ceil(total / PROFILE_LOT_PAGE));
 
-  function openPage(next: number, state: "open" | "closed" = lotState) {
+  function openPage(next: number, state: "open" | "closed" = lotState, nextShelf: "lots" | "lotteries" = shelf) {
     setPage(next);
     setLotState(state);
-    void listProfileLots({ data: { handle: profile.handle, page: next, state } })
+    setShelf(nextShelf);
+    void listProfileLots({ data: { handle: profile.handle, page: next, state, shelf: nextShelf } })
       .then((res) => {
         setLots(res.items);
         setTotal(res.total);
@@ -227,14 +233,14 @@ function ProfilePage() {
           </div>
         </div>
       </section>
-      {(profile.lots.some((item) => item.pinned) || profile.posts.some((post) => post.pinned)) && page === 1 ? (
+      {(profile.pins.some((item) => item.pinned) || profile.posts.some((post) => post.pinned)) && page === 1 ? (
         <section className="space-y-3">
           <p className="font-mono text-xs tracking-widest uppercase" style={{ color: "var(--p-muted)" }}>
             закреплено
           </p>
-          {profile.lots.some((item) => item.pinned) ? (
+          {profile.pins.some((item) => item.pinned) ? (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-              {profile.lots
+              {profile.pins
                 .filter((item) => item.pinned)
                 .slice(0, 3)
                 .map((item) => (
@@ -264,9 +270,23 @@ function ProfilePage() {
           type="button"
           className={tab === "lots" ? "theme-chip min-h-11 border px-4" : "min-h-11 border px-4"}
           style={tab === "lots" ? undefined : { borderColor: "var(--p-line)", color: "var(--p-ink)" }}
-          onClick={() => setTab("lots")}
+          onClick={() => {
+            setTab("lots");
+            if (shelf !== "lots") openPage(1, "open", "lots");
+          }}
         >
           Лоты
+        </button>
+        <button
+          type="button"
+          className={tab === "lotteries" ? "theme-chip min-h-11 border px-4" : "min-h-11 border px-4"}
+          style={tab === "lotteries" ? undefined : { borderColor: "var(--p-line)", color: "var(--p-ink)" }}
+          onClick={() => {
+            setTab("lotteries");
+            if (shelf !== "lotteries") openPage(1, "open", "lotteries");
+          }}
+        >
+          Лотереи
         </button>
         <button
           type="button"
@@ -277,7 +297,7 @@ function ProfilePage() {
           Посты
         </button>
       </div>
-      {tab === "lots" ? (
+      {tab === "lots" || tab === "lotteries" ? (
         <section className="space-y-4">
           <div className="flex gap-2">
             {(
@@ -298,7 +318,15 @@ function ProfilePage() {
             ))}
           </div>
           {lots.length === 0 ? (
-            <p className="text-muted">{lotState === "open" ? "Открытых лотов нет." : "Закрытых лотов нет."}</p>
+            <p className="text-muted">
+              {lotState === "open"
+                ? tab === "lotteries"
+                  ? "Открытых лотерей нет."
+                  : "Открытых лотов нет."
+                : tab === "lotteries"
+                  ? "Закрытых лотерей нет."
+                  : "Закрытых лотов нет."}
+            </p>
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
               {lots.map((item) => (

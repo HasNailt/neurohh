@@ -33,6 +33,7 @@ import {
   UUID_RE,
   POST_IMAGE_MAX,
   asEngine,
+  asShowcase,
   cleanHandle,
   slugHandle,
   likeContains,
@@ -63,6 +64,7 @@ import {
   type ListingStatus,
   type Me,
   type MediaMeta,
+  type NewsPost,
   type Notice,
   type PersonHit,
   type Profile,
@@ -133,9 +135,10 @@ type ProfileRow = {
   side_right_shape: string;
   side_left_framed: boolean;
   side_right_framed: boolean;
+  showcase: string;
 };
 
-const PROFILE_SELECT = `user_id, handle, display_name, bio, role, banned, status, links, badges, premium_forever, premium_until, theme, accent, avatar_frame, banner_overlay, side_left_shape, side_right_shape, side_left_framed, side_right_framed`;
+const PROFILE_SELECT = `user_id, handle, display_name, bio, role, banned, status, links, badges, premium_forever, premium_until, theme, accent, avatar_frame, banner_overlay, side_left_shape, side_right_shape, side_left_framed, side_right_framed, showcase`;
 
 function mapProfile(row: ProfileRow): Profile {
   const until = row.premium_until == null ? null : iso(row.premium_until);
@@ -153,6 +156,7 @@ function mapProfile(row: ProfileRow): Profile {
     premium: premiumActive(forever, until),
     premiumUntil: until,
     premiumForever: forever,
+    showcase: asShowcase(row.showcase),
     theme: asTheme(row.theme),
     accent: asAccent(row.accent),
     avatarFrame: asFrame(row.avatar_frame),
@@ -260,6 +264,191 @@ async function openDeal(sql: Sql, row: CloseRow): Promise<string | null> {
   return dealId;
 }
 
+type LotteryRow = {
+  id: string;
+  title: string;
+  seller_id: string;
+  winner_count: number;
+  currency: string;
+  require_follow: boolean;
+  require_like: boolean;
+  require_comment: boolean;
+};
+
+async function lotteryEligible(
+  sql: Sql,
+  userId: string,
+  row: { listing_id?: string; id?: string; seller_id: string; require_follow: boolean; require_like: boolean; require_comment: boolean },
+): Promise<boolean> {
+  const listingId = row.listing_id ?? row.id;
+  if (!listingId) return false;
+  if (row.require_follow) {
+    const follow = await sql`
+      select 1 as ok from follows where follower_id = ${userId} and following_id = ${row.seller_id}
+    `;
+    if (!follow[0]) return false;
+  }
+  if (row.require_like) {
+    const like = await sql`
+      select 1 as ok from listing_likes where listing_id = ${listingId} and user_id = ${userId}
+    `;
+    if (!like[0]) return false;
+  }
+  if (row.require_comment) {
+    const comment = await sql`
+      select 1 as ok from listing_comments where listing_id = ${listingId} and author_id = ${userId}
+    `;
+    if (!comment[0]) return false;
+  }
+  return true;
+}
+
+async function reviewLotteryEntries(sql: Sql, userId: string, filter: { listingId?: string; sellerId?: string }) {
+  const rows = await sql<{
+    listing_id: string;
+    title: string;
+    seller_id: string;
+    require_follow: boolean;
+    require_like: boolean;
+    require_comment: boolean;
+  }>`
+    select e.listing_id, l.title, l.seller_id, l.require_follow, l.require_like, l.require_comment
+    from lottery_entries e
+    join listings l on l.id = e.listing_id
+    where e.user_id = ${userId}
+      and e.removed_at is null
+      and e.won = false
+      and l.status = 'active'
+      and l.kind = 'lottery'
+      and (${filter.listingId ?? null}::text is null or e.listing_id = ${filter.listingId ?? null})
+      and (${filter.sellerId ?? null}::text is null or l.seller_id = ${filter.sellerId ?? null})
+  `;
+  for (const row of rows) {
+    if (await lotteryEligible(sql, userId, row)) continue;
+    const removed = await sql`
+      update lottery_entries
+      set removed_at = now()
+      where listing_id = ${row.listing_id} and user_id = ${userId} and removed_at is null and won = false
+      returning listing_id
+    `;
+    if (!removed[0]) continue;
+    await notify(
+      sql,
+      userId,
+      "system",
+      "Система",
+      `Вы сняты с лотереи «${row.title}» из-за нарушения правил`,
+      `/lot/${row.listing_id}`,
+    );
+  }
+}
+
+async function openLotteryDeal(sql: Sql, row: LotteryRow, buyerId: string) {
+  const existing = await sql<{ id: string }>`
+    select d.id
+    from deals d
+    join listing_items i on i.id = d.item_id
+    where d.listing_id = ${row.id} and i.buyer_id = ${buyerId}
+    limit 1
+  `;
+  if (existing[0]) return;
+  const pos = await sql<{ n: number }>`
+    select coalesce(max(position), 0)::int + 1 as n from listing_items where listing_id = ${row.id}
+  `;
+  const position = Math.max(1, num(pos[0]?.n));
+  const itemId = crypto.randomUUID();
+  await sql`
+    insert into listing_items (id, listing_id, position, title, price, status, buyer_id)
+    values (${itemId}, ${row.id}, ${position}, ${`Приз ${position}`}, 1, 'sold', ${buyerId})
+  `;
+  const id = crypto.randomUUID();
+  const inserted = await sql<{ id: string; public_no: number }>`
+    insert into deals (id, listing_id, item_id, seller_id, buyer_id, amount, currency, status, listing_title)
+    values (${id}, ${row.id}, ${itemId}, ${row.seller_id}, ${buyerId}, 0, ${asPay(row.currency)}, 'awaiting_payment', ${row.title})
+    returning id, public_no
+  `;
+  const deal = inserted[0];
+  if (!deal) return;
+  const href = `/deals/${deal.id}`;
+  const body = `«${row.title}» · #${num(deal.public_no)} · приз ${position}`;
+  await notify(sql, row.seller_id, "deal", "Новая сделка", body, href);
+  await notify(sql, buyerId, "deal", "Вы выиграли лотерею", body, href);
+}
+
+async function finishLottery(sql: Sql, row: LotteryRow) {
+  const limit = Math.max(1, Math.min(20, num(row.winner_count) || 1));
+  const already = await sql<{ user_id: string }>`
+    select user_id from lottery_entries where listing_id = ${row.id} and won
+  `;
+  let winners = already;
+  if (winners.length < limit) {
+    const more = await sql<{ user_id: string }>`
+      select e.user_id
+      from lottery_entries e
+      where e.listing_id = ${row.id}
+        and e.removed_at is null
+        and e.won = false
+        and e.user_id <> ${row.seller_id}
+        and (not ${Boolean(row.require_follow)} or exists (
+          select 1 from follows f where f.follower_id = e.user_id and f.following_id = ${row.seller_id}
+        ))
+        and (not ${Boolean(row.require_like)} or exists (
+          select 1 from listing_likes lk where lk.listing_id = e.listing_id and lk.user_id = e.user_id
+        ))
+        and (not ${Boolean(row.require_comment)} or exists (
+          select 1 from listing_comments c where c.listing_id = e.listing_id and c.author_id = e.user_id
+        ))
+      order by random()
+      limit ${limit - winners.length}
+    `;
+    for (const winner of more) {
+      await sql`
+        update lottery_entries set won = true, removed_at = null
+        where listing_id = ${row.id} and user_id = ${winner.user_id}
+      `;
+    }
+    winners = [...winners, ...more];
+  }
+  for (const winner of winners) await openLotteryDeal(sql, row, winner.user_id);
+  await sql`
+    update listings
+    set status = ${winners.length > 0 ? "sold" : "ended"},
+        winner_id = ${winners[0]?.user_id ?? null},
+        updated_at = now()
+    where id = ${row.id} and status = 'active'
+  `;
+  if (winners.length === 0) {
+    await notify(
+      sql,
+      row.seller_id,
+      "lottery_end",
+      "Лотерея завершена",
+      `«${row.title}» закрыта без победителей`,
+      `/lot/${row.id}`,
+    );
+  }
+}
+
+async function drawLotteries(sql: Sql) {
+  const claimed = await sql<LotteryRow>`
+    update listings
+    set drawn_at = now(), updated_at = now()
+    where status = 'active' and kind = 'lottery' and ends_at is not null and ends_at <= now() and drawn_at is null
+    returning id, title, seller_id, winner_count, currency, require_follow, require_like, require_comment
+  `;
+  const pending = await sql<LotteryRow>`
+    select id, title, seller_id, winner_count, currency, require_follow, require_like, require_comment
+    from listings
+    where kind = 'lottery' and status = 'active' and drawn_at is not null
+  `;
+  const seen = new Set<string>();
+  for (const row of [...claimed, ...pending]) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    await finishLottery(sql, row);
+  }
+}
+
 async function retainChats(sql: Sql) {
   try {
     await sql`delete from dm_message_images where created_at < now() - interval '30 days'`;
@@ -281,6 +470,7 @@ async function retainChats(sql: Sql) {
 async function settle(sql: Sql) {
   try {
     await retainChats(sql);
+    await drawLotteries(sql);
     const closed = await sql<CloseRow>`
       update listings
       set status = case when current_bidder_id is null then 'ended' else 'sold' end,
@@ -319,6 +509,8 @@ async function settle(sql: Sql) {
 const CARD_SQL = `
   l.id, l.title, l.kind, l.price, l.buy_now, l.current_bid, l.bid_count, l.bid_step, l.currency,
   l.ends_at, l.status, l.seller_id, l.winner_id, l.pinned,
+  coalesce(l.winner_count, 1) as winner_count,
+  (select count(*)::int from lottery_entries e where e.listing_id = l.id and e.removed_at is null) as entry_count,
   (select count(*)::int from listing_likes lk where lk.listing_id = l.id) as like_count,
   coalesce(p.handle, '') as seller_handle, coalesce(p.display_name, '') as seller_name,
   (
@@ -364,7 +556,7 @@ const CARD_SQL = `
 type CardRow = {
   id: string;
   title: string;
-  kind: "fixed" | "auction";
+  kind: "fixed" | "auction" | "lottery";
   price: number;
   buy_now: number | null;
   current_bid: number | null;
@@ -385,6 +577,8 @@ type CardRow = {
   boosted: boolean;
   seller_premium: boolean;
   buyer_handles: string | null;
+  winner_count?: number | null;
+  entry_count?: number | null;
 };
 
 function inlineImage(value: unknown): string | null {
@@ -401,7 +595,7 @@ function mapCard(row: CardRow): ListingCard {
   return {
     id: row.id,
     title: row.title,
-    kind: row.kind,
+    kind: row.kind === "auction" || row.kind === "lottery" ? row.kind : "fixed",
     price: num(row.price),
     buyNow: row.buy_now == null ? null : num(row.buy_now),
     currentBid: row.current_bid == null ? null : num(row.current_bid),
@@ -422,6 +616,8 @@ function mapCard(row: CardRow): ListingCard {
     previewSrc: inlineImage(row.preview_inline),
     tags: asTags(row.tags),
     buyerHandles: row.buyer_handles ? row.buyer_handles : null,
+    winnerCount: Math.max(1, num(row.winner_count ?? 1)),
+    entryCount: num(row.entry_count),
   };
 }
 
@@ -464,7 +660,7 @@ export const listListings = createServerFn({ method: "GET" })
     const sql = await getSql();
     await settle(sql);
     const like = data.q ? likeContains(data.q) : "%";
-    const pageSize = data.kind === "auction" || data.kind === "fixed" || data.tag || data.pay ? GRID_PAGE : PAGE_SIZE;
+    const pageSize = data.kind === "auction" || data.kind === "fixed" || data.kind === "lottery" || data.tag || data.pay ? GRID_PAGE : PAGE_SIZE;
     const offset = (data.page - 1) * pageSize;
     const boostRank = "(l.boosted_until is not null and l.boosted_until > now()) desc";
     const premiumRank =
@@ -564,10 +760,15 @@ export const getListing = createServerFn({ method: "GET" })
         price2_label: string | null;
         engine: string | null;
         buy_now_currency: string | null;
+        rules: string | null;
+        require_follow: boolean | null;
+        require_like: boolean | null;
+        require_comment: boolean | null;
       }
     >(
       `select ${CARD_SQL}, l.blurb, l.anti_snipe_minutes, l.created_at, l.current_bidder_id,
-              l.price2, l.price2_label, l.engine, l.buy_now_currency
+              l.price2, l.price2_label, l.engine, l.buy_now_currency,
+              l.rules, l.require_follow, l.require_like, l.require_comment
        from listings l
        left join profiles p on p.user_id = l.seller_id
        where l.id = $1`,
@@ -682,11 +883,12 @@ export const getListing = createServerFn({ method: "GET" })
         id: string;
         body: string;
         created_at: unknown;
+        author_id: string;
         author_handle: string;
         author_name: string;
         author_premium: boolean;
       }>`
-        select c.id, c.body, c.created_at, a.handle as author_handle, a.display_name as author_name,
+        select c.id, c.body, c.created_at, c.author_id, a.handle as author_handle, a.display_name as author_name,
           (coalesce(a.premium_forever, false) or (a.premium_until is not null and a.premium_until > now())) as author_premium
         from listing_comments c
         join profiles a on a.user_id = c.author_id
@@ -705,6 +907,11 @@ export const getListing = createServerFn({ method: "GET" })
       sellerNote: b.seller_note ?? "",
       bidderId: b.bidder_id,
     }));
+    const entry = userId
+      ? await sql<{ removed_at: unknown }>`
+          select removed_at from lottery_entries where listing_id = ${id} and user_id = ${userId}
+        `
+      : [];
     return {
       ...likedCards[0],
       blurb: row.blurb,
@@ -728,6 +935,7 @@ export const getListing = createServerFn({ method: "GET" })
           id: c.id,
           body: c.body,
           createdAt: iso(c.created_at),
+          authorId: c.author_id,
           authorHandle: c.author_handle,
           authorName: c.author_name,
           authorPremium: Boolean(c.author_premium),
@@ -735,6 +943,11 @@ export const getListing = createServerFn({ method: "GET" })
       ),
       currentBidderId: row.current_bidder_id,
       slots,
+      rules: row.rules ?? "",
+      requireFollow: Boolean(row.require_follow),
+      requireLike: Boolean(row.require_like),
+      requireComment: Boolean(row.require_comment),
+      entered: Boolean(entry[0] && entry[0].removed_at == null),
     };
   });
 
@@ -756,7 +969,7 @@ type CreateBody = {
   title: string;
   blurb: string;
   privateDescription: string;
-  kind: "fixed" | "auction";
+  kind: "fixed" | "auction" | "lottery";
   price: number;
   buyNow: number | null;
   durationHours: number;
@@ -767,6 +980,12 @@ type CreateBody = {
   items: { title: string; price: number }[];
   engine: string;
   buyNowCurrency: "rub" | "sw";
+  endsAt: string | null;
+  winnerCount: number | null;
+  rules: string;
+  requireFollow: boolean;
+  requireLike: boolean;
+  requireComment: boolean;
 };
 
 function parseSlots(value: unknown): { title: string; price: number }[] {
@@ -795,12 +1014,12 @@ function parseCreate(input: unknown): CreateBody {
     8000,
   );
   if (title.length < 3) fail("Название — хотя бы 3 символа");
-  const kind = o.kind === "auction" ? "auction" : o.kind === "fixed" ? "fixed" : null;
-  if (!kind) fail("Выберите аукцион или фиксированную цену");
+  const kind = o.kind === "auction" ? "auction" : o.kind === "fixed" ? "fixed" : o.kind === "lottery" ? "lottery" : null;
+  if (!kind) fail("Выберите аукцион, фикс или лотерею");
   const items = kind === "fixed" ? parseSlots(o.items) : [];
-  const price = kind === "auction" ? parsePrice(o.price) : Math.min(...items.map((item) => item.price));
+  const price = kind === "lottery" ? 0 : kind === "auction" ? parsePrice(o.price) : Math.min(...items.map((item) => item.price));
   if (price == null) fail("Цена — целое число от 1");
-  const currency = o.currency === "sw" ? "sw" : o.currency === "rub" ? "rub" : null;
+  const currency = kind === "lottery" ? "rub" : o.currency === "sw" ? "sw" : o.currency === "rub" ? "rub" : null;
   if (!currency) fail("Выберите денежную ставку или токены SW");
   const mixed = kind === "auction" && currency === "sw" && o.mixed === true;
   let buyNow: number | null = null;
@@ -816,6 +1035,22 @@ function parseCreate(input: unknown): CreateBody {
   const anti = Number(o.antiSnipeMinutes);
   if (kind === "auction" && !(SNIPE_OPTIONS as readonly number[]).includes(anti)) {
     fail("Выберите антиснайп");
+  }
+  let endsAt: string | null = null;
+  let winnerCount: number | null = null;
+  const rules = cleanText(typeof o.rules === "string" ? o.rules : "", 2000);
+  const requireFollow = o.requireFollow === true;
+  const requireLike = o.requireLike === true;
+  const requireComment = o.requireComment === true;
+  if (kind === "lottery") {
+    const ends = new Date(typeof o.endsAt === "string" ? o.endsAt : "");
+    if (!Number.isFinite(ends.getTime())) fail("Укажите дату и время окончания");
+    if (ends.getTime() < Date.now() + 10 * 60 * 1000) fail("Окончание — хотя бы через 10 минут");
+    if (ends.getTime() > Date.now() + 90 * 24 * 60 * 60 * 1000) fail("Лотерея не длиннее 90 дней");
+    const count = Number(o.winnerCount);
+    if (!Number.isInteger(count) || count < 1 || count > 20) fail("Победителей — от 1 до 20");
+    endsAt = ends.toISOString();
+    winnerCount = count;
   }
   const engine = asEngine(o.engine);
   if (!engine) fail("Выберите нейросеть");
@@ -838,6 +1073,12 @@ function parseCreate(input: unknown): CreateBody {
     items,
     engine,
     buyNowCurrency: mixed && buyNow != null ? "rub" : currency,
+    endsAt,
+    winnerCount,
+    rules,
+    requireFollow: kind === "lottery" && requireFollow,
+    requireLike: kind === "lottery" && requireLike,
+    requireComment: kind === "lottery" && requireComment,
   };
 }
 
@@ -857,7 +1098,8 @@ export const createListing = createServerFn({ method: "POST" })
       insert into listings (
         id, seller_id, title, blurb, private_description, kind, price, buy_now,
         bid_step, currency, anti_snipe_minutes, ends_at, status,
-        price2, price2_label, engine, buy_now_currency
+        price2, price2_label, engine, buy_now_currency,
+        winner_count, rules, require_follow, require_like, require_comment
       ) values (
         ${id},
         ${context.userId},
@@ -870,12 +1112,21 @@ export const createListing = createServerFn({ method: "POST" })
         ${data.bidStep},
         ${data.currency},
         ${data.antiSnipeMinutes},
-        case when ${data.kind} = 'auction' then now() + (${hours} * interval '1 hour') else null end,
+        case
+          when ${data.kind} = 'lottery' then ${data.endsAt}::timestamptz
+          when ${data.kind} = 'auction' then now() + (${hours} * interval '1 hour')
+          else null
+        end,
         'draft',
         ${null},
         ${null},
         ${data.engine},
-        ${data.buyNowCurrency}
+        ${data.buyNowCurrency},
+        ${data.winnerCount},
+        ${data.rules},
+        ${data.requireFollow},
+        ${data.requireLike},
+        ${data.requireComment}
       )
     `;
     for (let i = 0; i < data.items.length; i += 1) {
@@ -915,6 +1166,7 @@ export const publishListing = createServerFn({ method: "POST" })
     }
     if (row.status === "draft") {
       const auction = row.kind === "auction";
+      const lottery = row.kind === "lottery";
       const limit = profile.premium
         ? auction
           ? PREMIUM_AUCTION_LIMIT
@@ -923,7 +1175,7 @@ export const publishListing = createServerFn({ method: "POST" })
           ? ACTIVE_AUCTION_LIMIT
           : ACTIVE_FIXED_LIMIT;
       const premiumLimit = auction ? PREMIUM_AUCTION_LIMIT : PREMIUM_FIXED_LIMIT;
-      const label = auction ? "аукционов" : "фиксов";
+      const label = lottery ? "лотерей" : auction ? "аукционов" : "фиксов";
       const active = await sql<{ n: number }>`
         select count(*)::int as n from listings
         where seller_id = ${context.userId} and status = 'active' and kind = ${row.kind}
@@ -1714,7 +1966,8 @@ export const updateProfile = createServerFn({ method: "POST" })
     }
     if (!handle) fail("Ник: 3–20 букв, цифр или _");
     if (displayName.length < 2) fail("Имя слишком короткое");
-    return { handle, displayName, bio, status, links: parseLinksInput(o.links) };
+    const showcase = asShowcase(o.showcase);
+    return { handle, displayName, bio, status, links: parseLinksInput(o.links), showcase };
   })
   .handler(async ({ data, context }) => {
     const sql = await getSql();
@@ -1726,6 +1979,7 @@ export const updateProfile = createServerFn({ method: "POST" })
             display_name = ${data.displayName},
             bio = ${data.bio},
             status = ${data.status},
+            showcase = ${data.showcase},
             links = ${JSON.stringify(data.links)}::jsonb
         where user_id = ${context.userId}
       `;
@@ -1770,28 +2024,42 @@ export const getPublicProfile = createServerFn({ method: "GET" })
       side_right_shape: string;
       side_left_framed: boolean;
       side_right_framed: boolean;
+      showcase: string;
     }>`
       select user_id, display_name, bio, role, status, links, badges, created_at,
         premium_forever, premium_until, theme, accent, avatar_frame, banner_overlay,
-        side_left_shape, side_right_shape, side_left_framed, side_right_framed
+        side_left_shape, side_right_shape, side_left_framed, side_right_framed, showcase
       from profiles where handle = ${data.handle}
     `;
     if (!rows[0]) return null;
     const userId = rows[0].user_id;
+    const showcase = asShowcase(rows[0].showcase);
+    const shelf = showcase === "lotteries" ? "lotteries" : "lots";
     const offset = (data.page - 1) * PROFILE_LOT_PAGE;
-    const [items, totalRow, images, posts, followRow, followCount] = await Promise.all([
+    const [items, pins, totalRow, images, posts, followRow, followCount] = await Promise.all([
       sql.query<CardRow>(
         `select ${CARD_SQL}
          from listings l
          left join profiles p on p.user_id = l.seller_id
          where l.seller_id = $1 and l.status = 'active'
+           and (($4::text = 'lotteries' and l.kind = 'lottery') or ($4::text = 'lots' and l.kind <> 'lottery'))
          order by l.pinned desc, l.created_at desc
          limit $2 offset $3`,
-        [userId, PROFILE_LOT_PAGE, offset],
+        [userId, PROFILE_LOT_PAGE, offset, shelf],
+      ),
+      sql.query<CardRow>(
+        `select ${CARD_SQL}
+         from listings l
+         left join profiles p on p.user_id = l.seller_id
+         where l.seller_id = $1 and l.status = 'active' and l.pinned
+         order by l.created_at desc
+         limit 6`,
+        [userId],
       ),
       sql<{ n: number }>`
         select count(*)::int as n from listings
         where seller_id = ${userId} and status = 'active'
+          and ((${shelf} = 'lotteries' and kind = 'lottery') or (${shelf} = 'lots' and kind <> 'lottery'))
       `,
       sql<{ kind: string; rev: number }>`
         select kind, floor(extract(epoch from updated_at))::int as rev
@@ -1852,9 +2120,11 @@ export const getPublicProfile = createServerFn({ method: "GET" })
       sideLeftFramed: premium ? rows[0].side_left_framed !== false : true,
       sideRightFramed: premium ? rows[0].side_right_framed !== false : true,
       lots: items.map(mapCard),
+      pins: pins.map(mapCard),
       lotTotal: num(totalRow[0]?.n),
       posts,
       followers: num(followCount[0]?.n),
+      showcase,
     };
   });
 
@@ -2807,10 +3077,13 @@ export const listRecommendations = createServerFn({ method: "GET" }).handler(asy
     `select ${CARD_SQL}
      from listings l
      left join profiles p on p.user_id = l.seller_id
-     where l.status = 'active' and l.kind in ('auction', 'fixed')
-     order by (
-         (select count(*)::int from listing_likes lk where lk.listing_id = l.id) + l.bid_count
-       ) desc,
+     where l.status = 'active'
+       and (
+         l.kind = 'auction'
+         or (l.kind = 'fixed' and l.created_at > now() - interval '48 hours')
+       )
+     order by (l.kind = 'auction') desc,
+       (select count(*)::int from listing_likes lk where lk.listing_id = l.id) desc,
        (l.boosted_until is not null and l.boosted_until > now()) desc,
        l.created_at desc
      limit ${TOP_LIMIT}`,
@@ -2969,6 +3242,7 @@ export const toggleLike = createServerFn({ method: "POST" })
     `;
     if (existing[0]) {
       await sql`delete from listing_likes where listing_id = ${listingId} and user_id = ${context.userId}`;
+      await reviewLotteryEntries(sql, context.userId, { listingId });
       return { liked: false };
     }
     await sql`insert into listing_likes (listing_id, user_id) values (${listingId}, ${context.userId})`;
@@ -2983,6 +3257,69 @@ export const toggleLike = createServerFn({ method: "POST" })
       );
     }
     return { liked: true };
+  });
+
+export const joinLottery = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((id: unknown) => {
+    if (typeof id !== "string" || !UUID_RE.test(id)) fail("Некорректный лот");
+    return id;
+  })
+  .handler(async ({ data: listingId, context }) => {
+    const sql = await getSql();
+    const profile = await ensureProfile(sql, context.userId);
+    assertLive(profile);
+    const rows = await sql<{
+      id: string;
+      seller_id: string;
+      winner_count: number;
+      currency: string;
+      require_follow: boolean;
+      require_like: boolean;
+      require_comment: boolean;
+      open: boolean;
+    }>`
+      select id, seller_id, coalesce(winner_count, 1) as winner_count, currency,
+        require_follow, require_like, require_comment,
+        (kind = 'lottery' and status = 'active' and ends_at is not null and ends_at > now() and drawn_at is null) as open
+      from listings
+      where id = ${listingId}
+    `;
+    const row = rows[0];
+    if (!row || row.open !== true) fail("Лотерея не идёт");
+    if (row.seller_id === context.userId) fail("В своей лотерее участвовать нельзя");
+    const missing: string[] = [];
+    if (row.require_follow) {
+      const follow = await sql`
+        select 1 as ok from follows where follower_id = ${context.userId} and following_id = ${row.seller_id}
+      `;
+      if (!follow[0]) missing.push("подписка на автора");
+    }
+    if (row.require_like) {
+      const like = await sql`
+        select 1 as ok from listing_likes where listing_id = ${listingId} and user_id = ${context.userId}
+      `;
+      if (!like[0]) missing.push("лайк этой записи");
+    }
+    if (row.require_comment) {
+      const comment = await sql`
+        select 1 as ok from listing_comments where listing_id = ${listingId} and author_id = ${context.userId}
+      `;
+      if (!comment[0]) missing.push("комментарий под записью");
+    }
+    if (missing.length > 0) fail(`Сначала выполните условия: ${missing.join(", ")}`);
+    const existing = await sql<{ won: boolean }>`
+      select won from lottery_entries where listing_id = ${listingId} and user_id = ${context.userId}
+    `;
+    if (existing[0]?.won === true) return { ok: true };
+    await sql`
+      insert into lottery_entries (listing_id, user_id, joined_at, removed_at, won)
+      values (${listingId}, ${context.userId}, now(), null, false)
+      on conflict (listing_id, user_id) do update
+        set removed_at = null, joined_at = now()
+        where lottery_entries.won = false
+    `;
+    return { ok: true };
   });
 
 export const addListingComment = createServerFn({ method: "POST" })
@@ -3029,10 +3366,13 @@ export const deleteListingComment = createServerFn({ method: "POST" })
   .handler(async ({ data: id, context }) => {
     const sql = await getSql();
     const me = await ensureProfile(sql, context.userId);
-    const row = await sql<{ author_id: string }>`select author_id from listing_comments where id = ${id}`;
+    const row = await sql<{ author_id: string; listing_id: string }>`
+      select author_id, listing_id from listing_comments where id = ${id}
+    `;
     if (!row[0]) fail("Комментарий уже удалён");
     if (row[0].author_id !== context.userId && !isStaff(me.role)) fail("Нельзя удалить этот комментарий");
     await sql`delete from listing_comments where id = ${id}`;
+    await reviewLotteryEntries(sql, row[0].author_id, { listingId: row[0].listing_id });
     return { ok: true };
   });
 
@@ -3539,7 +3879,8 @@ export const listProfileLots = createServerFn({ method: "GET" })
     if (!cleanHandle(handle)) fail("Некорректный профиль");
     const page = Number(o.page);
     const state = o.state === "closed" ? "closed" : "open";
-    return { handle, page: Number.isInteger(page) && page > 0 && page < 500 ? page : 1, state };
+    const shelf = o.shelf === "lotteries" ? "lotteries" : "lots";
+    return { handle, page: Number.isInteger(page) && page > 0 && page < 500 ? page : 1, state, shelf };
   })
   .handler(async ({ data }): Promise<{ items: ListingCard[]; total: number }> => {
     const sql = await getSql();
@@ -3553,13 +3894,15 @@ export const listProfileLots = createServerFn({ method: "GET" })
          from listings l
          left join profiles p on p.user_id = l.seller_id
          where l.seller_id = $1 and l.status = any($2::text[])
+           and (($5::text = 'lotteries' and l.kind = 'lottery') or ($5::text = 'lots' and l.kind <> 'lottery'))
          order by l.pinned desc, l.created_at desc
          limit $3 offset $4`,
-        [profile[0].user_id, statuses, PROFILE_LOT_PAGE, offset],
+        [profile[0].user_id, statuses, PROFILE_LOT_PAGE, offset, data.shelf],
       ),
       sql<{ n: number }>`
         select count(*)::int as n from listings
         where seller_id = ${profile[0].user_id} and status = any(${statuses}::text[])
+          and ((${data.shelf} = 'lotteries' and kind = 'lottery') or (${data.shelf} = 'lots' and kind <> 'lottery'))
       `,
     ]);
     return { items: items.map(mapCard), total: num(totalRow[0]?.n) };
@@ -3588,6 +3931,7 @@ export const toggleFollow = createServerFn({ method: "POST" })
         delete from follows
         where follower_id = ${context.userId} and following_id = ${target[0].user_id}
       `;
+      await reviewLotteryEntries(sql, context.userId, { sellerId: target[0].user_id });
       return { following: false };
     }
     await sql`
@@ -3748,6 +4092,112 @@ export const deletePost = createServerFn({ method: "POST" })
     if (!row[0]) fail("Пост уже удалён");
     if (row[0].author_id !== context.userId && !isStaff(me.role)) fail("Нельзя удалить этот пост");
     await sql`delete from posts where id = ${id}`;
+    return { ok: true };
+  });
+
+async function loadNews(sql: Sql, staff: boolean): Promise<NewsPost[]> {
+  const posts = await sql<{
+    id: string;
+    title: string;
+    body: string;
+    created_at: unknown;
+    published: boolean;
+  }>`
+    select id, title, body, created_at, published
+    from news_posts
+    where ${staff} or published
+    order by created_at desc
+    limit 12
+  `;
+  if (posts.length === 0) return [];
+  const ids = posts.map((post) => post.id);
+  const images = await sql<{ id: string; news_id: string; card_b64: string }>`
+    select id, news_id, card_b64
+    from news_images
+    where news_id = any(${ids}::text[])
+    order by sort asc
+  `;
+  return posts.map((post) => ({
+    id: post.id,
+    title: post.title,
+    body: post.body,
+    createdAt: iso(post.created_at),
+    published: Boolean(post.published),
+    images: images
+      .filter((image) => image.news_id === post.id && image.card_b64.length > 32 && image.card_b64.length < 300_000)
+      .map((image) => ({ id: image.id, src: `data:image/jpeg;base64,${image.card_b64}` })),
+  }));
+}
+
+export const listNews = createServerFn({ method: "GET" }).handler(async (): Promise<NewsPost[]> => {
+  const sql = await getSql();
+  return loadNews(sql, false);
+});
+
+export const listStaffNews = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<NewsPost[]> => {
+    const sql = await getSql();
+    await requireStaff(sql, context.userId);
+    return loadNews(sql, true);
+  });
+
+export const publishNews = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    if (!input || typeof input !== "object") fail("Пустая новость");
+    const o = input as Record<string, unknown>;
+    const title = cleanText(typeof o.title === "string" ? o.title : "", 120);
+    const body = cleanText(typeof o.body === "string" ? o.body : "", 4000);
+    if (title.length < 3) fail("Заголовок — хотя бы 3 символа");
+    const images = Array.isArray(o.images) ? o.images.filter((item): item is string => typeof item === "string") : [];
+    if (images.length > 4) fail("Не больше 4 картинок");
+    return {
+      title,
+      body,
+      images: images.map((item) => item.replace(/^data:[^,]*,/, "").replace(/\s/g, "")),
+    };
+  })
+  .handler(async ({ data, context }) => {
+    const sql = await getSql();
+    const me = await requireStaff(sql, context.userId);
+    const ready: string[] = [];
+    for (const raw of data.images) {
+      if (raw.length < 32 || raw.length > 280_000) fail("Картинка новости слишком большая");
+      const buf = Buffer.from(raw, "base64");
+      if (buf.length < 32 || buf[0] !== 0xff || buf[1] !== 0xd8) fail("Картинка новости должна быть JPEG");
+      ready.push(buf.toString("base64"));
+    }
+    const id = crypto.randomUUID();
+    await sql`
+      insert into news_posts (id, author_id, title, body, published)
+      values (${id}, ${me.userId}, ${data.title}, ${data.body}, true)
+    `;
+    for (let sort = 0; sort < ready.length; sort += 1) {
+      await sql`
+        insert into news_images (id, news_id, card_b64, sort)
+        values (${crypto.randomUUID()}, ${id}, ${ready[sort]}, ${sort})
+      `;
+    }
+    return { id };
+  });
+
+export const setNewsPublished = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    if (!input || typeof input !== "object") fail("Пусто");
+    const o = input as Record<string, unknown>;
+    if (typeof o.id !== "string" || !UUID_RE.test(o.id)) fail("Некорректная новость");
+    if (typeof o.published !== "boolean") fail("Некорректный флаг");
+    return { id: o.id, published: o.published };
+  })
+  .handler(async ({ data, context }) => {
+    const sql = await getSql();
+    await requireStaff(sql, context.userId);
+    const updated = await sql`
+      update news_posts set published = ${data.published} where id = ${data.id} returning id
+    `;
+    if (!updated[0]) fail("Новость не найдена");
     return { ok: true };
   });
 

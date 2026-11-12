@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { adminModerate, adminOverview } from "@/lib/market/server";
+import { adminModerate, adminOverview, listStaffNews, publishNews, setNewsPublished } from "@/lib/market/server";
 import {
   errText,
   formatWhen,
@@ -16,6 +16,7 @@ import {
   type AdminData,
   type BadgeId,
   type ListingStatus,
+  type NewsPost,
   type Role,
 } from "@/lib/market/shared";
 
@@ -74,6 +75,147 @@ function Fold({ title, children }: { title: string; children: ReactNode }) {
 }
 
 const ROLES: Role[] = ["user", "moderator", "admin"];
+
+function jpegNews(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, 720 / Math.max(img.width, img.height, 1));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        URL.revokeObjectURL(url);
+        reject(new Error("Не удалось прочитать картинку"));
+        return;
+      }
+      ctx.fillStyle = "#131211";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      const data = canvas.toDataURL("image/jpeg", 0.72);
+      const raw = data.slice(data.indexOf(",") + 1);
+      if (raw.length > 280_000) reject(new Error("Картинка слишком большая"));
+      else resolve(raw);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Не удалось прочитать картинку"));
+    };
+    img.src = url;
+  });
+}
+
+function NewsDesk() {
+  const [items, setItems] = useState<NewsPost[] | null>(null);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [images, setImages] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  function reload() {
+    void listStaffNews()
+      .then(setItems)
+      .catch((err) => toast.error(errText(err)));
+  }
+
+  useEffect(() => {
+    reload();
+  }, []);
+
+  return (
+    <section className="space-y-3 border border-ink/20 bg-card p-4">
+      <h2 className="font-display text-2xl">Новости на главной</h2>
+      <p className="max-w-prose text-sm text-muted">
+        Пока ничего не опубликовано, блока на главной нет. Снятая новость сразу пропадает.
+      </p>
+      <form
+        className="grid gap-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setBusy(true);
+          void publishNews({ data: { title, body, images } })
+            .then(() => {
+              setTitle("");
+              setBody("");
+              setImages([]);
+              toast.success("Новость на главной");
+              reload();
+            })
+            .catch((err) => toast.error(errText(err)))
+            .finally(() => setBusy(false));
+        }}
+      >
+        <label className="block text-sm">
+          Заголовок
+          <input value={title} onChange={(e) => setTitle(e.target.value)} required minLength={3} maxLength={120} className={`${fieldClass} mt-1`} />
+        </label>
+        <label className="block text-sm">
+          Текст
+          <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} maxLength={4000} className={`${fieldClass} mt-1 py-2`} />
+        </label>
+        <label className="block text-sm">
+          Картинки, до 4
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            multiple
+            className="mt-1 block w-full text-sm"
+            onChange={(e) => {
+              const input = e.currentTarget;
+              const files = Array.from(input.files ?? []).slice(0, 4);
+              input.value = "";
+              setBusy(true);
+              void Promise.all(files.map((file) => jpegNews(file)))
+                .then((next) => setImages(next))
+                .catch((err) => toast.error(errText(err)))
+                .finally(() => setBusy(false));
+            }}
+          />
+        </label>
+        {images.length > 0 ? <p className="font-mono text-xs text-muted">Картинок: {images.length}</p> : null}
+        <Button type="submit" variant="wine" disabled={busy}>
+          Опубликовать
+        </Button>
+      </form>
+      {items == null ? <div className="h-16 animate-pulse bg-soft" /> : null}
+      {items && items.length === 0 ? <p className="text-sm text-muted">Новостей ещё нет.</p> : null}
+      {items && items.length > 0 ? (
+        <ul className="space-y-2">
+          {items.map((item) => (
+            <li key={item.id} className="border border-ink/15 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="font-display text-xl leading-none">{item.title}</p>
+                  <p className="mt-1 font-mono text-xs text-muted">
+                    {formatWhen(item.createdAt)} · {item.published ? "на главной" : "скрыта"}
+                    {item.images.length > 0 ? ` · ${item.images.length} фото` : ""}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="line"
+                  disabled={busy}
+                  onClick={() => {
+                    setBusy(true);
+                    void setNewsPublished({ data: { id: item.id, published: !item.published } })
+                      .then(() => reload())
+                      .catch((err) => toast.error(errText(err)))
+                      .finally(() => setBusy(false));
+                  }}
+                >
+                  {item.published ? "Снять" : "Вернуть"}
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
 
 function InvitePanel({
   data,
@@ -223,6 +365,7 @@ function AdminPage() {
           </p>
         )}
       </div>
+      <NewsDesk />
       {admin ? (
         <Fold title="Инвайт-коды">
           <InvitePanel data={data} act={act} />

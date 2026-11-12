@@ -261,10 +261,17 @@ export function errText(err: unknown): string {
   return "Что-то пошло не так";
 }
 
+export type ListingKind = "fixed" | "auction" | "lottery";
+export type Showcase = "lots" | "lotteries" | "posts";
+
+export function asShowcase(value: unknown): Showcase {
+  return value === "lotteries" || value === "posts" ? value : "lots";
+}
+
 export type ListingCard = {
   id: string;
   title: string;
-  kind: "fixed" | "auction";
+  kind: ListingKind;
   price: number;
   buyNow: number | null;
   currentBid: number | null;
@@ -285,12 +292,14 @@ export type ListingCard = {
   previewSrc: string | null;
   tags: Tag[];
   buyerHandles: string | null;
+  winnerCount: number;
+  entryCount: number;
 };
 
 export type FeedQuery = {
   q: string;
   tag: string;
-  kind: "all" | "fixed" | "auction";
+  kind: "all" | "fixed" | "auction" | "lottery";
   pay: "" | "rub" | "sw";
   sort: "new" | "ending" | "price";
   page: number;
@@ -336,6 +345,11 @@ export type ListingDetail = ListingCard & {
   slots: LotSlot[];
   engine: string | null;
   buyNowCurrency: PayKind;
+  rules: string;
+  requireFollow: boolean;
+  requireLike: boolean;
+  requireComment: boolean;
+  entered: boolean;
 };
 
 export type Profile = {
@@ -351,6 +365,7 @@ export type Profile = {
   premium: boolean;
   premiumUntil: string | null;
   premiumForever: boolean;
+  showcase: Showcase;
 } & Look;
 
 export type Me = Profile & {
@@ -368,6 +383,7 @@ export type ProfileComment = {
   id: string;
   body: string;
   createdAt: string;
+  authorId: string;
   authorHandle: string;
   authorName: string;
   authorPremium: boolean;
@@ -393,9 +409,11 @@ export type PublicProfile = {
   imageRev: Partial<Record<ProfileImageKind, number>>;
   premium: boolean;
   lots: ListingCard[];
+  pins: ListingCard[];
   lotTotal: number;
   posts: AuthorPost[];
   followers: number;
+  showcase: Showcase;
 } & Look;
 
 export type PostComment = {
@@ -421,6 +439,17 @@ export type AuthorPost = {
   authorPremium: boolean;
   images: PostImage[];
   comments: PostComment[];
+};
+
+export type NewsImage = { id: string; src: string };
+
+export type NewsPost = {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: string;
+  published: boolean;
+  images: NewsImage[];
 };
 
 export type FeedEntry =
@@ -596,7 +625,7 @@ export type AdminData = {
 
 export function parseFeedQuery(input: unknown): FeedQuery {
   const s = (input ?? {}) as Record<string, unknown>;
-  const kind = s.kind === "auction" || s.kind === "fixed" ? s.kind : "all";
+  const kind = s.kind === "auction" || s.kind === "fixed" || s.kind === "lottery" ? s.kind : "all";
   const pay = s.pay === "rub" || s.pay === "sw" ? s.pay : "";
   const sort = s.sort === "ending" || s.sort === "price" ? s.sort : "new";
   const pageRaw = Number(s.page);

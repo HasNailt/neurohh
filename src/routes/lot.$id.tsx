@@ -14,7 +14,9 @@ import {
   buyNow,
   closeAuctionEarly,
   cancelBid,
+  deleteListingComment,
   getListing,
+  joinLottery,
   placeBid,
   setBidNote as saveBidNote,
   reportListing,
@@ -95,6 +97,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
   const live = lot.status === "active";
   const [liked, setLiked] = useState(lot.liked);
   const [likes, setLikes] = useState(lot.likeCount);
+  const [entered, setEntered] = useState(lot.entered);
   const [bid, setBid] = useState("");
   const [bidNote, setBidNote] = useState("");
   const [comment, setComment] = useState("");
@@ -109,6 +112,12 @@ function LotView({ lot }: { lot: ListingDetail }) {
   const mixed = lot.currency === "sw" && lot.buyNowCurrency === "rub";
   const showBuyNow =
     live && lot.kind === "auction" && lot.buyNow != null && (mixed || lot.currentBid == null || lot.currentBid < lot.buyNow);
+
+  useEffect(() => {
+    setEntered(lot.entered);
+    setLiked(lot.liked);
+    setLikes(lot.likeCount);
+  }, [lot.id, lot.entered, lot.liked, lot.likeCount]);
 
   async function run(job: () => Promise<void>) {
     setBusy(true);
@@ -127,7 +136,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
       <div className="space-y-6">
         <Gallery lot={lot} />
         <div className="border border-ink/20 bg-card p-4">
-          <Kicker>{lot.kind === "auction" ? "auction" : "fixed"}</Kicker>
+          <Kicker>{lot.kind === "auction" ? "auction" : lot.kind === "lottery" ? "lottery" : "fixed"}</Kicker>
           <h1 className="mt-2 font-display text-2xl leading-tight">
             <RichText text={lot.title} />
           </h1>
@@ -143,6 +152,14 @@ function LotView({ lot }: { lot: ListingDetail }) {
               {lot.kind === "auction" ? ` · ${snipeLabel(lot.antiSnipeMinutes)}` : ""}
             </span>
           </p>
+          {lot.kind === "lottery" && lot.rules ? (
+            <div className="mt-3 border border-ink/15 px-3 py-2">
+              <p className="font-mono text-xs text-muted">Правила</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm">
+                <RichText text={lot.rules} />
+              </p>
+            </div>
+          ) : null}
           {mine && lot.privateDescription ? (
             <p className="mt-3 border border-ink/15 bg-card px-3 py-2 text-sm text-muted">Для вас: {lot.privateDescription}</p>
           ) : null}
@@ -175,6 +192,19 @@ function LotView({ lot }: { lot: ListingDetail }) {
                 <p className="mt-1 whitespace-pre-wrap">
                   <RichText text={item.body} />
                 </p>
+                {user && user.id === item.authorId ? (
+                  <button
+                    type="button"
+                    className="mt-1 font-mono text-xs text-muted underline"
+                    onClick={() =>
+                      void run(async () => {
+                        await deleteListingComment({ data: item.id });
+                      })
+                    }
+                  >
+                    удалить
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -228,6 +258,66 @@ function LotView({ lot }: { lot: ListingDetail }) {
                 {liked ? "♥" : "♡"} {Math.max(0, likes)}
               </button>
             </div>
+            {lot.kind === "lottery" ? (
+              <>
+                <p className="font-display text-4xl leading-none">{lot.winnerCount} {prizeWord(lot.winnerCount)}</p>
+                <p className="font-mono text-xs text-muted">
+                  {lot.entryCount} участников · {Math.max(0, likes)} лайков
+                </p>
+                <ul className="space-y-1 font-mono text-xs text-muted">
+                  {lot.requireFollow ? <li>Условие: подписка на автора</li> : null}
+                  {lot.requireLike ? <li>Условие: лайк этой записи</li> : null}
+                  {lot.requireComment ? <li>Условие: комментарий под записью</li> : null}
+                  {!lot.requireFollow && !lot.requireLike && !lot.requireComment ? <li>Дополнительных условий нет</li> : null}
+                </ul>
+                {lot.endsAt && live ? <Countdown endsAt={lot.endsAt} onEnd={() => void router.invalidate()} /> : null}
+                {live && !mine ? (
+                  user ? (
+                    entered ? (
+                      <p className="font-mono text-sm">Вы участвуете. Если снять подписку, лайк или комментарий из условий — участие снимется.</p>
+                    ) : (
+                      <Button
+                        className="w-full"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(async () => {
+                            await joinLottery({ data: lot.id });
+                            setEntered(true);
+                            toast.success("Вы в списке участников");
+                          })
+                        }
+                      >
+                        Участвовать
+                      </Button>
+                    )
+                  ) : (
+                    <Link to="/login" className="font-mono text-sm underline">
+                      Войдите, чтобы участвовать
+                    </Link>
+                  )
+                ) : null}
+                {lot.slots.length > 0 ? (
+                  <ul className="space-y-2">
+                    {lot.slots.map((slot) => (
+                      <li key={slot.id} className="border border-ink/15 p-3 font-mono text-xs">
+                        <RichText text={slot.title} />
+                        {slot.buyerHandle ? (
+                          <p className="mt-1">
+                            победитель <Nick handle={slot.buyerHandle} premium={slot.buyerPremium} />
+                          </p>
+                        ) : null}
+                        {slot.dealId ? (
+                          <Link to="/deals/$id" params={{ id: slot.dealId }} className="mt-1 inline-flex text-wine hover:underline">
+                            открыть сделку
+                          </Link>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </>
+            ) : (
+              <>
             <p className="font-display text-4xl tabular-nums leading-none">
               {lot.kind === "auction"
                 ? formatPrice(lot.currentBid ?? lot.price, lot.currency)
@@ -399,7 +489,9 @@ function LotView({ lot }: { lot: ListingDetail }) {
                 ))}
               </ul>
             ) : null}
-            {!user && live ? (
+              </>
+            )}
+            {!user && live && lot.kind !== "lottery" ? (
               <Link to="/login" className="block text-center font-mono text-xs text-muted hover:text-ink">
                 войдите, чтобы участвовать
               </Link>
@@ -595,13 +687,28 @@ function Gallery({ lot }: { lot: ListingDetail }) {
   );
 }
 
-function Countdown({ endsAt }: { endsAt: string }) {
+function prizeWord(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "приз";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "приза";
+  return "призов";
+}
+
+function Countdown({ endsAt, onEnd }: { endsAt: string; onEnd?: () => void }) {
   const [text, setText] = useState("···");
+  const ended = useRef(false);
+  const onEndRef = useRef(onEnd);
+  onEndRef.current = onEnd;
   useEffect(() => {
     const tick = () => {
       const ms = new Date(endsAt).getTime() - Date.now();
       if (ms <= 0) {
         setText("00:00:00");
+        if (!ended.current) {
+          ended.current = true;
+          onEndRef.current?.();
+        }
         return;
       }
       const s = Math.floor(ms / 1000);
