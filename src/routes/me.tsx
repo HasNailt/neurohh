@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
 import { EmojiBar } from "@/components/emoji-bar";
 import { FormatBar } from "@/components/rich-text";
+import { MentionSuggest } from "@/components/mentions";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { clearProfileImage, getMe, updateProfile, updateProfileLook, uploadProfileImage } from "@/lib/market/server";
@@ -214,6 +215,7 @@ function Editor({ me, onSaved }: { me: Me; onSaved: (me: Me) => void }) {
         <div className="mt-1 flex items-end gap-2">
           <EmojiBar up onPick={(emoji) => setBio((value) => value + emoji)} />
           <FormatBar inputRef={bioRef} value={bio} onChange={setBio} />
+          <MentionSuggest inputRef={bioRef} value={bio} onChange={setBio} />
           <textarea ref={bioRef} value={bio} onChange={(e) => setBio(e.target.value)} rows={4} maxLength={400} className={`${fieldClass} min-w-0 flex-1 py-2`} />
         </div>
       </label>

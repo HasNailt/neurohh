@@ -5,6 +5,7 @@ import { ChatPictures } from "@/components/chat-picture";
 import { Button, fieldClass } from "@/components/ui-bits";
 import { EmojiBar } from "@/components/emoji-bar";
 import { FormatBar, RichText } from "@/components/rich-text";
+import { MentionSuggest } from "@/components/mentions";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { checkChatImage, pushDmImage } from "@/lib/market/client-upload";
@@ -228,6 +229,7 @@ function ChatsPage() {
               <div className="flex items-center gap-2">
                 <EmojiBar up onPick={(emoji) => setDraft((value) => value + emoji)} />
                 <FormatBar inputRef={draftRef} value={draft} onChange={setDraft} />
+                <MentionSuggest inputRef={draftRef} value={draft} onChange={setDraft} />
                 <input ref={draftRef} value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={2000} className={`${fieldClass} min-w-0 flex-1`} placeholder="Сообщение" />
                 <Button type="submit" variant="wine" disabled={busy}>
                   Ок

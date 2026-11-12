@@ -35,6 +35,7 @@ import {
   asEngine,
   asShowcase,
   cleanHandle,
+  mentionHandles,
   slugHandle,
   likeContains,
   parseFeedQuery,
@@ -228,6 +229,66 @@ async function notify(
       ${href}
     )
   `;
+}
+
+async function mentionPeople(
+  sql: Sql,
+  actorId: string,
+  actorHandle: string,
+  source: string,
+  href: string,
+  texts: string[],
+  allowIds?: string[],
+) {
+  try {
+    const handles = mentionHandles(texts.filter(Boolean).join("\n"));
+    const people = handles.length
+      ? await sql<{ user_id: string; handle: string }>`
+          select user_id, handle from profiles where handle = any(${handles}::text[])
+        `
+      : [];
+    const allow = allowIds ? new Set(allowIds) : null;
+    const targets = people.filter((person) => person.user_id !== actorId && (!allow || allow.has(person.user_id)));
+    const ids = targets.map((person) => person.user_id);
+    if (ids.length === 0) {
+      await sql`delete from mentions where source = ${source}`;
+      return;
+    }
+    await sql`
+      delete from mentions
+      where source = ${source} and not (user_id = any(${ids}::text[]))
+    `;
+    const preview = texts.filter(Boolean).join(" ").replace(/\s+/g, " ").trim().slice(0, 120);
+    for (const person of targets) {
+      const inserted = await sql<{ user_id: string }>`
+        insert into mentions (id, user_id, actor_id, source, href)
+        values (${crypto.randomUUID()}, ${person.user_id}, ${actorId}, ${source}, ${href})
+        on conflict (user_id, source) do nothing
+        returning user_id
+      `;
+      if (!inserted[0]) continue;
+      await notify(
+        sql,
+        person.user_id,
+        "mention",
+        "Вас упомянули",
+        preview ? `@${actorHandle}: ${preview}` : `@${actorHandle} упомянул(а) вас`,
+        href,
+      );
+    }
+  } catch (err) {
+    console.error("[mention] failed", source, err);
+  }
+}
+
+async function listingMentionText(sql: Sql, id: string): Promise<string[]> {
+  const rows = await sql<{ title: string; blurb: string; rules: string }>`
+    select title, blurb, coalesce(rules, '') as rules from listings where id = ${id}
+  `;
+  const items = await sql<{ title: string }>`select title from listing_items where listing_id = ${id}`;
+  const row = rows[0];
+  if (!row) return [];
+  return [row.title, row.blurb, row.rules, ...items.map((item) => item.title)];
 }
 
 type CloseRow = {
@@ -726,6 +787,48 @@ export const searchPeople = createServerFn({ method: "GET" })
     return rows.map((row) => ({ handle: row.handle, displayName: row.display_name, premium: Boolean(row.premium) }));
   });
 
+export const suggestHandles = createServerFn({ method: "GET" })
+  .validator((q: unknown) => (typeof q === "string" ? q : ""))
+  .handler(async ({ data }): Promise<PersonHit[]> => {
+    const q = data.trim().toLocaleLowerCase("ru").replace(/[^\p{L}\p{N}_]/gu, "").slice(0, 20);
+    const sql = await getSql();
+    const rows = q
+      ? await sql<{ handle: string; display_name: string; premium: boolean }>`
+          select handle, display_name,
+            (coalesce(premium_forever, false) or (premium_until is not null and premium_until > now())) as premium
+          from profiles
+          where handle like ${`${q}%`}
+          order by handle asc
+          limit 6
+        `
+      : await sql<{ handle: string; display_name: string; premium: boolean }>`
+          select handle, display_name,
+            (coalesce(premium_forever, false) or (premium_until is not null and premium_until > now())) as premium
+          from profiles
+          order by created_at desc
+          limit 6
+        `;
+    return rows.map((row) => ({ handle: row.handle, displayName: row.display_name, premium: Boolean(row.premium) }));
+  });
+
+export const resolveHandles = createServerFn({ method: "GET" })
+  .validator((input: unknown) => {
+    const raw = Array.isArray(input) ? input : [];
+    const handles = raw
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => cleanHandle(item))
+      .filter((item): item is string => Boolean(item));
+    return [...new Set(handles)].slice(0, 80);
+  })
+  .handler(async ({ data }): Promise<string[]> => {
+    if (data.length === 0) return [];
+    const sql = await getSql();
+    const rows = await sql<{ handle: string }>`
+      select handle from profiles where handle = any(${data}::text[])
+    `;
+    return rows.map((row) => row.handle);
+  });
+
 export const suggestTags = createServerFn({ method: "GET" })
   .validator((q: unknown) => (typeof q === "string" ? q : ""))
   .handler(async ({ data }): Promise<Tag[]> => {
@@ -1192,6 +1295,14 @@ export const publishListing = createServerFn({ method: "POST" })
         where id = ${id} and seller_id = ${context.userId} and status = 'draft'
       `;
     }
+    await mentionPeople(
+      sql,
+      context.userId,
+      profile.handle,
+      `lot:${id}`,
+      `/lot/${id}`,
+      await listingMentionText(sql, id),
+    );
     return { ok: true };
   });
 
@@ -1424,6 +1535,14 @@ export const updateListingCopy = createServerFn({ method: "POST" })
     if (!updated[0]) fail("Лот уже нельзя править");
     await sql`delete from listing_tags where listing_id = ${data.id}`;
     await attachTags(sql, data.id, data.tags);
+    await mentionPeople(
+      sql,
+      context.userId,
+      profile.handle,
+      `lot:${data.id}`,
+      `/lot/${data.id}`,
+      await listingMentionText(sql, data.id),
+    );
     return { ok: true };
   });
 
@@ -1565,10 +1684,12 @@ export const placeBid = createServerFn({ method: "POST" })
       returning ends_at, current_bid, bid_count
     `;
     if (!updated[0]) fail("Ставка не принята — кто-то успел раньше или сумма слишком мала");
+    const bidId = crypto.randomUUID();
     await sql`
       insert into bids (id, listing_id, bidder_id, amount, note)
-      values (${crypto.randomUUID()}, ${data.listingId}, ${context.userId}, ${data.amount}, ${data.note})
+      values (${bidId}, ${data.listingId}, ${context.userId}, ${data.amount}, ${data.note})
     `;
+    await mentionPeople(sql, context.userId, profile.handle, `bid:${bidId}`, `/lot/${data.listingId}`, [data.note]);
     const endsAt = iso(updated[0].ends_at);
     const extended = prevEnd != null && new Date(endsAt).getTime() - new Date(prevEnd).getTime() > 1000;
     const note = extended ? " Аукцион продлён." : "";
@@ -1612,8 +1733,8 @@ export const setBidNote = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }) => {
     const sql = await getSql();
-    const rows = await sql<{ bidder_id: string; seller_id: string }>`
-      select b.bidder_id, l.seller_id
+    const rows = await sql<{ bidder_id: string; seller_id: string; listing_id: string }>`
+      select b.bidder_id, l.seller_id, b.listing_id
       from bids b
       join listings l on l.id = b.listing_id
       where b.id = ${data.bidId}
@@ -1623,11 +1744,20 @@ export const setBidNote = createServerFn({ method: "POST" })
     const ownBid = row.bidder_id === context.userId;
     const seller = row.seller_id === context.userId;
     if (!ownBid && !seller) fail("Комментарий может оставить участник ставки или автор лота");
+    const me = await ensureProfile(sql, context.userId);
     if (ownBid) {
       await sql`update bids set note = ${data.note} where id = ${data.bidId}`;
     } else {
       await sql`update bids set seller_note = ${data.note} where id = ${data.bidId}`;
     }
+    await mentionPeople(
+      sql,
+      context.userId,
+      me.handle,
+      ownBid ? `bid:${data.bidId}` : `bid-seller:${data.bidId}`,
+      `/lot/${row.listing_id}`,
+      [data.note],
+    );
     return { ok: true };
   });
 
@@ -1988,6 +2118,7 @@ export const updateProfile = createServerFn({ method: "POST" })
       if (/duplicate|unique/i.test(msg)) fail("Этот ник уже занят");
       throw e;
     }
+    await mentionPeople(sql, context.userId, data.handle, `bio:${context.userId}`, `/u/${data.handle}`, [data.bio]);
     return { ok: true };
   });
 
@@ -2448,6 +2579,10 @@ export const sendMessage = createServerFn({ method: "POST" })
     const other = d.seller_id === context.userId ? d.buyer_id : d.seller_id;
     const preview = data.body ? data.body.slice(0, 140) : "картинка";
     await notify(sql, other, "message", "Новое сообщение", `${profile.handle}: ${preview}`, `/deals/${data.dealId}`);
+    await mentionPeople(sql, context.userId, profile.handle, `deal-msg:${id}`, `/deals/${data.dealId}`, [data.body], [
+      d.seller_id,
+      d.buyer_id,
+    ]);
     return { id };
   });
 
@@ -2740,9 +2875,10 @@ export const addProfileComment = createServerFn({ method: "POST" })
     `;
     if (!target[0]) fail("Профиль не найден");
     if (target[0].user_id === context.userId) fail("Свой профиль комментировать нельзя");
+    const commentId = crypto.randomUUID();
     await sql`
       insert into profile_comments (id, profile_id, author_id, body)
-      values (${crypto.randomUUID()}, ${target[0].user_id}, ${context.userId}, ${data.body})
+      values (${commentId}, ${target[0].user_id}, ${context.userId}, ${data.body})
     `;
     await notify(
       sql,
@@ -2752,6 +2888,7 @@ export const addProfileComment = createServerFn({ method: "POST" })
       `@${me.handle}: ${data.body.slice(0, 140)}`,
       `/u/${target[0].handle}`,
     );
+    await mentionPeople(sql, context.userId, me.handle, `profile-comment:${commentId}`, `/u/${target[0].handle}`, [data.body]);
     return { ok: true };
   });
 
@@ -3340,9 +3477,10 @@ export const addListingComment = createServerFn({ method: "POST" })
       select seller_id, title, status from listings where id = ${data.listingId}
     `;
     if (!lot[0] || lot[0].status === "removed") fail("Лот не найден");
+    const commentId = crypto.randomUUID();
     await sql`
       insert into listing_comments (id, listing_id, author_id, body)
-      values (${crypto.randomUUID()}, ${data.listingId}, ${context.userId}, ${data.body})
+      values (${commentId}, ${data.listingId}, ${context.userId}, ${data.body})
     `;
     if (lot[0].seller_id !== context.userId) {
       await notify(
@@ -3354,6 +3492,7 @@ export const addListingComment = createServerFn({ method: "POST" })
         `/lot/${data.listingId}`,
       );
     }
+    await mentionPeople(sql, context.userId, profile.handle, `lot-comment:${commentId}`, `/lot/${data.listingId}`, [data.body]);
     return { ok: true };
   });
 
@@ -3705,8 +3844,11 @@ export const sendDirect = createServerFn({ method: "POST" })
       values (${messageId}, ${threadId}, ${context.userId}, ${data.body})
     `;
     const other = thread[0].low_id === context.userId ? thread[0].high_id : thread[0].low_id;
+    const otherProfile = await sql<{ handle: string }>`select handle from profiles where user_id = ${other}`;
     const preview = data.body ? data.body.slice(0, 140) : "картинка";
-    await notify(sql, other, "dm", "Новое сообщение", `${me.handle}: ${preview}`, "/chats");
+    const href = `/chats?with=${encodeURIComponent(otherProfile[0]?.handle ?? "")}`;
+    await notify(sql, other, "dm", "Новое сообщение", `${me.handle}: ${preview}`, href);
+    await mentionPeople(sql, context.userId, me.handle, `dm:${messageId}`, href, [data.body], [other]);
     return { ok: true, threadId, id: messageId };
   });
 
@@ -4029,6 +4171,7 @@ export const createPost = createServerFn({ method: "POST" })
         values (${crypto.randomUUID()}, ${id}, ${ready[sort]!.toString("base64")}, ${sort})
       `;
     }
+    await mentionPeople(sql, context.userId, me.handle, `post:${id}`, `/u/${me.handle}`, [data.body]);
     return { id };
   });
 
@@ -4062,9 +4205,10 @@ export const addPostComment = createServerFn({ method: "POST" })
       if (!parent[0] || parent[0].post_id !== data.postId) fail("Некого ответить");
       parentId = parent[0].parent_id ?? parent[0].id;
     }
+    const commentId = crypto.randomUUID();
     await sql`
       insert into post_comments (id, post_id, author_id, parent_id, body)
-      values (${crypto.randomUUID()}, ${data.postId}, ${context.userId}, ${parentId}, ${data.body})
+      values (${commentId}, ${data.postId}, ${context.userId}, ${parentId}, ${data.body})
     `;
     if (post[0].author_id !== context.userId) {
       await notify(
@@ -4076,6 +4220,7 @@ export const addPostComment = createServerFn({ method: "POST" })
         `/u/${post[0].handle}`,
       );
     }
+    await mentionPeople(sql, context.userId, me.handle, `post-comment:${commentId}`, `/u/${post[0].handle}`, [data.body]);
     return { ok: true };
   });
 
@@ -4181,6 +4326,7 @@ export const publishNews = createServerFn({ method: "POST" })
         values (${crypto.randomUUID()}, ${id}, ${ready[sort]}, ${sort})
       `;
     }
+    await mentionPeople(sql, context.userId, me.handle, `news:${id}`, "/", [data.title, data.body]);
     return { id };
   });
 

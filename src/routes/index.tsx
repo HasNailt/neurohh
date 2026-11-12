@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { ListingCardView } from "@/components/listing-card";
+import { RichText } from "@/components/rich-text";
 import { listListings, listNews, listPopularTags, listRecommendations, searchPeople } from "@/lib/market/server";
 import { GRID_PAGE, formatWhen, parseFeedQuery, type FeedQuery, type FeedResult, type NewsPost, type PersonHit } from "@/lib/market/shared";
 
@@ -126,19 +127,31 @@ function NewsBlock({ items }: { items: NewsPost[] }) {
           const open = openId === item.id;
           return (
             <li key={item.id} className="border-b border-ink/15 last:border-b-0">
-              <button
-                type="button"
-                className="flex min-h-11 w-full items-center justify-between gap-3 px-4 py-3 text-left"
+              <div
+                role="button"
+                tabIndex={0}
+                className="flex min-h-11 w-full cursor-pointer items-center justify-between gap-3 px-4 py-3 text-left"
                 aria-expanded={open}
                 onClick={() => setOpenId(open ? null : item.id)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return;
+                  event.preventDefault();
+                  setOpenId(open ? null : item.id);
+                }}
               >
-                <span className="font-display text-2xl leading-none">{item.title}</span>
+                <span className="font-display text-2xl leading-none">
+                  <RichText text={item.title} />
+                </span>
                 <span className="shrink-0 font-mono text-xs text-muted">{open ? "свернуть" : "открыть"}</span>
-              </button>
+              </div>
               {open ? (
                 <div className="space-y-3 px-4 pb-4">
                   <p className="font-mono text-[11px] text-muted">{formatWhen(item.createdAt)}</p>
-                  {item.body ? <p className="whitespace-pre-wrap text-sm">{item.body}</p> : null}
+                  {item.body ? (
+                    <p className="whitespace-pre-wrap text-sm">
+                      <RichText text={item.body} />
+                    </p>
+                  ) : null}
                   {item.images.length > 0 ? (
                     <div className="grid gap-2 sm:grid-cols-2">
                       {item.images.map((image) => (

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { TagField } from "@/components/tag-field";
 import { EmojiBar } from "@/components/emoji-bar";
 import { FormatBar } from "@/components/rich-text";
+import { MentionSuggest } from "@/components/mentions";
 import { PreviewImg } from "@/components/preview-img";
 import { Button, fieldClass, Frame, Kicker } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
@@ -232,6 +233,7 @@ function EditSheet({ id, onClose, onSaved }: { id: string; onClose: () => void; 
             Название
             <div className="mt-1 flex items-end gap-2">
               <FormatBar inputRef={titleRef} value={title} onChange={setTitle} />
+              <MentionSuggest inputRef={titleRef} value={title} onChange={setTitle} />
               <input ref={titleRef} value={title} onChange={(e) => setTitle(e.target.value)} className={`${fieldClass} min-w-0 flex-1`} maxLength={80} />
             </div>
           </label>
@@ -240,6 +242,7 @@ function EditSheet({ id, onClose, onSaved }: { id: string; onClose: () => void; 
             <div className="mt-1 flex items-end gap-2">
               <EmojiBar up onPick={(emoji) => setBlurb((value) => value + emoji)} />
               <FormatBar inputRef={blurbRef} value={blurb} onChange={setBlurb} />
+              <MentionSuggest inputRef={blurbRef} value={blurb} onChange={setBlurb} />
               <textarea ref={blurbRef} value={blurb} onChange={(e) => setBlurb(e.target.value)} rows={4} maxLength={1200} className={`${fieldClass} min-w-0 flex-1 py-2`} />
             </div>
             <span className="mt-1 block font-mono text-xs text-muted">{blurb.length}/1200 · без Premium лимит 400</span>

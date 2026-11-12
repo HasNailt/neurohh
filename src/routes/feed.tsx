@@ -6,6 +6,7 @@ import { PostCard } from "@/components/post-card";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
 import { EmojiBar } from "@/components/emoji-bar";
 import { FormatBar } from "@/components/rich-text";
+import { MentionSuggest } from "@/components/mentions";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { createPost, getMe, listFeed } from "@/lib/market/server";
@@ -73,6 +74,7 @@ function FeedPage() {
         <div className="flex items-end gap-2">
           <EmojiBar up onPick={(emoji) => setBody((value) => value + emoji)} />
           <FormatBar inputRef={bodyRef} value={body} onChange={setBody} />
+          <MentionSuggest inputRef={bodyRef} value={body} onChange={setBody} />
           <textarea
             ref={bodyRef}
             value={body}

@@ -6,6 +6,7 @@ import { PreviewImg } from "@/components/preview-img";
 import { Button, fieldClass, Frame, Kicker, StatusChip } from "@/components/ui-bits";
 import { EmojiBar } from "@/components/emoji-bar";
 import { FormatBar, RichText } from "@/components/rich-text";
+import { MentionSuggest } from "@/components/mentions";
 import { Nick } from "@/components/nick";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
@@ -43,6 +44,7 @@ function BidNoteBox({ onSave }: { onSave: (note: string) => Promise<void> }) {
       }}
     >
       <FormatBar inputRef={ref} value={value} onChange={setValue} />
+      <MentionSuggest inputRef={ref} value={value} onChange={setValue} />
       <input
         ref={ref}
         value={value}
@@ -103,6 +105,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
   const [comment, setComment] = useState("");
   const [reason, setReason] = useState("");
   const commentRef = useRef<HTMLInputElement>(null);
+  const bidNoteRef = useRef<HTMLInputElement>(null);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -161,7 +164,9 @@ function LotView({ lot }: { lot: ListingDetail }) {
             </div>
           ) : null}
           {mine && lot.privateDescription ? (
-            <p className="mt-3 border border-ink/15 bg-card px-3 py-2 text-sm text-muted">Для вас: {lot.privateDescription}</p>
+            <p className="mt-3 border border-ink/15 bg-card px-3 py-2 text-sm text-muted">
+              Для вас: <RichText text={lot.privateDescription} />
+            </p>
           ) : null}
           {lot.tags.length > 0 ? (
             <div className="mt-3 flex flex-wrap gap-1.5">
@@ -223,6 +228,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
             >
               <EmojiBar up onPick={(emoji) => setComment((value) => value + emoji)} />
               <FormatBar inputRef={commentRef} value={comment} onChange={setComment} />
+              <MentionSuggest inputRef={commentRef} value={comment} onChange={setComment} />
               <input ref={commentRef} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий" className={`${fieldClass} min-w-0 flex-1`} />
               <Button type="submit" variant="line" disabled={busy}>
                 ок
@@ -379,7 +385,9 @@ function LotView({ lot }: { lot: ListingDetail }) {
                   placeholder={`от ${formatPrice(floor, lot.currency)}`}
                   className={`${fieldClass} tabular-nums`}
                 />
+                <MentionSuggest inputRef={bidNoteRef} value={bidNote} onChange={setBidNote} />
                 <input
+                  ref={bidNoteRef}
                   value={bidNote}
                   onChange={(e) => setBidNote(e.target.value)}
                   maxLength={200}

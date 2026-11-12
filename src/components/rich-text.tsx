@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { MentionLink, useKnownHandles } from "@/components/mentions";
+import { splitMentions } from "@/lib/market/shared";
 
 const RULES: { open: string; close: string; style: CSSProperties }[] = [
   { open: "~~", close: "~~", style: { textDecoration: "line-through" } },
@@ -8,14 +10,26 @@ const RULES: { open: string; close: string; style: CSSProperties }[] = [
   { open: "*", close: "*", style: { fontStyle: "italic" } },
 ];
 
-function parseRich(text: string, keyBase: string): ReactNode[] {
+function parseRich(text: string, keyBase: string, known: Set<string>): ReactNode[] {
   const nodes: ReactNode[] = [];
   let buf = "";
   let i = 0;
   let n = 0;
   const flush = () => {
     if (!buf) return;
-    nodes.push(buf);
+    for (const part of splitMentions(buf)) {
+      if (part.kind === "text") {
+        if (part.text) nodes.push(part.text);
+        continue;
+      }
+      if (known.has(part.handle)) {
+        const key = `${keyBase}-m${n}`;
+        n += 1;
+        nodes.push(<MentionLink key={key} handle={part.handle} raw={part.raw} />);
+      } else {
+        nodes.push(`@${part.raw}`);
+      }
+    }
     buf = "";
   };
   while (i < text.length) {
@@ -38,7 +52,7 @@ function parseRich(text: string, keyBase: string): ReactNode[] {
     n += 1;
     nodes.push(
       <span key={key} style={rule.style}>
-        {parseRich(inner, key)}
+        {parseRich(inner, key, known)}
       </span>,
     );
     i += closeAt + rule.close.length;
@@ -48,7 +62,8 @@ function parseRich(text: string, keyBase: string): ReactNode[] {
 }
 
 export function RichText({ text }: { text: string }) {
-  return <>{parseRich(text, "t")}</>;
+  const known = useKnownHandles(text);
+  return <>{parseRich(text, "t", known)}</>;
 }
 
 export function wrapSelection(value: string, start: number, end: number, open: string, close: string) {

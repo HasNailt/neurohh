@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { TagField } from "@/components/tag-field";
 import { EmojiBar } from "@/components/emoji-bar";
 import { FormatBar } from "@/components/rich-text";
+import { MentionSuggest } from "@/components/mentions";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
@@ -62,6 +63,7 @@ function SellForm() {
 
   const titleRef = useRef<HTMLInputElement>(null);
   const blurbRef = useRef<HTMLTextAreaElement>(null);
+  const rulesRef = useRef<HTMLTextAreaElement>(null);
   const imagesRef = useRef(images);
   imagesRef.current = images;
   useEffect(() => {
@@ -237,6 +239,7 @@ function SellForm() {
         Название
         <div className="mt-1 flex items-end gap-2">
           <FormatBar inputRef={titleRef} value={title} onChange={setTitle} />
+          <MentionSuggest inputRef={titleRef} value={title} onChange={setTitle} />
           <input ref={titleRef} value={title} onChange={(e) => setTitle(e.target.value)} required minLength={3} maxLength={80} className={`${fieldClass} min-w-0 flex-1`} />
         </div>
       </label>
@@ -245,6 +248,7 @@ function SellForm() {
         <div className="mt-1 flex items-end gap-2">
           <EmojiBar up onPick={(emoji) => setBlurb((value) => value + emoji)} />
           <FormatBar inputRef={blurbRef} value={blurb} onChange={setBlurb} />
+          <MentionSuggest inputRef={blurbRef} value={blurb} onChange={setBlurb} />
           <textarea ref={blurbRef} value={blurb} onChange={(e) => setBlurb(e.target.value)} maxLength={blurbCap} rows={3} className={`${fieldClass} min-w-0 flex-1 py-2`} />
         </div>
         <span className="mt-1 block font-mono text-xs text-muted">{blurb.length}/{blurbCap}</span>
@@ -299,7 +303,9 @@ function SellForm() {
           </fieldset>
           <label className="block text-sm">
             Правила
+            <MentionSuggest inputRef={rulesRef} value={rules} onChange={setRules} />
             <textarea
+              ref={rulesRef}
               value={rules}
               onChange={(e) => setRules(e.target.value)}
               rows={4}
@@ -470,6 +476,7 @@ function SlotTitle({ value, onChange }: { value: string; onChange: (value: strin
       Название
       <div className="mt-1 flex items-end gap-2">
         <FormatBar inputRef={ref} value={value} onChange={onChange} />
+        <MentionSuggest inputRef={ref} value={value} onChange={onChange} />
         <input
           ref={ref}
           value={value}

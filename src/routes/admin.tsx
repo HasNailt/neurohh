@@ -1,7 +1,8 @@
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button, fieldClass, Kicker } from "@/components/ui-bits";
+import { MentionSuggest } from "@/components/mentions";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { adminModerate, adminOverview, listStaffNews, publishNews, setNewsPublished } from "@/lib/market/server";
@@ -114,6 +115,8 @@ function NewsDesk() {
   const [body, setBody] = useState("");
   const [images, setImages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const titleRef = useRef<HTMLInputElement>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
 
   function reload() {
     void listStaffNews()
@@ -150,11 +153,13 @@ function NewsDesk() {
       >
         <label className="block text-sm">
           Заголовок
-          <input value={title} onChange={(e) => setTitle(e.target.value)} required minLength={3} maxLength={120} className={`${fieldClass} mt-1`} />
+          <MentionSuggest inputRef={titleRef} value={title} onChange={setTitle} />
+          <input ref={titleRef} value={title} onChange={(e) => setTitle(e.target.value)} required minLength={3} maxLength={120} className={`${fieldClass} mt-1`} />
         </label>
         <label className="block text-sm">
           Текст
-          <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} maxLength={4000} className={`${fieldClass} mt-1 py-2`} />
+          <MentionSuggest inputRef={bodyRef} value={body} onChange={setBody} />
+          <textarea ref={bodyRef} value={body} onChange={(e) => setBody(e.target.value)} rows={4} maxLength={4000} className={`${fieldClass} mt-1 py-2`} />
         </label>
         <label className="block text-sm">
           Картинки, до 4

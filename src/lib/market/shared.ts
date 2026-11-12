@@ -184,6 +184,53 @@ export function cleanHandle(raw: string): string | null {
   return handle;
 }
 
+const MENTION_RE = /(^|[^\p{L}\p{N}_])@([\p{L}\p{N}_]{3,20})/gu;
+
+/** Unique existing-shaped handles in text, at most 8. Unknown names are ignored by the caller. */
+export function mentionHandles(text: string): string[] {
+  const found: string[] = [];
+  const seen = new Set<string>();
+  const re = new RegExp(MENTION_RE.source, "gu");
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) {
+    const handle = cleanHandle(match[2]);
+    if (!handle || seen.has(handle)) continue;
+    seen.add(handle);
+    found.push(handle);
+    if (found.length >= 8) break;
+  }
+  return found;
+}
+
+/** The @token the caret is inside, if any. `start` is the index of `@`. */
+export function mentionAtCaret(value: string, caret: number): { start: number; q: string } | null {
+  const upto = value.slice(0, Math.max(0, Math.min(caret, value.length)));
+  const match = upto.match(/(^|[^\p{L}\p{N}_])@([\p{L}\p{N}_]{0,20})$/u);
+  if (!match) return null;
+  const q = match[2];
+  return { start: upto.length - q.length - 1, q };
+}
+
+export type MentionPart = { kind: "text"; text: string } | { kind: "mention"; raw: string; handle: string };
+
+/** Split plain text into words and @handles. The handle is lowercased; raw keeps what was typed. */
+export function splitMentions(text: string): MentionPart[] {
+  const parts: MentionPart[] = [];
+  const re = new RegExp(MENTION_RE.source, "gu");
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) {
+    const at = match.index + match[1].length;
+    const handle = cleanHandle(match[2]);
+    if (at > last) parts.push({ kind: "text", text: text.slice(last, at) });
+    if (handle) parts.push({ kind: "mention", raw: match[2], handle });
+    else parts.push({ kind: "text", text: text.slice(at, match.index + match[0].length) });
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) parts.push({ kind: "text", text: text.slice(last) });
+  return parts;
+}
+
 export function slugHandle(raw: string): string | null {
   const slug = raw
     .trim()

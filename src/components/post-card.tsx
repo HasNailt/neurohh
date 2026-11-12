@@ -4,6 +4,7 @@ import { ImageZoom } from "@/components/image-zoom";
 import { Nick, PremiumBadge } from "@/components/nick";
 import { EmojiBar } from "@/components/emoji-bar";
 import { FormatBar, RichText } from "@/components/rich-text";
+import { MentionSuggest } from "@/components/mentions";
 import { Button, fieldClass } from "@/components/ui-bits";
 import { addPostComment, deletePost, setPostPinned } from "@/lib/market/server";
 import { errText, formatWhen, type AuthorPost, type PostComment } from "@/lib/market/shared";
@@ -122,6 +123,7 @@ export function PostCard({
       >
         <EmojiBar up onPick={(emoji) => setBody((value) => value + emoji)} />
         <FormatBar inputRef={bodyRef} value={body} onChange={setBody} />
+        <MentionSuggest inputRef={bodyRef} value={body} onChange={setBody} />
         <input ref={bodyRef} value={body} onChange={(e) => setBody(e.target.value)} placeholder={replyTo ? "Ответ" : "Комментарий"} className={`${fieldClass} min-w-0 flex-1`} />
         <Button type="submit" variant="line" disabled={busy}>
           ок
