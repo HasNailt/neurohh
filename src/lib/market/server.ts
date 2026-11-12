@@ -4096,19 +4096,19 @@ export const deletePost = createServerFn({ method: "POST" })
   });
 
 async function loadNews(sql: Sql, staff: boolean): Promise<NewsPost[]> {
-  const posts = await sql<{
+  const posts = await sql.query<{
     id: string;
     title: string;
     body: string;
     created_at: unknown;
     published: boolean;
-  }>`
-    select id, title, body, created_at, published
-    from news_posts
-    where ${staff} or published
-    order by created_at desc
-    limit 12
-  `;
+  }>(
+    `select id, title, body, created_at, published
+     from news_posts
+     ${staff ? "" : "where published"}
+     order by created_at desc
+     limit 20`,
+  );
   if (posts.length === 0) return [];
   const ids = posts.map((post) => post.id);
   const images = await sql<{ id: string; news_id: string; card_b64: string }>`
@@ -4122,7 +4122,7 @@ async function loadNews(sql: Sql, staff: boolean): Promise<NewsPost[]> {
     title: post.title,
     body: post.body,
     createdAt: iso(post.created_at),
-    published: Boolean(post.published),
+    published: post.published === true,
     images: images
       .filter((image) => image.news_id === post.id && image.card_b64.length > 32 && image.card_b64.length < 300_000)
       .map((image) => ({ id: image.id, src: `data:image/jpeg;base64,${image.card_b64}` })),
@@ -4138,7 +4138,8 @@ export const listStaffNews = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }): Promise<NewsPost[]> => {
     const sql = await getSql();
-    await requireStaff(sql, context.userId);
+    const me = await requireStaff(sql, context.userId);
+    if (me.role !== "admin") fail("Новости сайта публикует администратор");
     return loadNews(sql, true);
   });
 
@@ -4161,6 +4162,7 @@ export const publishNews = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const sql = await getSql();
     const me = await requireStaff(sql, context.userId);
+    if (me.role !== "admin") fail("Новости сайта публикует администратор");
     const ready: string[] = [];
     for (const raw of data.images) {
       if (raw.length < 32 || raw.length > 280_000) fail("Картинка новости слишком большая");
@@ -4193,7 +4195,8 @@ export const setNewsPublished = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }) => {
     const sql = await getSql();
-    await requireStaff(sql, context.userId);
+    const me = await requireStaff(sql, context.userId);
+    if (me.role !== "admin") fail("Новости сайта публикует администратор");
     const updated = await sql`
       update news_posts set published = ${data.published} where id = ${data.id} returning id
     `;

@@ -127,9 +127,9 @@ function NewsDesk() {
 
   return (
     <section className="space-y-3 border border-ink/20 bg-card p-4">
-      <h2 className="font-display text-2xl">Новости на главной</h2>
+      <h2 className="font-display text-2xl">Новости сайта</h2>
       <p className="max-w-prose text-sm text-muted">
-        Пока ничего не опубликовано, блока на главной нет. Снятая новость сразу пропадает.
+        Это объявления площадки, не лоты и не посты профиля. Пока нет ни одной опубликованной новости, блока на главной нет. На ленте виден только заголовок — текст и картинки открываются по нажатию.
       </p>
       <form
         className="grid gap-3"
@@ -141,7 +141,7 @@ function NewsDesk() {
               setTitle("");
               setBody("");
               setImages([]);
-              toast.success("Новость на главной");
+              toast.success("Новость опубликована");
               reload();
             })
             .catch((err) => toast.error(errText(err)))
@@ -175,7 +175,22 @@ function NewsDesk() {
             }}
           />
         </label>
-        {images.length > 0 ? <p className="font-mono text-xs text-muted">Картинок: {images.length}</p> : null}
+        {images.length > 0 ? (
+          <div className="grid grid-cols-4 gap-2">
+            {images.map((src, index) => (
+              <div key={`${index}-${src.slice(0, 24)}`} className="border border-ink/15">
+                <img src={`data:image/jpeg;base64,${src}`} alt="" className="aspect-[4/3] w-full object-cover" />
+                <button
+                  type="button"
+                  className="w-full px-1 py-1 text-left font-mono text-[10px] text-muted"
+                  onClick={() => setImages((current) => current.filter((_, i) => i !== index))}
+                >
+                  убрать
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <Button type="submit" variant="wine" disabled={busy}>
           Опубликовать
         </Button>
@@ -365,7 +380,7 @@ function AdminPage() {
           </p>
         )}
       </div>
-      <NewsDesk />
+      {admin ? <NewsDesk /> : null}
       {admin ? (
         <Fold title="Инвайт-коды">
           <InvitePanel data={data} act={act} />

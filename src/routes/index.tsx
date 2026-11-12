@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
 import { ListingCardView } from "@/components/listing-card";
 import { listListings, listNews, listPopularTags, listRecommendations, searchPeople } from "@/lib/market/server";
-import { GRID_PAGE, formatWhen, parseFeedQuery, type FeedQuery, type FeedResult, type PersonHit } from "@/lib/market/shared";
+import { GRID_PAGE, formatWhen, parseFeedQuery, type FeedQuery, type FeedResult, type NewsPost, type PersonHit } from "@/lib/market/shared";
 
 const emptyFeed: FeedResult = { items: [], total: 0, hasMore: false };
 
@@ -17,7 +18,10 @@ export const Route = createFileRoute("/")({
       listPopularTags().catch(() => []),
       home ? listRecommendations().catch(() => []) : Promise.resolve([]),
       peopleQuery ? searchPeople({ data: peopleQuery }).catch(() => []) : Promise.resolve([] as PersonHit[]),
-      listNews().catch(() => []),
+      listNews().catch((err) => {
+        console.error("[news] list failed", err);
+        return [] as NewsPost[];
+      }),
     ]);
     return [feed, tags, recommended, people, news] as const;
   },
@@ -38,27 +42,7 @@ function Home() {
 
   return (
     <div className="space-y-8">
-      {news.length > 0 ? (
-        <section className="space-y-3">
-          <h2 className="font-display text-3xl leading-none">Новости</h2>
-          <div className="grid gap-3 lg:grid-cols-2">
-            {news.map((item) => (
-              <article key={item.id} className="border border-ink/20 bg-card p-4">
-                <p className="font-mono text-[11px] text-muted">{formatWhen(item.createdAt)}</p>
-                <h3 className="mt-1 font-display text-2xl leading-none">{item.title}</h3>
-                {item.body ? <p className="mt-2 whitespace-pre-wrap text-sm">{item.body}</p> : null}
-                {item.images.length > 0 ? (
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    {item.images.map((image) => (
-                      <img key={image.id} src={image.src} alt="" className="max-h-64 w-full object-cover" />
-                    ))}
-                  </div>
-                ) : null}
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : null}
+      <NewsBlock items={news} />
       <FilterBar search={search} tags={tags} showSort={!home && search.kind !== "fixed"} />
       {home ? (
         <section className="space-y-3">
@@ -128,6 +112,47 @@ function Home() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function NewsBlock({ items }: { items: NewsPost[] }) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  if (items.length === 0) return null;
+  return (
+    <section className="space-y-3">
+      <h2 className="font-display text-3xl leading-none">Новости</h2>
+      <ul className="border border-ink/20 bg-card">
+        {items.map((item) => {
+          const open = openId === item.id;
+          return (
+            <li key={item.id} className="border-b border-ink/15 last:border-b-0">
+              <button
+                type="button"
+                className="flex min-h-11 w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                aria-expanded={open}
+                onClick={() => setOpenId(open ? null : item.id)}
+              >
+                <span className="font-display text-2xl leading-none">{item.title}</span>
+                <span className="shrink-0 font-mono text-xs text-muted">{open ? "свернуть" : "открыть"}</span>
+              </button>
+              {open ? (
+                <div className="space-y-3 px-4 pb-4">
+                  <p className="font-mono text-[11px] text-muted">{formatWhen(item.createdAt)}</p>
+                  {item.body ? <p className="whitespace-pre-wrap text-sm">{item.body}</p> : null}
+                  {item.images.length > 0 ? (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {item.images.map((image) => (
+                        <img key={image.id} src={image.src} alt="" className="max-h-80 w-full object-cover" />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
