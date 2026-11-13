@@ -2909,9 +2909,9 @@ export const addProfileComment = createServerFn({ method: "POST" })
       "comment",
       "Новый комментарий",
       `@${me.handle}: ${data.body.slice(0, 140)}`,
-      `/u/${target[0].handle}`,
+      `/u/${target[0].handle}#comment-${commentId}`,
     );
-    await mentionPeople(sql, context.userId, me.handle, `profile-comment:${commentId}`, `/u/${target[0].handle}`, [data.body]);
+    await mentionPeople(sql, context.userId, me.handle, `profile-comment:${commentId}`, `/u/${target[0].handle}#comment-${commentId}`, [data.body]);
     return { ok: true };
   });
 
@@ -3562,10 +3562,10 @@ export const addListingComment = createServerFn({ method: "POST" })
         "comment",
         "Комментарий к лоту",
         `${profile.handle}: ${data.body.slice(0, 140)}`,
-        `/lot/${data.listingId}`,
+        `/lot/${data.listingId}#comment-${commentId}`,
       );
     }
-    await mentionPeople(sql, context.userId, profile.handle, `lot-comment:${commentId}`, `/lot/${data.listingId}`, [data.body]);
+    await mentionPeople(sql, context.userId, profile.handle, `lot-comment:${commentId}`, `/lot/${data.listingId}#comment-${commentId}`, [data.body]);
     return { ok: true };
   });
 
@@ -4244,7 +4244,7 @@ export const createPost = createServerFn({ method: "POST" })
         values (${crypto.randomUUID()}, ${id}, ${ready[sort]!.toString("base64")}, ${sort})
       `;
     }
-    await mentionPeople(sql, context.userId, me.handle, `post:${id}`, `/u/${me.handle}`, [data.body]);
+    await mentionPeople(sql, context.userId, me.handle, `post:${id}`, `/u/${me.handle}#post-${id}`, [data.body]);
     return { id };
   });
 
@@ -4290,10 +4290,10 @@ export const addPostComment = createServerFn({ method: "POST" })
         "comment",
         "Комментарий к посту",
         `${me.handle}: ${data.body.slice(0, 140)}`,
-        `/u/${post[0].handle}`,
+        `/u/${post[0].handle}#comment-${commentId}`,
       );
     }
-    await mentionPeople(sql, context.userId, me.handle, `post-comment:${commentId}`, `/u/${post[0].handle}`, [data.body]);
+    await mentionPeople(sql, context.userId, me.handle, `post-comment:${commentId}`, `/u/${post[0].handle}#comment-${commentId}`, [data.body]);
     return { ok: true };
   });
 

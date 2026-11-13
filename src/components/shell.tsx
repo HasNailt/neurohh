@@ -206,16 +206,15 @@ function SignalsButton({ unread, onRead }: { unread: number; onRead: () => void 
                     type="button"
                     className="min-h-9 border border-ink/25 px-3 font-mono text-xs"
                     onClick={() => {
+                      setItems((current) => current?.map((item) => ({ ...item, read: true })) ?? current);
+                      onRead();
                       void markNotificationsRead()
-                        .then(() => {
-                          onRead();
-                          return listNotifications();
-                        })
+                        .then(() => listNotifications())
                         .then(setItems)
                         .catch((err) => toast.error(errText(err)));
                     }}
                   >
-                    Прочитать все
+                    Пометить все прочитанными
                   </button>
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto">

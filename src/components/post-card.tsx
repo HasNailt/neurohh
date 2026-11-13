@@ -41,7 +41,10 @@ export function PostCard({
   }
 
   return (
-    <article className={post.authorPremium ? "space-y-4 border border-[#e6c36a] bg-card p-5 sm:p-6" : "space-y-4 border border-ink/20 bg-card p-5 sm:p-6"}>
+    <article
+      id={`post-${post.id}`}
+      className={post.authorPremium ? "scroll-mt-24 space-y-4 border border-[#e6c36a] bg-card p-5 sm:p-6" : "scroll-mt-24 space-y-4 border border-ink/20 bg-card p-5 sm:p-6"}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-mono text-xs text-muted">
           <Nick handle={post.authorHandle} premium={post.authorPremium} />
@@ -135,7 +138,7 @@ export function PostCard({
 
 function CommentLine({ comment, onReply }: { comment: PostComment; onReply: () => void }) {
   return (
-    <div>
+    <div id={`comment-${comment.id}`} className="scroll-mt-24">
       <p className="font-mono text-xs text-muted">
         <Nick handle={comment.authorHandle} premium={comment.authorPremium} />
         {" · "}

@@ -123,6 +123,16 @@ function LotView({ lot }: { lot: ListingDetail }) {
     setLikes(lot.likeCount);
   }, [lot.id, lot.entered, lot.liked, lot.likeCount]);
 
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash.startsWith("#comment-")) return;
+    const id = decodeURIComponent(hash.slice(1));
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ block: "center" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [lot.id, lot.comments.length]);
+
   async function run(job: () => Promise<void>) {
     setBusy(true);
     try {
@@ -203,7 +213,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
           <ul className="space-y-2">
             {lot.comments.length === 0 ? <li className="text-sm text-muted">Комментариев пока нет.</li> : null}
             {lot.comments.map((item) => (
-              <li key={item.id} className="border border-ink/15 bg-card px-3 py-2">
+              <li id={`comment-${item.id}`} key={item.id} className="scroll-mt-24 border border-ink/15 bg-card px-3 py-2">
                 <p className="font-mono text-xs text-muted">
                   <Nick handle={item.authorHandle} premium={item.authorPremium} />
                   {" · "}

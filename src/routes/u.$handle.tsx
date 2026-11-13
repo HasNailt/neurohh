@@ -77,9 +77,22 @@ function ProfilePage() {
     setTotal(loaded.lotTotal);
     setPage(1);
     setLotState("open");
-    setTab(loaded.showcase === "posts" ? "posts" : loaded.showcase === "lotteries" ? "lotteries" : "lots");
+    const hash = typeof window !== "undefined" ? window.location.hash : "";
+    const openPost = hash.startsWith("#post-") || hash.startsWith("#comment-");
+    setTab(openPost ? "posts" : loaded.showcase === "posts" ? "posts" : loaded.showcase === "lotteries" ? "lotteries" : "lots");
     setShelf(loaded.showcase === "lotteries" ? "lotteries" : "lots");
   }, [loaded]);
+
+  useEffect(() => {
+    if (!loaded || tab !== "posts") return;
+    const hash = window.location.hash;
+    if (!hash.startsWith("#post-") && !hash.startsWith("#comment-")) return;
+    const id = decodeURIComponent(hash.slice(1));
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ block: "center" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [tab, loaded]);
 
   if (!loaded) {
     return <h1 className="font-display text-4xl">Такого профиля нет</h1>;
