@@ -83,6 +83,11 @@ export function ListingCardView({
                   {formatPrice(price, item.currency)}
                 </p>
               ) : null}
+              {item.kind === "lottery" ? (
+                <p className={dense ? "mt-1 truncate font-display text-base tabular-nums leading-none" : "mt-1 truncate font-display text-lg tabular-nums leading-none"}>
+                  {item.winnerCount} приз. · {item.entryCount} участ.
+                </p>
+              ) : null}
               {item.kind === "auction" && item.bidCount > 0 ? (
                 <p className="font-mono text-[11px] text-muted">{item.bidCount} став.</p>
               ) : null}
@@ -94,19 +99,6 @@ export function ListingCardView({
             </div>
           </div>
         </Frame>
-        {item.kind === "lottery" ? (
-          <div className="mt-2 space-y-1">
-            <p className="font-mono text-xs text-muted">{item.winnerCount} приз.</p>
-            <p className={dense ? "font-display text-2xl leading-none" : "font-display text-3xl leading-none"}>
-              {item.entryCount} участ.
-            </p>
-            <ul className={dense ? "space-y-0.5 text-base leading-tight" : "space-y-1 text-xl leading-snug"}>
-              {item.requireFollow ? <li>Условие: подписка на автора</li> : null}
-              {item.requireLike ? <li>Условие: лайк этой записи</li> : null}
-              {item.requireComment ? <li>Условие: комментарий под записью</li> : null}
-            </ul>
-          </div>
-        ) : null}
       </Link>
     </article>
   );
