@@ -136,9 +136,12 @@ function LotView({ lot }: { lot: ListingDetail }) {
 
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
-      <div className="space-y-6">
-        <Gallery lot={lot} />
-        <div className="border border-ink/20 bg-card p-4">
+      <div className={lot.kind === "lottery" ? "space-y-6 max-lg:contents" : "space-y-6"}>
+        <div className={lot.kind === "lottery" ? "order-1" : undefined}>
+          <Gallery lot={lot} />
+        </div>
+        <div className={lot.kind === "lottery" ? "order-3 space-y-6" : "space-y-6"}>
+          <div className="border border-ink/20 bg-card p-4">
           <Kicker>{lot.kind === "auction" ? "auction" : lot.kind === "lottery" ? "lottery" : "fixed"}</Kicker>
           <h1 className="mt-2 font-display text-2xl leading-tight">
             <RichText text={lot.title} />
@@ -147,6 +150,17 @@ function LotView({ lot }: { lot: ListingDetail }) {
           <p className="mt-3 whitespace-pre-wrap text-base text-ink/90">
             {lot.blurb ? <RichText text={lot.blurb} /> : "Без короткого описания."}
           </p>
+          {lot.kind === "lottery" ? (
+            <div className="mt-3 space-y-1 text-lg leading-snug">
+              <p>Условия:</p>
+              <ul className="list-disc space-y-1 pl-6">
+                {lot.requireLike ? <li>Лайк на запись</li> : null}
+                {lot.requireFollow ? <li>Подписка на автора</li> : null}
+                {lot.requireComment ? <li>Комментарий под записью</li> : null}
+                {!lot.requireFollow && !lot.requireLike && !lot.requireComment ? <li>Дополнительных условий нет</li> : null}
+              </ul>
+            </div>
+          ) : null}
           <p className="mt-3 text-base text-ink/90">
             <Nick handle={lot.sellerHandle} premium={lot.sellerPremium} />
             <span className="text-muted">
@@ -240,41 +254,44 @@ function LotView({ lot }: { lot: ListingDetail }) {
             </Link>
           )}
         </section>
+        </div>
       </div>
-      <aside className="space-y-4">
+      <aside className={lot.kind === "lottery" ? "order-2 space-y-4 lg:order-none" : "space-y-4"}>
         <Frame>
           <div className="space-y-3 bg-card p-4">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <StatusChip kind="listing" status={lot.status} />
-              <button
-                type="button"
-                className="inline-flex min-h-11 items-center gap-1.5 border border-ink/25 px-3 font-mono text-lg leading-none"
-                onClick={() => {
-                  if (!user) {
-                    toast.error("Войдите, чтобы отметить лот");
-                    return;
-                  }
-                  void run(async () => {
-                    const res = await toggleLike({ data: lot.id });
-                    setLiked(res.liked);
-                    setLikes((n) => n + (res.liked ? 1 : -1));
-                  });
-                }}
-              >
-                {liked ? "♥" : "♡"} {Math.max(0, likes)}
-              </button>
+              <div className="ml-auto flex items-center gap-2">
+                {lot.kind === "lottery" && lot.endsAt && live ? (
+                  <Countdown
+                    endsAt={lot.endsAt}
+                    onEnd={() => void router.invalidate()}
+                    className="font-mono text-sm tabular-nums whitespace-nowrap"
+                  />
+                ) : null}
+                <button
+                  type="button"
+                  className="inline-flex min-h-11 items-center gap-1.5 border border-ink/25 px-3 font-mono text-lg leading-none"
+                  onClick={() => {
+                    if (!user) {
+                      toast.error("Войдите, чтобы отметить лот");
+                      return;
+                    }
+                    void run(async () => {
+                      const res = await toggleLike({ data: lot.id });
+                      setLiked(res.liked);
+                      setLikes((n) => n + (res.liked ? 1 : -1));
+                    });
+                  }}
+                >
+                  {liked ? "♥" : "♡"} {Math.max(0, likes)}
+                </button>
+              </div>
             </div>
             {lot.kind === "lottery" ? (
               <>
                 <p className="font-display text-4xl leading-none">{lot.winnerCount} {prizeWord(lot.winnerCount)}</p>
-                <p className="font-display text-3xl leading-none">{lot.entryCount} участников</p>
-                <ul className="space-y-1 text-xl leading-snug">
-                  {lot.requireFollow ? <li>Условие: подписка на автора</li> : null}
-                  {lot.requireLike ? <li>Условие: лайк этой записи</li> : null}
-                  {lot.requireComment ? <li>Условие: комментарий под записью</li> : null}
-                  {!lot.requireFollow && !lot.requireLike && !lot.requireComment ? <li>Дополнительных условий нет</li> : null}
-                </ul>
-                {lot.endsAt && live ? <Countdown endsAt={lot.endsAt} onEnd={() => void router.invalidate()} /> : null}
+                <p className="font-display text-lg leading-none">{lot.entryCount} участников</p>
                 {live && !mine ? (
                   user ? (
                     entered ? (
@@ -701,7 +718,7 @@ function prizeWord(n: number): string {
   return "призов";
 }
 
-function Countdown({ endsAt, onEnd }: { endsAt: string; onEnd?: () => void }) {
+function Countdown({ endsAt, onEnd, className }: { endsAt: string; onEnd?: () => void; className?: string }) {
   const [text, setText] = useState("···");
   const ended = useRef(false);
   const onEndRef = useRef(onEnd);
@@ -729,5 +746,5 @@ function Countdown({ endsAt, onEnd }: { endsAt: string; onEnd?: () => void }) {
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
   }, [endsAt]);
-  return <p className="font-mono text-sm tabular-nums">до конца {text}</p>;
+  return <p className={className ?? "font-mono text-sm tabular-nums"}>до конца {text}</p>;
 }
