@@ -571,6 +571,9 @@ const CARD_SQL = `
   l.id, l.title, l.kind, l.price, l.buy_now, l.current_bid, l.bid_count, l.bid_step, l.currency,
   l.ends_at, l.status, l.seller_id, l.winner_id, l.pinned,
   coalesce(l.winner_count, 1) as winner_count,
+  coalesce(l.require_follow, false) as require_follow,
+  coalesce(l.require_like, false) as require_like,
+  coalesce(l.require_comment, false) as require_comment,
   (select count(*)::int from lottery_entries e where e.listing_id = l.id and e.removed_at is null) as entry_count,
   (select count(*)::int from listing_likes lk where lk.listing_id = l.id) as like_count,
   coalesce(p.handle, '') as seller_handle, coalesce(p.display_name, '') as seller_name,
@@ -640,6 +643,9 @@ type CardRow = {
   buyer_handles: string | null;
   winner_count?: number | null;
   entry_count?: number | null;
+  require_follow?: boolean | null;
+  require_like?: boolean | null;
+  require_comment?: boolean | null;
 };
 
 function inlineImage(value: unknown): string | null {
@@ -679,6 +685,9 @@ function mapCard(row: CardRow): ListingCard {
     buyerHandles: row.buyer_handles ? row.buyer_handles : null,
     winnerCount: Math.max(1, num(row.winner_count ?? 1)),
     entryCount: num(row.entry_count),
+    requireFollow: Boolean(row.require_follow),
+    requireLike: Boolean(row.require_like),
+    requireComment: Boolean(row.require_comment),
   };
 }
 
@@ -3216,10 +3225,20 @@ export const listRecommendations = createServerFn({ method: "GET" }).handler(asy
      left join profiles p on p.user_id = l.seller_id
      where l.status = 'active'
        and (
-         l.kind = 'auction'
+         (
+           l.kind in ('auction', 'lottery')
+           and (
+             l.created_at > now() - interval '48 hours'
+             or (
+               l.ends_at is not null
+               and l.ends_at > now()
+               and l.ends_at < now() + interval '24 hours'
+             )
+           )
+         )
          or (l.kind = 'fixed' and l.created_at > now() - interval '48 hours')
        )
-     order by (l.kind = 'auction') desc,
+     order by (l.kind in ('auction', 'lottery')) desc,
        (select count(*)::int from listing_likes lk where lk.listing_id = l.id) desc,
        (l.boosted_until is not null and l.boosted_until > now()) desc,
        l.created_at desc

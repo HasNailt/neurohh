@@ -267,10 +267,8 @@ function LotView({ lot }: { lot: ListingDetail }) {
             {lot.kind === "lottery" ? (
               <>
                 <p className="font-display text-4xl leading-none">{lot.winnerCount} {prizeWord(lot.winnerCount)}</p>
-                <p className="font-mono text-xs text-muted">
-                  {lot.entryCount} участников · {Math.max(0, likes)} лайков
-                </p>
-                <ul className="space-y-1 font-mono text-xs text-muted">
+                <p className="font-display text-3xl leading-none">{lot.entryCount} участников</p>
+                <ul className="space-y-1 text-xl leading-snug">
                   {lot.requireFollow ? <li>Условие: подписка на автора</li> : null}
                   {lot.requireLike ? <li>Условие: лайк этой записи</li> : null}
                   {lot.requireComment ? <li>Условие: комментарий под записью</li> : null}

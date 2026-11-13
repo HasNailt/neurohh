@@ -341,6 +341,9 @@ export type ListingCard = {
   buyerHandles: string | null;
   winnerCount: number;
   entryCount: number;
+  requireFollow: boolean;
+  requireLike: boolean;
+  requireComment: boolean;
 };
 
 export type FeedQuery = {
