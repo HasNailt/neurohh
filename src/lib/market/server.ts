@@ -989,7 +989,7 @@ export const getListing = createServerFn({ method: "GET" })
       files = await loadFiles(sql, id);
     }
     const card = mapCard(row);
-    const [likedCards, comments] = await Promise.all([
+    const [likedCards, comments, entries] = await Promise.all([
       markLiked(sql, userId, [card]),
       sql<{
         id: string;
@@ -1007,6 +1007,15 @@ export const getListing = createServerFn({ method: "GET" })
         where c.listing_id = ${id}
         order by c.created_at asc
         limit 80
+      `,
+      sql<{ user_id: string; handle: string; premium: boolean }>`
+        select e.user_id, p.handle,
+          (coalesce(p.premium_forever, false) or (p.premium_until is not null and p.premium_until > now())) as premium
+        from lottery_entries e
+        join profiles p on p.user_id = e.user_id
+        where e.listing_id = ${id} and e.removed_at is null
+        order by e.joined_at desc
+        limit 200
       `,
     ]);
     const bidRows: BidRow[] = bids.map((b) => ({
@@ -1060,6 +1069,11 @@ export const getListing = createServerFn({ method: "GET" })
       requireLike: Boolean(row.require_like),
       requireComment: Boolean(row.require_comment),
       entered: Boolean(entry[0] && entry[0].removed_at == null),
+      entries: entries.map((person) => ({
+        userId: person.user_id,
+        handle: person.handle,
+        premium: Boolean(person.premium),
+      })),
     };
   });
 
@@ -3475,6 +3489,46 @@ export const joinLottery = createServerFn({ method: "POST" })
         set removed_at = null, joined_at = now()
         where lottery_entries.won = false
     `;
+    return { ok: true };
+  });
+
+export const removeLotteryEntry = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    if (!input || typeof input !== "object") fail("Пусто");
+    const o = input as Record<string, unknown>;
+    if (typeof o.listingId !== "string" || !UUID_RE.test(o.listingId)) fail("Некорректный лот");
+    if (typeof o.userId !== "string" || o.userId.length < 1 || o.userId.length > 80) fail("Некорректный участник");
+    return { listingId: o.listingId, userId: o.userId };
+  })
+  .handler(async ({ data, context }) => {
+    const sql = await getSql();
+    const me = await ensureProfile(sql, context.userId);
+    assertLive(me);
+    const lot = await sql<{ seller_id: string; title: string; status: string; kind: string }>`
+      select seller_id, title, status, kind from listings where id = ${data.listingId}
+    `;
+    if (!lot[0] || lot[0].kind !== "lottery") fail("Это не лотерея");
+    if (lot[0].seller_id !== context.userId) fail("Снимать участников может только автор");
+    if (lot[0].status !== "active") fail("Лотерея уже завершена");
+    const removed = await sql`
+      update lottery_entries
+      set removed_at = now()
+      where listing_id = ${data.listingId}
+        and user_id = ${data.userId}
+        and removed_at is null
+        and won = false
+      returning user_id
+    `;
+    if (!removed[0]) fail("Участник уже не в списке");
+    await notify(
+      sql,
+      data.userId,
+      "system",
+      "Система",
+      `Вы сняты с лотереи «${lot[0].title}» автором`,
+      `/lot/${data.listingId}`,
+    );
     return { ok: true };
   });
 

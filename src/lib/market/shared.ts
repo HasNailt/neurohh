@@ -380,6 +380,12 @@ export type LotSlot = {
   buyerPremium: boolean;
 };
 
+export type LotteryEntry = {
+  userId: string;
+  handle: string;
+  premium: boolean;
+};
+
 export type ListingDetail = ListingCard & {
   blurb: string;
   winnerId: string | null;
@@ -400,6 +406,7 @@ export type ListingDetail = ListingCard & {
   requireLike: boolean;
   requireComment: boolean;
   entered: boolean;
+  entries: LotteryEntry[];
 };
 
 export type Profile = {

@@ -18,6 +18,7 @@ import {
   deleteListingComment,
   getListing,
   joinLottery,
+  removeLotteryEntry,
   placeBid,
   setBidNote as saveBidNote,
   reportListing,
@@ -294,9 +295,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
                 <p className="font-display text-lg leading-none">{lot.entryCount} участников</p>
                 {live && !mine ? (
                   user ? (
-                    entered ? (
-                      <p className="font-mono text-sm">Вы участвуете. Если снять подписку, лайк или комментарий из условий — участие снимется.</p>
-                    ) : (
+                    entered ? null : (
                       <Button
                         className="w-full"
                         disabled={busy}
@@ -521,6 +520,40 @@ function LotView({ lot }: { lot: ListingDetail }) {
             ) : null}
           </div>
         </Frame>
+        {lot.kind === "lottery" ? (
+          <Frame>
+            <div className="bg-card p-4">
+              <Kicker>участники</Kicker>
+              {lot.entries.length === 0 ? <p className="mt-3 text-sm text-muted">Пока никого нет.</p> : (
+              <ul className="mt-3 space-y-2 text-base">
+                {lot.entries.map((person) => (
+                  <li key={person.userId} className="flex items-center justify-between gap-3 border-b border-ink/10 pb-2 last:border-0">
+                    <Link to="/u/$handle" params={{ handle: person.handle }} className="min-w-0 truncate hover:text-ink">
+                      {person.premium ? <span className="star">★ </span> : null}
+                      <span className={person.premium ? "text-[#e6c36a]" : undefined}>@{person.handle}</span>
+                    </Link>
+                    {mine && live ? (
+                      <button
+                        type="button"
+                        className="shrink-0 font-mono text-xs text-wine hover:underline"
+                        onClick={() => {
+                          if (!window.confirm(`Снять @${person.handle} с участия?`)) return;
+                          void run(async () => {
+                            await removeLotteryEntry({ data: { listingId: lot.id, userId: person.userId } });
+                            toast.success("Участник снят");
+                          });
+                        }}
+                      >
+                        Снять с участия
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+              )}
+            </div>
+          </Frame>
+        ) : null}
         {lot.kind === "auction" && lot.bids.length > 0 ? (
           <Frame>
             <div className="bg-card p-4">
