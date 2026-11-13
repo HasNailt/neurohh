@@ -24,7 +24,7 @@ import {
   reportListing,
   toggleLike,
 } from "@/lib/market/server";
-import { engineLabel, errText, formatPrice, formatWhen, payLabel, type ListingDetail } from "@/lib/market/shared";
+import { engineLabel, errText, formatPrice, formatWhen, payLabel, type ListingDetail, type ProfileComment } from "@/lib/market/shared";
 
 function BidNoteBox({ onSave }: { onSave: (note: string) => Promise<void> }) {
   const [value, setValue] = useState("");
@@ -68,6 +68,50 @@ function snipeLabel(minutes: number): string {
   return `антиснайп ${minutes} мин`;
 }
 
+function commentRoot(comments: ProfileComment[], id: string): string {
+  const byId = new Map(comments.map((item) => [item.id, item]));
+  let current = byId.get(id);
+  const seen = new Set<string>();
+  while (current?.parentId && !seen.has(current.parentId)) {
+    seen.add(current.parentId);
+    const parent = byId.get(current.parentId);
+    if (!parent) return current.id;
+    current = parent;
+  }
+  return current?.id ?? id;
+}
+
+function ListingComment({
+  item,
+  replyTo,
+  canReply,
+  onReply,
+}: {
+  item: ProfileComment;
+  replyTo?: string | null;
+  canReply: boolean;
+  onReply: () => void;
+}) {
+  return (
+    <div id={`comment-${item.id}`} className="scroll-mt-24">
+      <p className="font-mono text-xs text-muted">
+        <Nick handle={item.authorHandle} premium={item.authorPremium} />
+        {replyTo ? <span> · в ответ на @{replyTo}</span> : null}
+        {" · "}
+        {formatWhen(item.createdAt)}
+      </p>
+      <p className="mt-1 whitespace-pre-wrap">
+        <RichText text={item.body} />
+      </p>
+      {canReply ? (
+        <button type="button" className="mt-1 font-mono text-xs text-muted underline" onClick={onReply}>
+          Ответить
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export const Route = createFileRoute("/lot/$id")({
   loader: ({ params }) => getListing({ data: params.id }),
   head: ({ loaderData }) => ({
@@ -104,6 +148,7 @@ function LotView({ lot }: { lot: ListingDetail }) {
   const [bid, setBid] = useState("");
   const [bidNote, setBidNote] = useState("");
   const [comment, setComment] = useState("");
+  const [replyTo, setReplyTo] = useState<{ id: string; handle: string } | null>(null);
   const [reason, setReason] = useState("");
   const commentRef = useRef<HTMLInputElement>(null);
   const bidNoteRef = useRef<HTMLInputElement>(null);
@@ -212,49 +257,94 @@ function LotView({ lot }: { lot: ListingDetail }) {
           <Kicker>notes</Kicker>
           <ul className="space-y-2">
             {lot.comments.length === 0 ? <li className="text-sm text-muted">Комментариев пока нет.</li> : null}
-            {lot.comments.map((item) => (
-              <li id={`comment-${item.id}`} key={item.id} className="scroll-mt-24 border border-ink/15 bg-card px-3 py-2">
-                <p className="font-mono text-xs text-muted">
-                  <Nick handle={item.authorHandle} premium={item.authorPremium} />
-                  {" · "}
-                  {formatWhen(item.createdAt)}
-                </p>
-                <p className="mt-1 whitespace-pre-wrap">
-                  <RichText text={item.body} />
-                </p>
-                {user && user.id === item.authorId ? (
-                  <button
-                    type="button"
-                    className="mt-1 font-mono text-xs text-muted underline"
-                    onClick={() =>
-                      void run(async () => {
-                        await deleteListingComment({ data: item.id });
-                      })
-                    }
-                  >
-                    удалить
-                  </button>
-                ) : null}
-              </li>
-            ))}
+            {lot.comments
+              .filter((item) => commentRoot(lot.comments, item.id) === item.id)
+              .map((item) => {
+                const replies = lot.comments.filter((other) => other.id !== item.id && commentRoot(lot.comments, other.id) === item.id);
+                return (
+                  <li key={item.id} className="border border-ink/15 bg-card px-3 py-2">
+                    <ListingComment
+                      item={item}
+                      canReply={Boolean(user)}
+                      onReply={() => {
+                        setReplyTo({ id: item.id, handle: item.authorHandle });
+                        commentRef.current?.focus();
+                      }}
+                    />
+                    {user && user.id === item.authorId ? (
+                      <button
+                        type="button"
+                        className="mt-1 font-mono text-xs text-muted underline"
+                        onClick={() =>
+                          void run(async () => {
+                            await deleteListingComment({ data: item.id });
+                          })
+                        }
+                      >
+                        удалить
+                      </button>
+                    ) : null}
+                    {replies.length > 0 ? (
+                      <ul className="mt-2 space-y-2 border-l border-ink/15 pl-3">
+                        {replies.map((reply) => (
+                          <li key={reply.id}>
+                            <ListingComment
+                              item={reply}
+                              replyTo={reply.parentHandle}
+                              canReply={Boolean(user)}
+                              onReply={() => {
+                                setReplyTo({ id: reply.id, handle: reply.authorHandle });
+                                commentRef.current?.focus();
+                              }}
+                            />
+                            {user && user.id === reply.authorId ? (
+                              <button
+                                type="button"
+                                className="mt-1 font-mono text-xs text-muted underline"
+                                onClick={() =>
+                                  void run(async () => {
+                                    await deleteListingComment({ data: reply.id });
+                                  })
+                                }
+                              >
+                                удалить
+                              </button>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </li>
+                );
+              })}
           </ul>
           {user ? (
             <form
-              className="flex items-center gap-2"
+              className="flex flex-wrap items-center gap-2"
               onSubmit={(event) => {
                 event.preventDefault();
                 const body = comment.trim();
                 if (!body) return;
+                const parentId = replyTo?.id ?? null;
                 void run(async () => {
-                  await addListingComment({ data: { listingId: lot.id, body } });
+                  await addListingComment({ data: { listingId: lot.id, body, parentId } });
                   setComment("");
+                  setReplyTo(null);
                 });
               }}
             >
+              {replyTo ? (
+                <p className="w-full font-mono text-xs text-muted">
+                  в ответ на @{replyTo.handle}
+                  <button type="button" className="ml-2 underline" onClick={() => setReplyTo(null)}>
+                    отмена
+                  </button>
+                </p>
+              ) : null}
               <EmojiBar up onPick={(emoji) => setComment((value) => value + emoji)} />
               <FormatBar inputRef={commentRef} value={comment} onChange={setComment} />
               <MentionSuggest inputRef={commentRef} value={comment} onChange={setComment} />
-              <input ref={commentRef} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий" className={`${fieldClass} min-w-0 flex-1`} />
+              <input ref={commentRef} value={comment} onChange={(e) => setComment(e.target.value)} placeholder={replyTo ? "Ответ" : "Комментарий"} className={`${fieldClass} min-w-0 flex-1`} />
               <Button type="submit" variant="line" disabled={busy}>
                 ок
               </Button>

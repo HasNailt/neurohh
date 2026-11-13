@@ -320,6 +320,7 @@ create table if not exists listing_comments (
   id text primary key,
   listing_id text not null references listings (id) on delete cascade,
   author_id text not null references profiles (user_id),
+  parent_id text references listing_comments (id) on delete cascade,
   body text not null,
   created_at timestamptz not null default now(),
   constraint listing_comments_body_chk check (char_length(body) between 1 and 500)

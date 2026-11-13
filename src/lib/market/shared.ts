@@ -438,6 +438,8 @@ export type Me = Profile & {
 
 export type ProfileComment = {
   id: string;
+  parentId: string | null;
+  parentHandle: string | null;
   body: string;
   createdAt: string;
   authorId: string;

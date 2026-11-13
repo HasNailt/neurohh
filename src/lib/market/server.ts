@@ -993,6 +993,8 @@ export const getListing = createServerFn({ method: "GET" })
       markLiked(sql, userId, [card]),
       sql<{
         id: string;
+        parent_id: string | null;
+        parent_handle: string | null;
         body: string;
         created_at: unknown;
         author_id: string;
@@ -1000,10 +1002,13 @@ export const getListing = createServerFn({ method: "GET" })
         author_name: string;
         author_premium: boolean;
       }>`
-        select c.id, c.body, c.created_at, c.author_id, a.handle as author_handle, a.display_name as author_name,
+        select c.id, c.parent_id, c.body, c.created_at, c.author_id, a.handle as author_handle, a.display_name as author_name,
+          pa.handle as parent_handle,
           (coalesce(a.premium_forever, false) or (a.premium_until is not null and a.premium_until > now())) as author_premium
         from listing_comments c
         join profiles a on a.user_id = c.author_id
+        left join listing_comments parent on parent.id = c.parent_id
+        left join profiles pa on pa.user_id = parent.author_id
         where c.listing_id = ${id}
         order by c.created_at asc
         limit 80
@@ -1054,6 +1059,8 @@ export const getListing = createServerFn({ method: "GET" })
       comments: comments.map(
         (c): ProfileComment => ({
           id: c.id,
+          parentId: c.parent_id,
+          parentHandle: c.parent_handle,
           body: c.body,
           createdAt: iso(c.created_at),
           authorId: c.author_id,
@@ -3538,9 +3545,10 @@ export const addListingComment = createServerFn({ method: "POST" })
     if (!input || typeof input !== "object") fail("Пустой комментарий");
     const o = input as Record<string, unknown>;
     if (typeof o.listingId !== "string" || !UUID_RE.test(o.listingId)) fail("Некорректный лот");
+    const parentId = typeof o.parentId === "string" && UUID_RE.test(o.parentId) ? o.parentId : null;
     const body = cleanText(typeof o.body === "string" ? o.body : "", 500);
     if (body.length < 1) fail("Напишите комментарий");
-    return { listingId: o.listingId, body };
+    return { listingId: o.listingId, parentId, body };
   })
   .handler(async ({ data, context }) => {
     const sql = await getSql();
@@ -3550,22 +3558,31 @@ export const addListingComment = createServerFn({ method: "POST" })
       select seller_id, title, status from listings where id = ${data.listingId}
     `;
     if (!lot[0] || lot[0].status === "removed") fail("Лот не найден");
+    let parentId = data.parentId;
+    let parentAuthor: string | null = null;
+    if (parentId) {
+      const parent = await sql<{ id: string; author_id: string; listing_id: string }>`
+        select id, author_id, listing_id from listing_comments where id = ${parentId}
+      `;
+      if (!parent[0] || parent[0].listing_id !== data.listingId) fail("Некого ответить");
+      parentAuthor = parent[0].author_id;
+    }
     const commentId = crypto.randomUUID();
     await sql`
-      insert into listing_comments (id, listing_id, author_id, body)
-      values (${commentId}, ${data.listingId}, ${context.userId}, ${data.body})
+      insert into listing_comments (id, listing_id, author_id, parent_id, body)
+      values (${commentId}, ${data.listingId}, ${context.userId}, ${parentId}, ${data.body})
     `;
-    if (lot[0].seller_id !== context.userId) {
-      await notify(
-        sql,
-        lot[0].seller_id,
-        "comment",
-        "Комментарий к лоту",
-        `${profile.handle}: ${data.body.slice(0, 140)}`,
-        `/lot/${data.listingId}#comment-${commentId}`,
-      );
+    const href = `/lot/${data.listingId}#comment-${commentId}`;
+    const preview = `${profile.handle}: ${data.body.slice(0, 140)}`;
+    const told = new Set<string>();
+    if (parentAuthor && parentAuthor !== context.userId) {
+      await notify(sql, parentAuthor, "comment", "Ответ на комментарий", preview, href);
+      told.add(parentAuthor);
     }
-    await mentionPeople(sql, context.userId, profile.handle, `lot-comment:${commentId}`, `/lot/${data.listingId}#comment-${commentId}`, [data.body]);
+    if (lot[0].seller_id !== context.userId && !told.has(lot[0].seller_id)) {
+      await notify(sql, lot[0].seller_id, "comment", parentAuthor ? "Ответ на комментарий" : "Комментарий к лоту", preview, href);
+    }
+    await mentionPeople(sql, context.userId, profile.handle, `lot-comment:${commentId}`, href, [data.body]);
     return { ok: true };
   });
 
@@ -3583,8 +3600,18 @@ export const deleteListingComment = createServerFn({ method: "POST" })
     `;
     if (!row[0]) fail("Комментарий уже удалён");
     if (row[0].author_id !== context.userId && !isStaff(me.role)) fail("Нельзя удалить этот комментарий");
+    const affected = await sql<{ author_id: string }>`
+      with recursive tree as (
+        select id, author_id from listing_comments where id = ${id}
+        union all
+        select c.id, c.author_id from listing_comments c join tree t on c.parent_id = t.id
+      )
+      select distinct author_id from tree
+    `;
     await sql`delete from listing_comments where id = ${id}`;
-    await reviewLotteryEntries(sql, row[0].author_id, { listingId: row[0].listing_id });
+    for (const person of affected) {
+      await reviewLotteryEntries(sql, person.author_id, { listingId: row[0].listing_id });
+    }
     return { ok: true };
   });
 
@@ -4271,29 +4298,30 @@ export const addPostComment = createServerFn({ method: "POST" })
     `;
     if (!post[0]) fail("Пост не найден");
     let parentId = data.parentId;
+    let parentAuthor: string | null = null;
     if (parentId) {
-      const parent = await sql<{ id: string; parent_id: string | null; post_id: string }>`
-        select id, parent_id, post_id from post_comments where id = ${parentId}
+      const parent = await sql<{ id: string; post_id: string; author_id: string }>`
+        select id, post_id, author_id from post_comments where id = ${parentId}
       `;
       if (!parent[0] || parent[0].post_id !== data.postId) fail("Некого ответить");
-      parentId = parent[0].parent_id ?? parent[0].id;
+      parentAuthor = parent[0].author_id;
     }
     const commentId = crypto.randomUUID();
     await sql`
       insert into post_comments (id, post_id, author_id, parent_id, body)
       values (${commentId}, ${data.postId}, ${context.userId}, ${parentId}, ${data.body})
     `;
-    if (post[0].author_id !== context.userId) {
-      await notify(
-        sql,
-        post[0].author_id,
-        "comment",
-        "Комментарий к посту",
-        `${me.handle}: ${data.body.slice(0, 140)}`,
-        `/u/${post[0].handle}#comment-${commentId}`,
-      );
+    const href = `/u/${post[0].handle}#comment-${commentId}`;
+    const preview = `${me.handle}: ${data.body.slice(0, 140)}`;
+    const told = new Set<string>();
+    if (parentAuthor && parentAuthor !== context.userId) {
+      await notify(sql, parentAuthor, "comment", "Ответ на комментарий", preview, href);
+      told.add(parentAuthor);
     }
-    await mentionPeople(sql, context.userId, me.handle, `post-comment:${commentId}`, `/u/${post[0].handle}#comment-${commentId}`, [data.body]);
+    if (post[0].author_id !== context.userId && !told.has(post[0].author_id)) {
+      await notify(sql, post[0].author_id, "comment", parentAuthor ? "Ответ на комментарий" : "Комментарий к посту", preview, href);
+    }
+    await mentionPeople(sql, context.userId, me.handle, `post-comment:${commentId}`, href, [data.body]);
     return { ok: true };
   });
 

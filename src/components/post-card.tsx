@@ -23,8 +23,20 @@ export function PostCard({
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [zoom, setZoom] = useState<string | null>(null);
-  const roots = post.comments.filter((comment) => !comment.parentId);
-  const replies = (id: string) => post.comments.filter((comment) => comment.parentId === id);
+  const byId = new Map(post.comments.map((comment) => [comment.id, comment]));
+  function threadRoot(comment: PostComment): string {
+    let current = comment;
+    const seen = new Set<string>();
+    while (current.parentId && !seen.has(current.parentId)) {
+      seen.add(current.parentId);
+      const parent = byId.get(current.parentId);
+      if (!parent) return current.id;
+      current = parent;
+    }
+    return current.id;
+  }
+  const roots = post.comments.filter((comment) => threadRoot(comment) === comment.id);
+  const replies = (id: string) => post.comments.filter((comment) => comment.id !== id && threadRoot(comment) === id);
 
   function send(parentId: string | null) {
     const text = body.trim();
@@ -109,7 +121,11 @@ export function PostCard({
               <ul className="mt-2 space-y-2 border-l border-ink/15 pl-3">
                 {replies(comment.id).map((reply) => (
                   <li key={reply.id}>
-                    <CommentLine comment={reply} onReply={() => setReplyTo(comment.id)} />
+                    <CommentLine
+                      comment={reply}
+                      replyTo={byId.get(reply.parentId ?? "")?.authorHandle}
+                      onReply={() => setReplyTo(reply.id)}
+                    />
                   </li>
                 ))}
               </ul>
@@ -118,12 +134,20 @@ export function PostCard({
         ))}
       </ul>
       <form
-        className="flex items-center gap-2"
+        className="flex flex-wrap items-center gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           send(replyTo);
         }}
       >
+        {replyTo && byId.get(replyTo) ? (
+          <p className="w-full font-mono text-xs text-muted">
+            в ответ на @{byId.get(replyTo)?.authorHandle}
+            <button type="button" className="ml-2 underline" onClick={() => setReplyTo(null)}>
+              отмена
+            </button>
+          </p>
+        ) : null}
         <EmojiBar up onPick={(emoji) => setBody((value) => value + emoji)} />
         <FormatBar inputRef={bodyRef} value={body} onChange={setBody} />
         <MentionSuggest inputRef={bodyRef} value={body} onChange={setBody} />
@@ -136,15 +160,16 @@ export function PostCard({
   );
 }
 
-function CommentLine({ comment, onReply }: { comment: PostComment; onReply: () => void }) {
+function CommentLine({ comment, replyTo, onReply }: { comment: PostComment; replyTo?: string; onReply: () => void }) {
   return (
     <div id={`comment-${comment.id}`} className="scroll-mt-24">
       <p className="font-mono text-xs text-muted">
         <Nick handle={comment.authorHandle} premium={comment.authorPremium} />
+        {replyTo ? <span> · в ответ на @{replyTo}</span> : null}
         {" · "}
         <span suppressHydrationWarning>{formatWhen(comment.createdAt)}</span>
         <button type="button" className="ml-2 underline" onClick={onReply}>
-          ответить
+          Ответить
         </button>
       </p>
       <p className="whitespace-pre-wrap">
