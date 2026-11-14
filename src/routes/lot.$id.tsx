@@ -206,17 +206,6 @@ function LotView({ lot }: { lot: ListingDetail }) {
           <p className="mt-3 whitespace-pre-wrap text-base text-ink/90">
             {lot.blurb ? <RichText text={lot.blurb} /> : "Без короткого описания."}
           </p>
-          {lot.kind === "lottery" ? (
-            <div className="mt-3 space-y-1 text-lg leading-snug">
-              <p>Условия:</p>
-              <ul className="list-disc space-y-1 pl-6">
-                {lot.requireLike ? <li>Лайк на запись</li> : null}
-                {lot.requireFollow ? <li>Подписка на автора</li> : null}
-                {lot.requireComment ? <li>Комментарий под записью</li> : null}
-                {!lot.requireFollow && !lot.requireLike && !lot.requireComment ? <li>Дополнительных условий нет</li> : null}
-              </ul>
-            </div>
-          ) : null}
           <p className="mt-3 text-base text-ink/90">
             <Nick handle={lot.sellerHandle} premium={lot.sellerPremium} />
             <span className="text-muted">
@@ -393,6 +382,15 @@ function LotView({ lot }: { lot: ListingDetail }) {
               <>
                 <p className="font-display text-4xl leading-none">{lot.winnerCount} {prizeWord(lot.winnerCount)}</p>
                 <p className="font-display text-lg leading-none">{lot.entryCount} участников</p>
+                <div className="mt-3 space-y-1 text-lg leading-snug">
+                  <p>Условия:</p>
+                  <ul className="list-disc space-y-1 pl-6">
+                    {lot.requireLike ? <li>Лайк на запись</li> : null}
+                    {lot.requireFollow ? <li>Подписка на автора</li> : null}
+                    {lot.requireComment ? <li>Комментарий под записью</li> : null}
+                    {!lot.requireFollow && !lot.requireLike && !lot.requireComment ? <li>Дополнительных условий нет</li> : null}
+                  </ul>
+                </div>
                 {live && !mine ? (
                   user ? (
                     entered ? null : (
